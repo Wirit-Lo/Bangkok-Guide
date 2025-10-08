@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>บางเขนไกด์</title>
+    
+    <!-- Google Fonts: Sarabun (Updated to match project font) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS CDN Script -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      // This configures Tailwind CSS when using the CDN
+      tailwind.config = {
+        // This enables class-based dark mode, which our App.jsx uses
+        darkMode: 'class',
+        theme: {
+          extend: {
+            fontFamily: {
+              // Sets Sarabun as the default sans-serif font for the entire project
+              sans: ['Sarabun', 'sans-serif'],
+            },
+          }
+        }
+      }
+    </script>
+    <!-- End of Tailwind CSS Script -->
+
+    <!-- Custom Styles for Dark Mode Text -->
+    <style>
+      /* Sets a brighter base text color for the entire page in dark mode */
+      .dark body {
+        color: #d1d5db; /* text-gray-300 */
+      }
+      
+      /* Ensures headings are bright and clear in dark mode */
+      .dark h1, .dark h2, .dark h3, .dark h4, .dark h5, .dark h6 {
+        color: #f9fafb; /* text-gray-50 */
+      }
+      
+      /* Overrides specific gray text colors to be more readable in dark mode */
+      .dark .text-gray-800, .dark .text-gray-900 {
+        color: #f9fafb; /* text-gray-50 */
+      }
+      .dark .text-gray-600, .dark .text-gray-700 {
+        color: #e5e7eb; /* text-gray-200 */
+      }
+      .dark .text-gray-500 {
+        color: #9ca3af; /* text-gray-400 */
+      }
+
+      /* Adds a protective shadow to text on hero images for better readability */
+      .hero-text-shadow {
+        text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
+      }
+    </style>
+
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
+
