@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { MapPin, Star, Heart, SlidersHorizontal, TrendingUp, List, Edit, Trash2 } from 'lucide-react'; // <<< MODIFIED: Added Edit, Trash2 icons
+import { Star, Heart, Edit, Trash2, List, TrendingUp, MapPin } from 'lucide-react';
 
-// <<< MODIFIED: ItemCard now accepts admin props
+// --- Reusable Card Component (MODIFIED for Rating Display & Admin) ---
 const ItemCard = ({ 
     item, 
     handleItemClick, 
@@ -12,7 +12,15 @@ const ItemCard = ({
     handleDeleteItem 
 }) => {
     
-    // --- NEW: Handlers for admin buttons ---
+    // --- FIX 1 (IMPROVED): แปลงและจำกัดค่า rating ---
+    // บรรทัดนี้จะป้องกันไม่ให้คะแนนแสดงผลเกิน 5 และจัดการค่าที่ไม่มี
+    const displayRating = Math.max(0, Math.min(5, parseFloat(item.rating || 0)));
+
+    // --- FIX 2: ตรวจสอบว่ามีคะแนนจริงหรือไม่ก่อนแสดงผล ---
+    // เราจะแสดงป้ายคะแนนก็ต่อเมื่อมี rating ที่เป็นค่าบวกเท่านั้น
+    const hasRating = item.rating !== null && item.rating !== undefined && parseFloat(item.rating) > 0;
+
+    // Handlers for admin buttons
     const onEditClick = (e) => {
         e.stopPropagation(); // Prevent card click
         handleEditItem(item);
@@ -34,13 +42,13 @@ const ItemCard = ({
                     alt={item.name}
                     className="w-full h-48 object-cover"
                 />
-                {item.rating > 0 && (
-                    <div className="absolute top-3 left-3 bg-yellow-400 text-white text-sm font-bold px-3 py-1 rounded-full flex items-center gap-1 shadow-md">
-                        <Star size={14} fill="white" />
-                        <span>{item.rating.toFixed(1)}</span>
+                {/* --- FIX 3: ใช้ displayRating และเงื่อนไข hasRating --- */}
+                {hasRating && (
+                    <div className="absolute top-3 left-3 bg-yellow-400 text-black px-2 py-1 rounded-full text-sm font-bold flex items-center shadow-lg">
+                        <Star size={14} className="mr-1" fill="black" />
+                        <span>{displayRating.toFixed(1)}</span>
                     </div>
                 )}
-                {/* --- MODIFIED: Show favorite button only for logged-in users --- */}
                 {currentUser && (
                     <button 
                         onClick={(e) => { e.stopPropagation(); handleToggleFavorite(item.id); }}
@@ -54,7 +62,7 @@ const ItemCard = ({
                 <h3 className="text-lg font-bold text-gray-800 dark:text-white truncate">{item.name}</h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 flex-grow truncate">{item.description}</p>
 
-                {/* --- NEW: Conditional rendering for Admin Controls --- */}
+                {/* --- Conditional rendering for Admin Controls --- */}
                 {currentUser && currentUser.role === 'admin' ? (
                     <div className="mt-4 flex gap-2">
                         <button 
@@ -83,7 +91,6 @@ const ItemCard = ({
     );
 };
 
-// <<< MODIFIED: AttractionsPage now accepts admin props
 const AttractionsPage = ({ 
     attractions, 
     handleItemClick, 
@@ -140,7 +147,7 @@ const AttractionsPage = ({
                             handleItemClick={handleItemClick}
                             handleToggleFavorite={handleToggleFavorite}
                             isFavorite={favorites.includes(item.id)}
-                            // --- NEW: Pass admin props down to ItemCard ---
+                            // --- Pass admin props down to ItemCard ---
                             currentUser={currentUser}
                             handleEditItem={handleEditItem}
                             handleDeleteItem={handleDeleteItem}

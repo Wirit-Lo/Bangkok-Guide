@@ -1,18 +1,30 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ArrowRight, Star, Heart, Edit, Trash2 } from 'lucide-react';
 
-// --- Reusable Card Component (MODIFIED for Admin) ---
+// --- Reusable Card Component (MODIFIED for Admin & Rating Display) ---
 const FeaturedCard = ({ 
   item, 
   handleItemClick, 
   currentUser, 
   favorites, 
   handleToggleFavorite,
-  // NEW PROPS
   handleEditItem,
   handleDeleteItem
 }) => {
-  const isFavorite = useMemo(() => favorites && favorites.includes(item.id), [favorites, item.id]);
+  // --- FIX 1: ป้องกัน Error หาก 'item' ไม่มีข้อมูล ---
+  if (!item) {
+    return null;
+  }
+
+  // --- FIX 2 (IMPROVED): แปลงและจำกัดค่า rating ---
+  // บรรทัดนี้จะป้องกันไม่ให้คะแนนแสดงผลเกิน 5 และจัดการค่าที่ไม่มี
+  const displayRating = Math.max(0, Math.min(5, parseFloat(item.rating || 0)));
+
+  // --- FIX 3: ตรวจสอบว่ามีคะแนนจริงหรือไม่ก่อนแสดงผล ---
+  // เราจะแสดงป้ายคะแนนก็ต่อเมื่อมี rating ที่เป็นค่าบวกเท่านั้น (ไม่มีการรีวิว = 0 หรือ null)
+  const hasRating = item.rating !== null && item.rating !== undefined && parseFloat(item.rating) > 0;
+
+  const isFavorite = useMemo(() => Array.isArray(favorites) && favorites.includes(item.id), [favorites, item.id]);
 
   const onFavoriteClick = (e) => {
     e.stopPropagation();
@@ -71,11 +83,12 @@ const FeaturedCard = ({
         )}
       </div>
 
-      {item.rating > 0 && (
-          <div className="absolute top-3 left-3 bg-yellow-400 text-black px-2 py-1 rounded-full text-sm font-bold flex items-center shadow-lg">
-              <Star size={14} className="mr-1" fill="black" />
-              <span>{item.rating.toFixed(1)}</span>
-          </div>
+      {/* --- FIX 4: ใช้ displayRating และเงื่อนไข hasRating --- */}
+      {hasRating && (
+        <div className="absolute top-3 left-3 bg-yellow-400 text-black px-2 py-1 rounded-full text-sm font-bold flex items-center shadow-lg">
+            <Star size={14} className="mr-1" fill="black" />
+            <span>{displayRating.toFixed(1)}</span>
+        </div>
       )}
       {currentUser && (
         <button
@@ -121,12 +134,12 @@ const HomePage = ({
   }, []);
 
   const featuredAttractions = useMemo(() => 
-    [...attractions].sort(() => 0.5 - Math.random()).slice(0, 4), 
+    [...(attractions || [])].sort(() => 0.5 - Math.random()).slice(0, 4), 
     [attractions]
   );
   
   const featuredFoodShops = useMemo(() => 
-    [...foodShops].sort(() => 0.5 - Math.random()).slice(0, 4), 
+    [...(foodShops || [])].sort(() => 0.5 - Math.random()).slice(0, 4), 
     [foodShops]
   );
 
@@ -169,10 +182,10 @@ const HomePage = ({
       {/* --- Featured Attractions Section --- */}
       <div>
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-3xl font-bold text-gray-800">สถานที่ท่องเที่ยวยอดนิยม</h2>
+          <h2 className="text-3xl font-bold text-gray-800 dark:text-gray-100">สถานที่ท่องเที่ยวยอดนิยม</h2>
           <button 
             onClick={() => setCurrentPage('attractions')}
-            className="flex items-center text-blue-600 hover:text-blue-800 font-semibold transition-colors"
+            className="flex items-center text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-semibold transition-colors"
           >
             ดูทั้งหมด <ArrowRight size={16} className="ml-1" />
           </button>
@@ -197,10 +210,10 @@ const HomePage = ({
       {/* --- Featured Food Shops Section --- */}
       <div>
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-3xl font-bold text-gray-800">ร้านอาหารห้ามพลาด</h2>
+          <h2 className="text-3xl font-bold text-gray-800 dark:text-gray-100">ร้านอาหารห้ามพลาด</h2>
           <button 
             onClick={() => setCurrentPage('foodshops')}
-            className="flex items-center text-blue-600 hover:text-blue-800 font-semibold transition-colors"
+            className="flex items-center text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-semibold transition-colors"
           >
             ดูทั้งหมด <ArrowRight size={16} className="ml-1" />
           </button>

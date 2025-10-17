@@ -1,9 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { User, Lock, Eye, EyeOff, Mail, Save, AlertTriangle, ShieldOff, X } from 'lucide-react';
 
-// <<< NEW: Modal component for account deletion confirmation >>>
 const DeleteAccountModal = ({ isOpen, onClose, onConfirm, isDeleting }) => {
     const [password, setPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
+
+    useEffect(() => {
+        if (isOpen) {
+            setPassword('');
+            setShowPassword(false);
+        }
+    }, [isOpen]);
 
     if (!isOpen) return null;
 
@@ -21,7 +28,7 @@ const DeleteAccountModal = ({ isOpen, onClose, onConfirm, isDeleting }) => {
                     </div>
                     <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100">ยืนยันการลบบัญชี</h2>
                     <p className="text-gray-600 dark:text-gray-400 mt-2">
-                        การกระทำนี้เป็นการลบอย่างถาวรและไม่สามารถกู้คืนได้ ข้อมูลทั้งหมดของคุณ รวมถึงรีวิว, ความคิดเห็น, และรายการโปรดจะถูกลบทั้งหมด
+                        การกระทำนี้เป็นการลบอย่างถาวรและไม่สามารถกู้คืนได้ ข้อมูลทั้งหมดของคุณจะถูกลบ
                     </p>
                 </div>
                 <form onSubmit={handleSubmit} className="mt-6 space-y-4">
@@ -29,29 +36,26 @@ const DeleteAccountModal = ({ isOpen, onClose, onConfirm, isDeleting }) => {
                         <label htmlFor="password-confirm" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                             เพื่อยืนยัน โปรดกรอกรหัสผ่านปัจจุบันของคุณ:
                         </label>
-                        <input
-                            type="password"
-                            id="password-confirm"
-                            value={password}
-                            onChange={e => setPassword(e.target.value)}
-                            className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-red-500 focus:border-red-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                            required
-                            autoFocus
-                        />
+                        <div className="relative mt-1">
+                            <input
+                                type={showPassword ? 'text' : 'password'}
+                                id="password-confirm"
+                                value={password}
+                                onChange={e => setPassword(e.target.value)}
+                                className="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-red-500 focus:border-red-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white pr-10"
+                                required
+                                autoFocus
+                            />
+                             <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-500">
+                                {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                            </button>
+                        </div>
                     </div>
                     <div className="flex justify-end space-x-3 pt-2">
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            className="bg-gray-200 text-gray-800 font-bold py-2 px-4 rounded-lg hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500 transition-colors"
-                        >
+                        <button type="button" onClick={onClose} className="bg-gray-200 text-gray-800 font-bold py-2 px-4 rounded-lg hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500 transition-colors">
                             ยกเลิก
                         </button>
-                        <button
-                            type="submit"
-                            disabled={isDeleting || !password}
-                            className="bg-red-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-red-700 disabled:bg-red-300 disabled:cursor-not-allowed transition-colors flex items-center"
-                        >
+                        <button type="submit" disabled={isDeleting || !password} className="bg-red-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-red-700 disabled:bg-red-300 disabled:cursor-not-allowed transition-colors flex items-center">
                             {isDeleting ? 'กำลังลบ...' : 'ยืนยันและลบบัญชี'}
                         </button>
                     </div>
@@ -69,19 +73,17 @@ const UserProfilePage = ({ currentUser, onProfileUpdate, handleAuthError, handle
     const [newPassword, setNewPassword] = useState('');
     const [profileImage, setProfileImage] = useState(null);
     const [imagePreview, setImagePreview] = useState(null);
-    const [showPassword, setShowPassword] = useState(false);
+    const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+    const [showNewPassword, setShowNewPassword] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
-    
-    // <<< NEW: State for delete confirmation modal >>>
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
-
 
     useEffect(() => {
         if (currentUser) {
             setDisplayName(currentUser.displayName || '');
             setUsername(currentUser.username || '');
-            setImagePreview(currentUser.profile_image_url || null);
+            setImagePreview(currentUser.profileImageUrl || null);
         }
     }, [currentUser]);
 
@@ -118,9 +120,11 @@ const UserProfilePage = ({ currentUser, onProfileUpdate, handleAuthError, handle
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'เกิดข้อผิดพลาด');
 
-            onProfileUpdate(data.user); // Update user data in App.jsx state
+            onProfileUpdate(data.user, data.token); 
             setNewPassword('');
             setCurrentPassword('');
+            document.getElementById('profile-image-upload').value = "";
+            setProfileImage(null);
 
         } catch (error) {
             setNotification({ message: error.message, type: 'error' });
@@ -129,7 +133,6 @@ const UserProfilePage = ({ currentUser, onProfileUpdate, handleAuthError, handle
         }
     };
 
-    // <<< NEW: Function to handle account deletion >>>
     const handleDeleteAccount = async (password) => {
         setIsDeleting(true);
         const token = localStorage.getItem('token');
@@ -149,7 +152,7 @@ const UserProfilePage = ({ currentUser, onProfileUpdate, handleAuthError, handle
             if (!response.ok) throw new Error(data.error || 'เกิดข้อผิดพลาด');
 
             setNotification({ message: data.message, type: 'success' });
-            handleLogout(); // Log the user out after successful deletion
+            handleLogout();
             
         } catch (error) {
             setNotification({ message: error.message, type: 'error' });
@@ -197,19 +200,20 @@ const UserProfilePage = ({ currentUser, onProfileUpdate, handleAuthError, handle
 
                         {/* User Details */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                             <div>
-                                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">ชื่อที่แสดง</label>
-                                <div className="relative">
-                                    <User className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-                                    <input type="text" value={displayName} onChange={e => setDisplayName(e.target.value)} className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700" />
+                                <div>
+                                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">ชื่อที่แสดง</label>
+                                    <div className="relative">
+                                        <User className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                                        <input type="text" value={displayName} onChange={e => setDisplayName(e.target.value)} className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700" />
+                                    </div>
                                 </div>
-                            </div>
                             <div>
                                 <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">ชื่อผู้ใช้ (สำหรับเข้าระบบ)</label>
                                 <div className="relative">
-                                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
                                     <input type="text" value={username} onChange={e => setUsername(e.target.value)} className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700" />
                                 </div>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">การเปลี่ยนชื่อผู้ใช้ต้องยืนยันด้วยรหัสผ่านปัจจุบัน</p>
                             </div>
                         </div>
 
@@ -221,16 +225,19 @@ const UserProfilePage = ({ currentUser, onProfileUpdate, handleAuthError, handle
                                     <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">รหัสผ่านปัจจุบัน</label>
                                     <div className="relative">
                                         <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-                                        <input type={showPassword ? 'text' : 'password'} value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} placeholder="กรอกเพื่อเปลี่ยนชื่อผู้ใช้/รหัสผ่าน" className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700" />
+                                        <input type={showCurrentPassword ? 'text' : 'password'} value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} placeholder="กรอกเพื่อเปลี่ยนชื่อผู้ใช้/รหัสผ่าน" className="w-full pl-10 pr-10 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700" />
+                                        <button type="button" onClick={() => setShowCurrentPassword(!showCurrentPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">
+                                            {showCurrentPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                                        </button>
                                     </div>
                                 </div>
                                 <div>
                                     <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">รหัสผ่านใหม่</label>
                                     <div className="relative">
                                         <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-                                        <input type={showPassword ? 'text' : 'password'} value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="เว้นว่างไว้หากไม่ต้องการเปลี่ยน" className="w-full pl-10 pr-10 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700" />
-                                        <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">
-                                            {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                                        <input type={showNewPassword ? 'text' : 'password'} value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="เว้นว่างไว้หากไม่ต้องการเปลี่ยน" className="w-full pl-10 pr-10 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700" />
+                                        <button type="button" onClick={() => setShowNewPassword(!showNewPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">
+                                            {showNewPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                                         </button>
                                     </div>
                                 </div>
@@ -247,25 +254,25 @@ const UserProfilePage = ({ currentUser, onProfileUpdate, handleAuthError, handle
                     </form>
                 </div>
 
-                {/* <<< NEW: Danger Zone for Account Deletion >>> */}
+                {/* Danger Zone for Account Deletion */}
                 <div className="mt-12 border-t-2 border-red-500/30 pt-8">
-                     <h2 className="text-2xl font-bold text-red-600 dark:text-red-500 flex items-center mb-4">
-                        <AlertTriangle className="mr-3"/>
-                        โซนอันตราย
-                    </h2>
-                    <div className="bg-red-50 dark:bg-red-900/20 p-6 rounded-lg flex items-center justify-between">
-                        <div>
-                            <h3 className="font-semibold text-gray-800 dark:text-gray-100">ลบบัญชีผู้ใช้ของคุณ</h3>
-                            <p className="text-gray-600 dark:text-gray-400 mt-1">เมื่อลบบัญชีแล้ว ข้อมูลทั้งหมดจะถูกลบอย่างถาวรและไม่สามารถกู้คืนได้</p>
+                        <h2 className="text-2xl font-bold text-red-600 dark:text-red-500 flex items-center mb-4">
+                            <AlertTriangle className="mr-3"/>
+                            โซนอันตราย
+                        </h2>
+                        <div className="bg-red-50 dark:bg-red-900/20 p-6 rounded-lg flex items-center justify-between">
+                            <div>
+                                <h3 className="font-semibold text-gray-800 dark:text-gray-100">ลบบัญชีผู้ใช้ของคุณ</h3>
+                                <p className="text-gray-600 dark:text-gray-400 mt-1">เมื่อลบบัญชีแล้ว ข้อมูลทั้งหมดจะถูกลบอย่างถาวร</p>
+                            </div>
+                            <button 
+                                onClick={() => setIsDeleteModalOpen(true)}
+                                className="bg-red-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-red-700 transition-colors flex items-center flex-shrink-0"
+                            >
+                                <ShieldOff size={18} className="mr-2"/>
+                                ลบบัญชี
+                            </button>
                         </div>
-                        <button 
-                            onClick={() => setIsDeleteModalOpen(true)}
-                            className="bg-red-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-red-700 transition-colors flex items-center flex-shrink-0"
-                        >
-                            <ShieldOff size={18} className="mr-2"/>
-                            ลบบัญชี
-                        </button>
-                    </div>
                 </div>
 
             </div>

@@ -98,8 +98,9 @@ const Sidebar = ({ selectedCategory, setSelectedCategory, setCurrentPage, curren
               className="w-full flex items-center p-2 rounded-lg text-left hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
             >
               <div className="w-10 h-10 bg-blue-100 dark:bg-gray-600 rounded-full flex items-center justify-center flex-shrink-0">
-                {currentUser.profile_image_url ? (
-                  <img src={currentUser.profile_image_url} alt="Profile" className="w-full h-full rounded-full object-cover" />
+                {/* [FIXED] Changed currentUser.profile_image_url to currentUser.profileImageUrl */}
+                {currentUser.profileImageUrl ? (
+                  <img src={currentUser.profileImageUrl} alt="Profile" className="w-full h-full rounded-full object-cover" />
                 ) : (
                   <User size={20} className="text-blue-600 dark:text-blue-300" />
                 )}

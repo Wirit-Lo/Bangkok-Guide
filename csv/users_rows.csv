@@ -1,0 +1,5 @@
+id,username,display_name,password,profile_image_url,role
+3f36fff7-aa28-488f-b5ac-b339afaf1e39,notzasobigzaza@gmail.com,jirayu,$2b$10$wnuC.UorTUPuQzNX.SqEeeSoVF7iaRQLrCg8etLyVVrcV2fVNEaua,,user
+445b8c21-497d-49bb-818e-7ffbf1d2e124,Wiritpon,Admin Wiritpon,$2b$10$EuLloCFY0GyzM/.680MHvu.xacB9fq6Tn5GCtT9oxIBYBxLD3ftry,/uploads/1759812755102.png,admin
+540eee52-2d78-4caf-ad54-2c2d9a42b3b5,oak,oak,$2b$10$X46hoBpCMJuCXKxvIkArfusYu8K3SgGpyLda8kYfgCXTtcghKtjEu,,user
+81190f9f-0b07-4c7b-90c2-fedb151bc375,Wirit,Wi_rit,$2b$10$isR5Q2K49ydStDBWEtuPf.661z7fwqPzxTCcwqanA5VQQZyiSiIEG,/uploads/1757674702052.webp,user

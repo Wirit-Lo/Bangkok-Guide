@@ -1,23 +1,25 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ShieldCheck, Check, X, Clock, ArrowUpDown } from 'lucide-react';
+import { ShieldCheck, ShieldX, Trash2, Eye, AlertTriangle } from 'lucide-react';
+
+const API_BASE_URL = 'http://localhost:5000';
 
 const ApproveDeletionsPage = ({ setNotification, handleAuthError, handleItemClick }) => {
     const [requests, setRequests] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [sortBy, setSortBy] = useState('newest'); // 'newest' or 'oldest'
 
-    const fetchRequests = useCallback(async () => {
+    const fetchDeletionRequests = useCallback(async () => {
         setIsLoading(true);
         const token = localStorage.getItem('token');
         if (!token) return handleAuthError();
 
         try {
-            // Append the sortBy query parameter to the request URL
-            const response = await fetch(`http://localhost:5000/api/locations/pending-deletion?sortBy=${sortBy}`, {
+            const response = await fetch(`${API_BASE_URL}/api/locations/deletion-requests`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
+
             if (response.status === 401 || response.status === 403) return handleAuthError();
             if (!response.ok) throw new Error('ไม่สามารถดึงข้อมูลคำขอลบได้');
+            
             const data = await response.json();
             setRequests(data);
         } catch (error) {
@@ -25,88 +27,91 @@ const ApproveDeletionsPage = ({ setNotification, handleAuthError, handleItemClic
         } finally {
             setIsLoading(false);
         }
-    }, [setNotification, handleAuthError, sortBy]); // Add sortBy to dependency array
+    }, [setNotification, handleAuthError]);
 
     useEffect(() => {
-        fetchRequests();
-    }, [fetchRequests]); // This effect will re-run whenever fetchRequests changes (i.e., when sortBy changes)
+        fetchDeletionRequests();
+    }, [fetchDeletionRequests]);
 
     const handleAction = async (locationId, action) => {
         const token = localStorage.getItem('token');
         if (!token) return handleAuthError();
 
+        const isApprove = action === 'approve';
+        const url = isApprove ? `${API_BASE_URL}/api/locations/${locationId}` : `${API_BASE_URL}/api/locations/${locationId}/deny-deletion`;
+        const method = isApprove ? 'DELETE' : 'POST';
+
         try {
-            const response = await fetch(`http://localhost:5000/api/locations/${locationId}/${action}`, {
-                method: 'POST',
+            const response = await fetch(url, {
+                method: method,
                 headers: { 'Authorization': `Bearer ${token}` }
             });
+
             if (response.status === 401 || response.status === 403) return handleAuthError();
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || 'เกิดข้อผิดพลาด');
             
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'การดำเนินการล้มเหลว');
+
             setNotification({ message: data.message, type: 'success' });
-            fetchRequests(); // Refresh the list
+            // Remove the processed item from the list
+            setRequests(prev => prev.filter(req => req.id !== locationId));
         } catch (error) {
-            setNotification({ message: error.message, type: 'error' });
+            setNotification({ message: `เกิดข้อผิดพลาด: ${error.message}`, type: 'error' });
         }
     };
 
     return (
-        <div className="container mx-auto p-4">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6 gap-4">
-                <div className="flex items-center">
-                    <ShieldCheck size={32} className="mr-3 text-blue-600 dark:text-blue-400" />
-                    <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100">จัดการคำขอลบสถานที่</h1>
-                </div>
-                <div className="relative flex items-center">
-                     <ArrowUpDown size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                    <select
-                        value={sortBy}
-                        onChange={(e) => setSortBy(e.target.value)}
-                        className="appearance-none w-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md py-2 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-gray-200"
-                        aria-label="Sort deletion requests"
-                    >
-                        <option value="newest">ใหม่สุดก่อน</option>
-                        <option value="oldest">เก่าสุดก่อน</option>
-                    </select>
-                </div>
-            </div>
+        <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 w-full">
+            <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100 mb-8">จัดการคำขอลบสถานที่</h1>
 
-            {isLoading ? (
-                <p className="dark:text-gray-300 text-center">กำลังโหลดข้อมูล...</p>
-            ) : requests.length === 0 ? (
-                <div className="text-center p-8 bg-white dark:bg-gray-800 rounded-lg shadow">
-                    <p className="text-gray-500 dark:text-gray-400">ไม่มีคำขอลบที่รอการอนุมัติในขณะนี้</p>
-                </div>
-            ) : (
-                <div className="bg-white dark:bg-gray-800 shadow-md rounded-lg overflow-hidden">
-                    <ul className="divide-y divide-gray-200 dark:divide-gray-700">
-                        {requests.map(loc => (
-                            <li key={loc.id} className="p-4 flex flex-col md:flex-row items-start md:items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
-                                <div className="flex items-center cursor-pointer flex-1 mb-4 md:mb-0" onClick={() => handleItemClick(loc)}>
-                                    <img src={loc.imageUrl || 'https://placehold.co/100x100/cccccc/333333?text=No+Image'} alt={loc.name} className="w-20 h-20 object-cover rounded-md mr-4"/>
-                                    <div>
-                                        <p className="font-semibold text-gray-900 dark:text-gray-100">{loc.name}</p>
-                                        <p className="text-sm text-gray-500 dark:text-gray-400">หมวดหมู่: {loc.category}</p>
-                                        <div className="flex items-center text-xs text-yellow-600 dark:text-yellow-400 mt-1">
-                                            <Clock size={14} className="mr-1" />
-                                            <span>ส่งคำขอเมื่อ: {new Date(loc.deletion_requested_at).toLocaleString('th-TH')}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="flex space-x-2 self-end md:self-center">
-                                    <button onClick={() => handleAction(loc.id, 'approve-deletion')} className="px-3 py-2 flex items-center bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm font-medium">
-                                        <Check size={16} className="mr-1" /> อนุมัติ
-                                    </button>
-                                    <button onClick={() => handleAction(loc.id, 'deny-deletion')} className="px-3 py-2 flex items-center bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm font-medium">
-                                        <X size={16} className="mr-1" /> ปฏิเสธ
-                                    </button>
-                                </div>
-                            </li>
-                        ))}
-                    </ul>
-                </div>
-            )}
+            <div className="bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-lg">
+                {isLoading ? (
+                    <p className="text-center text-gray-500 dark:text-gray-400 p-8">กำลังโหลดข้อมูลคำขอ...</p>
+                ) : requests.length > 0 ? (
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-left">
+                            <thead>
+                                <tr className="border-b dark:border-gray-700">
+                                    <th className="p-4">รูปภาพ</th>
+                                    <th className="p-4">ชื่อสถานที่</th>
+                                    <th className="p-4 hidden md:table-cell">หมวดหมู่</th>
+                                    <th className="p-4 text-right">ดำเนินการ</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {requests.map(item => (
+                                    <tr key={item.id} className="border-b dark:border-gray-700 last:border-b-0 hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                                        <td className="p-4">
+                                            <img src={item.imageUrl || 'https://placehold.co/100x100/e2e8f0/333333?text=N/A'} alt={item.name} className="w-16 h-16 object-cover rounded-md"/>
+                                        </td>
+                                        <td className="p-4 font-semibold text-gray-800 dark:text-gray-100">{item.name}</td>
+                                        <td className="p-4 text-gray-600 dark:text-gray-400 hidden md:table-cell">{item.category}</td>
+                                        <td className="p-4 text-right">
+                                            <div className="flex justify-end space-x-2">
+                                                <button onClick={() => handleItemClick(item)} className="p-2 text-gray-500 hover:text-blue-500 dark:hover:text-blue-400 rounded-full" title="ดูรายละเอียด">
+                                                    <Eye size={18} />
+                                                </button>
+                                                <button onClick={() => handleAction(item.id, 'deny')} className="p-2 text-yellow-600 hover:text-yellow-700 dark:hover:text-yellow-500 rounded-full" title="ปฏิเสธการลบ">
+                                                    <ShieldX size={18} />
+                                                </button>
+                                                <button onClick={() => handleAction(item.id, 'approve')} className="p-2 text-red-600 hover:text-red-700 dark:hover:text-red-500 rounded-full" title="อนุมัติการลบ (ลบถาวร)">
+                                                    <Trash2 size={18} />
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <div className="text-center text-gray-500 dark:text-gray-400 p-12">
+                        <ShieldCheck size={48} className="mx-auto mb-4 text-green-500" />
+                        <h3 className="text-xl font-semibold">ยอดเยี่ยม!</h3>
+                        <p>ไม่มีคำขอลบที่รอการอนุมัติในขณะนี้</p>
+                    </div>
+                )}
+            </div>
         </div>
     );
 };

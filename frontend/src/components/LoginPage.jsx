@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { User, Lock, LogIn } from 'lucide-react';
+import { User, Lock, LogIn, Eye, EyeOff } from 'lucide-react';
 
 // --- ไอคอนสำหรับ Social Login (SVG) ---
 const GoogleIcon = () => (
@@ -24,6 +24,7 @@ const LoginPage = ({ onAuthSuccess }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -45,16 +46,13 @@ const LoginPage = ({ onAuthSuccess }) => {
         throw new Error(data.error || `เกิดข้อผิดพลาด: ${response.statusText}`);
       }
       
-      // <<< MODIFIED: This is the critical fix.
       if (isLoginView) {
-        // For login, we expect both user data and a token.
         if (data.user && data.token) {
-            onAuthSuccess(data.user, data.token); // Pass BOTH to App.jsx
+          onAuthSuccess(data.user, data.token);
         } else {
-            throw new Error('การตอบกลับจากเซิร์ฟเวอร์ไม่สมบูรณ์');
+          throw new Error('การตอบกลับจากเซิร์ฟเวอร์ไม่สมบูรณ์');
         }
       } else {
-        // After registration, show a success message and switch to login view
         alert(data.message); 
         setIsLoginView(true);
       }
@@ -67,7 +65,6 @@ const LoginPage = ({ onAuthSuccess }) => {
   };
 
   const handleSocialLogin = (provider) => {
-    // This is a placeholder. Real social login requires more complex setup.
     alert(`การลงชื่อเข้าใช้ด้วย ${provider} ยังไม่เปิดใช้งาน`);
   };
 
@@ -75,7 +72,7 @@ const LoginPage = ({ onAuthSuccess }) => {
     <div className="flex items-center justify-center min-h-[70vh] p-4">
       <div className="w-full max-w-4xl flex flex-col md:flex-row bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden animate-fade-in-up">
         
-        {/* --- ส่วนรูปภาพด้านซ้าย --- */}
+        {/* --- Left Image Section --- */}
         <div className="hidden md:block md:w-1/2">
           <img 
             src="https://images.unsplash.com/photo-1528543606781-2f6e6857f318?q=80&w=1965&auto=format&fit=crop"
@@ -84,7 +81,7 @@ const LoginPage = ({ onAuthSuccess }) => {
           />
         </div>
 
-        {/* --- ส่วนฟอร์มด้านขวา --- */}
+        {/* --- Right Form Section --- */}
         <div className="w-full md:w-1/2 p-8 sm:p-12 flex flex-col justify-center">
           <div className="text-center">
               <h2 className="text-3xl font-bold text-gray-800 dark:text-white">
@@ -102,7 +99,10 @@ const LoginPage = ({ onAuthSuccess }) => {
             </div>
             <div className="relative">
               <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="รหัสผ่าน" required className="w-full pl-12 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
+              <input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="รหัสผ่าน" required className="w-full pl-12 pr-12 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
+              <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500">
+                  {showPassword ? <EyeOff /> : <Eye />}
+              </button>
             </div>
             
             {error && <p className="text-sm text-red-600 text-center">{error}</p>}
@@ -143,4 +143,3 @@ const LoginPage = ({ onAuthSuccess }) => {
 };
 
 export default LoginPage;
-

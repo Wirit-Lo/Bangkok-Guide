@@ -1,1145 +1,1305 @@
 // Import necessary modules
-const express = require('express');
-const cors = require('cors');
-const Database = require('better-sqlite3');
-const multer = require('multer');
-const path = require('path');
-const crypto = require('crypto');
-const fs = require('fs');
-const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
-const path = require('path');
-require('dotenv').config();
+import express from 'express';
+import cors from 'cors';
+import { createClient } from '@supabase/supabase-js';
+import multer from 'multer';
+import path from 'path';
+import crypto from 'crypto';
+import fs from 'fs';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcrypt';
+import 'dotenv/config';
 
+console.log('--- SERVER MIGRATED TO SUPABASE (v18.6 - FINAL JSONB FIX) LOADING ---');
 
-console.log('--- SERVER WITH ADMIN SYSTEM (v14.0 Deletion Approval) LOADING ---');
+// --- Supabase Client Setup ---
+if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY || !process.env.JWT_SECRET) {
+    console.error('CRITICAL ERROR: SUPABASE_URL, SUPABASE_SERVICE_KEY, and JWT_SECRET must be defined in your .env file');
+    process.exit(1);
+}
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
-
-// Create an Express application instance
 const app = express();
-const port = 5000;
-
-// Array to hold connected clients for SSE
-let clients = [];
+// ❗️ DEPLOYMENT EDIT: Use environment variable for port, default to 5000 for local development
+const port = process.env.PORT || 5000;
+let clients = []; // Array to store Server-Sent Events (SSE) clients
 
 // --- Middleware ---
-app.use(cors({ origin: 'http://localhost:5173' }));
+
+// ❗️ DEPLOYMENT EDIT: Dynamic CORS configuration for deployment
+const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',');
+console.log('Allowed CORS origins:', allowedOrigins);
+
+app.use(cors({
+    origin: function (origin, callback) {
+        // allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.indexOf(origin) === -1) {
+            const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+            return callback(new Error(msg), false);
+        }
+        return callback(null, true);
+    }
+}));
 app.use(express.json());
+
+// Setup for serving uploaded files
+const __dirname = path.resolve();
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir);
+    fs.mkdirSync(uploadsDir);
 }
 app.use('/uploads', express.static(uploadsDir));
-const db = new Database('./travel_guide.db');
 
-
-// --- Database Schema Setup ---
-db.exec(`
-  CREATE TABLE IF NOT EXISTS attractions (
-    id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT, fullDescription TEXT,
-    lat REAL, lng REAL, google_map_url TEXT, imageUrl TEXT, detailImages TEXT,
-    rating REAL, reviews INTEGER, hours TEXT, contact TEXT, type TEXT NOT NULL, category TEXT,
-    user_id TEXT, status TEXT DEFAULT 'approved', deletion_requested_at DATETIME
-  );
-  
-  CREATE TABLE IF NOT EXISTS foodShops (
-    id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT, fullDescription TEXT,
-    lat REAL, lng REAL, google_map_url TEXT, imageUrl TEXT, detailImages TEXT,
-    rating REAL, reviews INTEGER, hours TEXT, contact TEXT, type TEXT NOT NULL, category TEXT,
-    user_id TEXT, status TEXT DEFAULT 'approved', deletion_requested_at DATETIME
-  );
-
-  CREATE TABLE IF NOT EXISTS reviews (
-    id TEXT PRIMARY KEY,
-    location_id TEXT NOT NULL,
-    user_id TEXT,
-    author TEXT,
-    rating INTEGER NOT NULL,
-    comment TEXT,
-    image_urls TEXT,
-    likes_count INTEGER DEFAULT 0,
-    comments_count INTEGER DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    username TEXT NOT NULL UNIQUE,
-    display_name TEXT,
-    password TEXT NOT NULL,
-    profile_image_url TEXT,
-    role TEXT NOT NULL DEFAULT 'user'
-  );
-
-  CREATE TABLE IF NOT EXISTS favorites (
-    user_id TEXT NOT NULL,
-    location_id TEXT NOT NULL,
-    PRIMARY KEY (user_id, location_id)
-  );
-
-  CREATE TABLE IF NOT EXISTS review_likes (
-    review_id TEXT NOT NULL,
-    user_id TEXT NOT NULL,
-    PRIMARY KEY (review_id, user_id)
-  );
-
-  CREATE TABLE IF NOT EXISTS review_comments (
-    id TEXT PRIMARY KEY,
-    review_id TEXT NOT NULL,
-    user_id TEXT,
-    author TEXT,
-    comment TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS famous_products (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    description TEXT,
-    imageUrl TEXT,
-    location_id TEXT,
-    user_id TEXT
-  );
-
-  CREATE TABLE IF NOT EXISTS notifications (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      actor_id TEXT,
-      actor_name TEXT,
-      type TEXT NOT NULL,
-      payload TEXT,
-      is_read INTEGER DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-`);
-console.log('Tables checked/created.');
-
-// Seeding and other setup code remains the same...
-try {
-  const count = db.prepare('SELECT COUNT(*) as count FROM famous_products').get().count;
-  if (count === 0) {
-    console.log('Seeding famous_products table...');
-    const insert = db.prepare('INSERT INTO famous_products (id, name, description, imageUrl) VALUES (?, ?, ?, ?)');
-    const seedData = [
-      { id: crypto.randomUUID(), name: 'ก๋วยเตี๋ยวเรือรังสิต', description: 'ต้นตำรับก๋วยเตี๋ยวเรือรสเด็ด เข้มข้นถึงเครื่อง', imageUrl: '/uploads/placeholder-boat-noodle.png' },
-      { id: crypto.randomUUID(), name: 'ขนมบ้าบิ่น', description: 'ขนมไทยโบราณ หอมมะพร้าวอ่อน รสชาติหวานมัน', imageUrl: '/uploads/placeholder-ba-bin.png' },
-    ];
-    seedData.forEach(item => {
-      const placeholderPath = path.join(uploadsDir, path.basename(item.imageUrl));
-      if (!fs.existsSync(placeholderPath)) {
-        fs.writeFileSync(placeholderPath, '');
-      }
-    });
-    const insertMany = db.transaction((items) => {
-      for (const item of items) insert.run(item.id, item.name, item.description, item.imageUrl);
-    });
-    insertMany(seedData);
-    console.log('Famous products seeding complete.');
-  }
-} catch (err) {
-  console.error('Error seeding famous_products table:', err.message);
-}
-
-
-// Function to add a column if it doesn't exist
-function addColumnIfNotExists(tableName, columnName, columnType) {
-  try {
-    const columns = db.prepare(`PRAGMA table_info(${tableName})`).all();
-    const columnExists = columns.some(col => col.name === columnName);
-    if (!columnExists) {
-      db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnType}`);
-      console.log(`Added column '${columnName}' to table '${tableName}'.`);
-    }
-  } catch (err) {
-    console.error(`Error checking/adding column ${columnName} to ${tableName}:`, err.message);
-  }
-}
-
-// --- Migrations ---
-addColumnIfNotExists('users', 'display_name', 'TEXT');
-addColumnIfNotExists('users', 'role', "TEXT NOT NULL DEFAULT 'user'");
-addColumnIfNotExists('famous_products', 'location_id', 'TEXT');
-addColumnIfNotExists('famous_products', 'user_id', 'TEXT');
-addColumnIfNotExists('attractions', 'user_id', 'TEXT');
-addColumnIfNotExists('attractions', 'status', "TEXT DEFAULT 'approved'");
-addColumnIfNotExists('attractions', 'deletion_requested_at', 'DATETIME');
-addColumnIfNotExists('foodShops', 'user_id', 'TEXT');
-addColumnIfNotExists('foodShops', 'status', "TEXT DEFAULT 'approved'");
-addColumnIfNotExists('foodShops', 'deletion_requested_at', 'DATETIME');
-
-try {
-  db.exec(`UPDATE users SET display_name = username WHERE display_name IS NULL OR display_name = ''`);
-  console.log("Migrated existing users to have a display name.");
-} catch(err) {
-  console.error("Error migrating display names:", err.message);
-}
-
-
-// --- Multer Setup ---
+// --- Multer Setup for File Uploads ---
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadsDir),
-  filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname))
+    destination: (req, file, cb) => cb(null, uploadsDir),
+    filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname))
 });
 const upload = multer({ storage: storage });
 
-
 // --- AUTHENTICATION MIDDLEWARE ---
 const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  let token = authHeader && authHeader.split(' ')[1];
+    const authHeader = req.headers['authorization'];
+    let token = authHeader && authHeader.split(' ')[1];
+    if (!token && req.query.token) {
+        token = req.query.token;
+    }
+    if (token == null) return res.status(401).json({ error: 'Unauthorized: Token is required.' });
 
-  if (!token && req.query.token) {
-    token = req.query.token;
-  }
-
-  if (token == null) return res.status(401).json({ error: 'Unauthorized: Token is required.' });
-
-  jwt.verify(token, process.env.JWT_SECRET, (err, userPayload) => {
-    if (err) return res.status(403).json({ error: 'Forbidden: Token is not valid.' });
-    req.user = userPayload;
-    next();
-  });
+    jwt.verify(token, process.env.JWT_SECRET, (err, userPayload) => {
+        if (err) return res.status(403).json({ error: 'Forbidden: Token is not valid.' });
+        req.user = userPayload;
+        next();
+    });
 };
 
+// Middleware to check for admin role
 const requireAdmin = (req, res, next) => {
-  if (req.user && req.user.role === 'admin') {
-    next();
-  } else {
-    res.status(403).json({ error: 'Forbidden: Admin access is required for this action.' });
-  }
+    if (req.user && req.user.role === 'admin') {
+        next();
+    } else {
+        res.status(403).json({ error: 'Forbidden: Admin access is required for this action.' });
+    }
 };
-
 
 // --- Helper Functions ---
-function extractCoordsFromUrl(url) {
-  if (!url) return null;
-  const preciseMatch = url.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
-  if (preciseMatch) return { lat: parseFloat(preciseMatch[1]), lng: parseFloat(preciseMatch[2]) };
-  const generalMatch = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-  if (generalMatch) return { lat: parseFloat(generalMatch[1]), lng: parseFloat(generalMatch[2]) };
-  return null;
-}
+const constructFullUrl = (relativePath) => {
+    if (!relativePath || relativePath.startsWith('http')) return relativePath;
+    // 💡 DEPLOYMENT NOTE: Set BASE_URL in your deployment environment (e.g., https://your-backend.onrender.com)
+    const baseURL = process.env.BASE_URL || `http://localhost:${port}`;
+    return `${baseURL}${relativePath}`;
+};
 
 const formatRowForFrontend = (row) => {
-  if (!row) return null;
-  const constructFullUrl = (relativePath) => {
-    if (!relativePath || relativePath.startsWith('http')) return relativePath;
-    return `http://localhost:5000${relativePath}`;
-  };
-  let detailImagesArray = [];
-  try {
-    detailImagesArray = row.detailImages ? JSON.parse(row.detailImages) : [];
-    if (!Array.isArray(detailImagesArray)) detailImagesArray = [];
-  } catch (e) { detailImagesArray = []; }
-  return {
-    ...row,
-    coords: { lat: row.lat, lng: row.lng },
-    googleMapUrl: row.google_map_url,
-    imageUrl: constructFullUrl(row.imageUrl),
-    detailImages: detailImagesArray.map(constructFullUrl),
-  };
+    if (!row) return null;
+
+    if ('display_name' in row) {
+        return {
+            id: row.id,
+            username: row.username,
+            displayName: row.display_name,
+            profileImageUrl: constructFullUrl(
+                Array.isArray(row.profile_image_url) && row.profile_image_url.length > 0
+                ? row.profile_image_url[0]
+                : row.profile_image_url
+            ),
+            role: row.role
+        };
+    }
+
+    if ('imageurl' in row) {
+        row.image_url = row.imageurl;
+    }
+
+    return {
+        ...row,
+        rating: row.rating === null || row.rating === undefined ? 0 : parseFloat(row.rating || 0),
+        coords: { lat: row.lat, lng: row.lng },
+        googleMapUrl: row.google_map_url,
+        imageUrl: constructFullUrl(row.image_url),
+        detailImages: Array.isArray(row.detail_images) ? row.detail_images.map(constructFullUrl) : [],
+    };
 };
 
-const formatUserForFrontend = (user) => {
-  if (!user) return null;
-  const constructFullUrl = (relativePath) => {
-    if (!relativePath || relativePath.startsWith('http')) return relativePath;
-    return `http://localhost:5000${relativePath}`;
-  };
-  return {
-    id: user.id,
-    username: user.username,
-    displayName: user.display_name || user.username,
-    profile_image_url: constructFullUrl(user.profile_image_url),
-    role: user.role
-  };
+const extractCoordsFromUrl = (url) => {
+    if (!url) return { lat: null, lng: null };
+    const match = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+    return match ? { lat: parseFloat(match[1]), lng: parseFloat(match[2]) } : { lat: null, lng: null };
 };
 
-function createAndSendNotification(eventData) {
-  const { type, actorId, actorName, payload, recipientId } = eventData;
-  
-  const insert = db.prepare('INSERT INTO notifications (id, user_id, actor_id, actor_name, type, payload, is_read) VALUES (?, ?, ?, ?, ?, ?, 0)');
-  
-  if (recipientId) {
-    if (recipientId !== actorId) {
-      insert.run(crypto.randomUUID(), recipientId, actorId, actorName, type, JSON.stringify(payload));
-    }
-  } else {
-    const users = db.prepare('SELECT id FROM users WHERE id != ?').all(actorId);
-    const insertMany = db.transaction((notifications) => {
-      for (const notif of notifications) insert.run(notif.id, notif.user_id, notif.actor_id, notif.actor_name, notif.type, notif.payload);
-    });
-    const notificationsToInsert = users.map(user => ({
-      id: crypto.randomUUID(),
-      user_id: user.id,
-      actor_id: actorId,
-      actor_name: actorName,
-      type,
-      payload: JSON.stringify(payload)
-    }));
-    if (notificationsToInsert.length > 0) {
-      insertMany(notificationsToInsert);
-    }
-  }
+async function createAndSendNotification({ type, actorId, actorName, actorProfileImageUrl, recipientId, payload }) {
+    try {
+        const liveNotification = {
+            id: crypto.randomUUID(),
+            actor_id: actorId,
+            actor_name: actorName,
+            actor_profile_image_url: actorProfileImageUrl,
+            type: type,
+            payload: payload,
+            is_read: false,
+            created_at: new Date().toISOString(),
+        };
 
-  const liveEventPayload = { type, ...payload, actorId, actorName };
-  clients.forEach(client => {
-    const clientUser = jwt.decode(client.token);
-    if (clientUser) {
-      if (recipientId && clientUser.userId === recipientId && clientUser.userId !== actorId) {
-        client.res.write(`data: ${JSON.stringify(liveEventPayload)}\n\n`);
-      } else if (!recipientId && clientUser.userId !== actorId) {
-        client.res.write(`data: ${JSON.stringify(liveEventPayload)}\n\n`);
-      }
+        const dbNotificationPayload = {};
+        if (payload.location) {
+            dbNotificationPayload.locationId = payload.location.id;
+            dbNotificationPayload.locationName = payload.location.name;
+            dbNotificationPayload.locationImageUrl = payload.location.imageUrl;
+        }
+        if (payload.product) {
+            dbNotificationPayload.productName = payload.product.name;
+            if (payload.product.image_url) {
+                dbNotificationPayload.productImageUrl = constructFullUrl(payload.product.image_url);
+            }
+        }
+        if (payload.commentSnippet) {
+            dbNotificationPayload.commentSnippet = payload.commentSnippet;
+        }
+
+        const dbNotification = {
+            actor_id: actorId,
+            actor_name: actorName,
+            actor_profile_image_url: actorProfileImageUrl,
+            type: type,
+            payload: dbNotificationPayload,
+            is_read: false,
+        };
+
+        if (recipientId && recipientId !== actorId) {
+            await supabase.from('notifications').insert({ ...dbNotification, user_id: recipientId });
+        } else if (!recipientId) {
+            const { data: users } = await supabase.from('users').select('id').neq('id', actorId);
+            if (users && users.length > 0) {
+                const notificationsToInsert = users.map(user => ({ ...dbNotification, user_id: user.id }));
+                await supabase.from('notifications').insert(notificationsToInsert);
+            }
+        }
+
+        const liveEventPayload = { type: 'notification', data: liveNotification };
+        clients.forEach(client => {
+            if (recipientId) {
+                if (client.userId === recipientId && client.userId !== actorId) {
+                    client.res.write(`data: ${JSON.stringify(liveEventPayload)}\n\n`);
+                }
+            } else {
+                if (client.userId !== actorId) {
+                    client.res.write(`data: ${JSON.stringify(liveEventPayload)}\n\n`);
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error creating notification:', error);
     }
-  });
 }
+
+// --- SSE Heartbeat Logic ---
+const sendHeartbeat = () => {
+    clients.forEach(client => {
+        try {
+            client.res.write(':keep-alive\n\n');
+        } catch (e) {
+            clients = clients.filter(c => c.id !== client.id);
+            console.log(`Client ${client.id} disconnected (Heartbeat failed). Remaining clients: ${clients.length}`);
+        }
+    });
+};
+setInterval(sendHeartbeat, 15000);
 
 
 // --- API Endpoints ---
+app.get('/api/status', (req, res) => res.json({ status: 'ok', version: '18.6', database: 'supabase' }));
 
-app.get('/api/status', (req, res) => res.json({ status: 'ok', version: '14.0' }));
-
-app.get('/api/events', authenticateToken, (req, res) => {
-  const headers = {
-    'Content-Type': 'text/event-stream',
-    'Connection': 'keep-alive',
-    'Cache-Control': 'no-cache'
-  };
-  res.writeHead(200, headers);
-
-  const clientId = Date.now();
-  const newClient = {
-    id: clientId,
-    res: res,
-    token: req.query.token
-  };
-  clients.push(newClient);
-  console.log(`${clientId} SSE Connection opened for user ${req.user.userId}.`);
-
-  res.write(`data: ${JSON.stringify({ type: 'connected' })}\n\n`);
-
-  req.on('close', () => {
-    console.log(`${clientId} SSE Connection closed.`);
-    clients = clients.filter(client => client.id !== clientId);
-  });
-});
-
-app.get('/api/notifications', authenticateToken, (req, res) => {
-  try {
-    const notifications = db.prepare(`
-      SELECT * FROM notifications 
-      WHERE user_id = ? 
-      ORDER BY created_at DESC 
-      LIMIT 20
-    `).all(req.user.userId);
-    
-    const formatted = notifications.map(n => {
-      const payload = JSON.parse(n.payload);
-      const formattedPayload = {
-        ...payload,
-        location: payload.location ? formatRowForFrontend(payload.location) : undefined,
-        product: payload.product ? formatRowForFrontend(payload.product) : undefined,
-      };
-      return { ...n, payload: formattedPayload };
-    });
-
-    res.json(formatted);
-  } catch(err) {
-    res.status(500).json({ error: 'Could not fetch notifications.' });
-  }
-});
-
-app.post('/api/notifications/read', authenticateToken, (req, res) => {
-  try {
-    db.prepare('UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0')
-      .run(req.user.userId);
-    res.status(200).json({ message: 'Notifications marked as read.' });
-  } catch(err) {
-    res.status(500).json({ error: 'Could not mark notifications as read.' });
-  }
-});
-
-// ... Famous products, reviews, etc. ...
-app.get('/api/famous-products/random', (req, res) => {
-  try {
-    const products = db.prepare('SELECT * FROM famous_products WHERE location_id IS NULL ORDER BY RANDOM() LIMIT 2').all();
-    res.json(products.map(formatRowForFrontend));
-  } catch (err) {
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลของขึ้นชื่อ' });
-  }
-});
-app.get('/api/famous-products', (req, res) => {
-  try {
-    const products = db.prepare('SELECT * FROM famous_products WHERE location_id IS NULL ORDER BY name').all();
-    res.json(products.map(formatRowForFrontend));
-  } catch (err) {
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลของขึ้นชื่อทั้งหมด' });
-  }
-});
-app.post('/api/famous-products', authenticateToken, requireAdmin, upload.single('image'), (req, res) => {
-  const { name, description } = req.body;
-  if (!name) return res.status(400).json({ error: 'กรุณากรอกชื่อของขึ้นชื่อ' });
-  const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
-  const newProduct = { id: crypto.randomUUID(), name, description: description || '', imageUrl, location_id: null, user_id: req.user.userId };
-  try {
-    db.prepare('INSERT INTO famous_products (id, name, description, imageUrl, location_id, user_id) VALUES (@id, @name, @description, @imageUrl, @location_id, @user_id)').run(newProduct);
-    res.status(201).json(formatRowForFrontend(newProduct));
-  } catch (err) {
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการบันทึกข้อมูล' });
-  }
-});
-app.put('/api/famous-products/:id', authenticateToken, requireAdmin, upload.single('image'), (req, res) => {
-  const { id } = req.params;
-  const { name, description } = req.body;
-  if (!name) return res.status(400).json({ error: 'กรุณากรอกชื่อของขึ้นชื่อ' });
-  const existingProduct = db.prepare('SELECT * FROM famous_products WHERE id = ? AND location_id IS NULL').get(id);
-  if (!existingProduct) return res.status(404).json({ error: 'ไม่พบข้อมูลที่ต้องการแก้ไข' });
-  let imageUrl = existingProduct.imageUrl;
-  if (req.file) {
-    imageUrl = `/uploads/${req.file.filename}`;
-  }
-  try {
-    db.prepare('UPDATE famous_products SET name = ?, description = ?, imageUrl = ? WHERE id = ?').run(name, description || '', imageUrl, id);
-    res.json(formatRowForFrontend({ id, name, description, imageUrl }));
-  } catch (err) {
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการอัปเดตข้อมูล' });
-  }
-});
-app.delete('/api/famous-products/:id', authenticateToken, requireAdmin, (req, res) => {
-  const { id } = req.params;
-  try {
-    const result = db.prepare('DELETE FROM famous_products WHERE id = ? AND location_id IS NULL').run(id);
-    if (result.changes === 0) return res.status(404).json({ error: 'ไม่พบข้อมูลที่ต้องการลบ หรือไม่ใช่ของขึ้นชื่อส่วนกลาง' });
-    res.json({ message: 'ลบข้อมูลสำเร็จ' });
-  } catch (err) {
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการลบข้อมูล' });
-  }
-});
-app.get('/api/famous-products/all', authenticateToken, requireAdmin, (req, res) => {
-  try {
-    const query = `
-        SELECT
-            fp.id, fp.name, fp.description, fp.imageUrl, fp.location_id, fp.user_id,
-            COALESCE(a.name, fs.name) AS location_name
-        FROM famous_products AS fp
-        LEFT JOIN attractions AS a ON fp.location_id = a.id
-        LEFT JOIN foodShops AS fs ON fp.location_id = fs.id
-        ORDER BY 
-            CASE WHEN location_name IS NULL THEN 0 ELSE 1 END, 
-            location_name ASC, 
-            fp.name ASC
-    `;
-    const products = db.prepare(query).all();
-    res.json(products.map(p => {
-      const formattedRow = formatRowForFrontend(p);
-      return {
-        ...p, 
-        imageUrl: formattedRow.imageUrl
-      };
-    }));
-  } catch (err) {
-    console.error("Error fetching all products:", err);
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลของขึ้นชื่อทั้งหมด' });
-  }
-});
-app.get('/api/locations/:locationId/products', (req, res) => {
-  const { locationId } = req.params;
-  try {
-    const products = db.prepare('SELECT * FROM famous_products WHERE location_id = ?').all(locationId);
-    res.json(products.map(formatRowForFrontend));
-  } catch (err) {
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลของขึ้นชื่อ' });
-  }
-});
-app.post('/api/products', authenticateToken, upload.single('image'), (req, res) => {
-  const { name, description, locationId } = req.body;
-  const { userId, displayName } = req.user;
-  if (!name || !locationId) {
-    return res.status(400).json({ error: 'กรุณากรอกชื่อและรหัสสถานที่' });
-  }
-  const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
-  const newProduct = {
-    id: crypto.randomUUID(), name, description: description || '', imageUrl,
-    location_id: locationId, user_id: userId
-  };
-  try {
-    db.prepare('INSERT INTO famous_products (id, name, description, imageUrl, location_id, user_id) VALUES (@id, @name, @description, @imageUrl, @location_id, @user_id)').run(newProduct);
-    
-    const location = db.prepare('SELECT * FROM attractions WHERE id = ?').get(locationId) || db.prepare('SELECT * FROM foodShops WHERE id = ?').get(locationId);
-    
-    createAndSendNotification({
-      type: 'new_product',
-      actorId: userId,
-      actorName: displayName,
-      payload: {
-        product: newProduct,
-        location: location
-      }
-    });
-
-    res.status(201).json(formatRowForFrontend(newProduct));
-  } catch (err) {
-    console.error("Error creating product:", err);
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการบันทึกข้อมูล' });
-  }
-});
-app.put('/api/products/:productId', authenticateToken, upload.single('image'), (req, res) => {
-  const { productId } = req.params;
-  const { name, description } = req.body;
-  const requestingUser = req.user;
-  if (!name) return res.status(400).json({ error: 'กรุณากรอกชื่อ' });
-  const existingProduct = db.prepare('SELECT * FROM famous_products WHERE id = ?').get(productId);
-  if (!existingProduct) return res.status(404).json({ error: 'ไม่พบข้อมูล' });
-  if (existingProduct.user_id !== requestingUser.userId && requestingUser.role !== 'admin') {
-    return res.status(403).json({ error: 'คุณไม่มีสิทธิ์แก้ไขข้อมูลนี้' });
-  }
-  let imageUrl = existingProduct.imageUrl;
-  if (req.file) {
-    imageUrl = `/uploads/${req.file.filename}`;
-  }
-  try {
-    db.prepare('UPDATE famous_products SET name = ?, description = ?, imageUrl = ? WHERE id = ?').run(name, description || '', imageUrl, productId);
-    res.json(formatRowForFrontend({ ...existingProduct, name, description, imageUrl }));
-  } catch (err) {
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการอัปเดตข้อมูล' });
-  }
-});
-app.delete('/api/products/:productId', authenticateToken, (req, res) => {
-  const { productId } = req.params;
-  const requestingUser = req.user;
-  const product = db.prepare('SELECT user_id FROM famous_products WHERE id = ?').get(productId);
-  if (!product) return res.status(404).json({ error: 'ไม่พบข้อมูล' });
-  if (product.user_id !== requestingUser.userId && requestingUser.role !== 'admin') {
-    return res.status(403).json({ error: 'คุณไม่มีสิทธิ์ลบข้อมูลนี้' });
-  }
-  try {
-    const result = db.prepare('DELETE FROM famous_products WHERE id = ?').run(productId);
-    if (result.changes === 0) return res.status(404).json({ error: 'ไม่พบข้อมูลที่ต้องการลบ' });
-    res.json({ message: 'ลบข้อมูลสำเร็จ' });
-  } catch (err) {
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการลบข้อมูล' });
-  }
-});
-app.get('/api/locations/same-category', (req, res) => {
-  const { category, excludeId } = req.query;
-  if (!category) return res.status(400).json({ error: 'Category is required' });
-  try {
-    const attractions = db.prepare("SELECT * FROM attractions WHERE category = ? AND id != ? AND status = 'approved'").all(category, excludeId || '');
-    const foodShops = db.prepare("SELECT * FROM foodShops WHERE category = ? AND id != ? AND status = 'approved'").all(category, excludeId || '');
-    let combined = [...attractions, ...foodShops];
-    for (let i = combined.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [combined[i], combined[j]] = [combined[j], combined[i]];
-    }
-    res.json(combined.slice(0, 5).map(formatRowForFrontend));
-  } catch (err) {
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการค้นหาสถานที่ในหมวดหมู่เดียวกัน' });
-  }
-});
-app.get('/api/attractions', (req, res) => {
-  const { sortBy } = req.query;
-  let query = "SELECT * FROM attractions WHERE status = 'approved'";
-  if (sortBy === 'rating') query += " ORDER BY rating DESC";
-  try {
-    res.json(db.prepare(query).all().map(formatRowForFrontend));
-  } catch (err) {
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลสถานที่ท่องเที่ยว' });
-  }
-});
-app.get('/api/foodShops', (req, res) => {
-  const { sortBy } = req.query;
-  let query = "SELECT * FROM foodShops WHERE status = 'approved'";
-  if (sortBy === 'rating') query += " ORDER BY rating DESC";
-  try {
-    res.json(db.prepare(query).all().map(formatRowForFrontend));
-  } catch (err) {
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลร้านอาหาร' });
-  }
-});
-
-// FIX: Moved this route before '/api/locations/:id' to avoid routing conflicts.
-// UPDATE: Added sorting functionality based on query parameter.
-app.get('/api/locations/pending-deletion', authenticateToken, requireAdmin, (req, res) => {
-  const { sortBy = 'newest' } = req.query; // Default to 'newest'
-  const sortOrder = sortBy === 'oldest' ? 'ASC' : 'DESC';
-
-  try {
-    const query = `
-      SELECT * FROM attractions WHERE status = 'pending_deletion'
-      UNION ALL
-      SELECT * FROM foodShops WHERE status = 'pending_deletion'
-      ORDER BY deletion_requested_at ${sortOrder}
-    `;
-    const pendingDeletions = db.prepare(query).all();
-    res.json(pendingDeletions.map(formatRowForFrontend));
-  } catch (err) {
-    console.error("Error fetching pending deletions:", err);
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูล' });
-  }
-});
-
-app.get('/api/locations/:id', (req, res) => {
-  const { id } = req.params;
-  try {
-    let location = db.prepare('SELECT * FROM attractions WHERE id = ?').get(id) || db.prepare('SELECT * FROM foodShops WHERE id = ?').get(id);
-    if (location) res.json(formatRowForFrontend(location));
-    else res.status(404).json({ error: 'ไม่พบสถานที่' });
-  } catch (err) {
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลสถานที่' });
-  }
-});
-app.post('/api/locations', authenticateToken, upload.array('images', 10), (req, res) => {
-  const { name, category, description, googleMapUrl, hours, contact } = req.body;
-  const { userId, displayName } = req.user;
-  if (!name || !category) return res.status(400).json({ error: 'กรุณากรอกชื่อและหมวดหมู่' });
-  const imageUrl = req.files && req.files.length > 0 ? `/uploads/${req.files[0].filename}` : null;
-  const detailImages = req.files && req.files.length > 1 ? JSON.stringify(req.files.slice(1).map(file => `/uploads/${file.filename}`)) : JSON.stringify([]);
-  const coords = extractCoordsFromUrl(googleMapUrl);
-  const tableName = ['ร้านอาหาร', 'คาเฟ่', 'ตลาด'].includes(category) ? 'foodShops' : 'attractions';
-  const type = tableName === 'foodShops' ? 'foodshop' : 'attraction';
-  const newLocation = {
-    id: crypto.randomUUID(), name, description: description || '', fullDescription: '',
-    lat: coords ? coords.lat : null, lng: coords ? coords.lng : null,
-    google_map_url: googleMapUrl || '', imageUrl, detailImages,
-    rating: 0, reviews: 0, hours: hours || '', contact: contact || '', type, category,
-    user_id: userId, status: 'approved', deletion_requested_at: null
-  };
-  const columns = Object.keys(newLocation).join(', ');
-  const placeholders = Object.keys(newLocation).map(key => `@${key}`).join(', ');
-  try {
-    db.prepare(`INSERT INTO ${tableName} (${columns}) VALUES (${placeholders})`).run(newLocation);
-    
-    createAndSendNotification({
-      type: 'new_location',
-      actorId: userId,
-      actorName: displayName,
-      payload: {
-        location: newLocation
-      }
-    });
-
-    res.status(201).json(formatRowForFrontend(newLocation));
-  } catch (err) {
-    console.error("Error creating location:", err);
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการบันทึกข้อมูล' });
-  }
-});
-app.put('/api/locations/:id', authenticateToken, upload.array('images', 10), (req, res) => {
-  const { id } = req.params;
-  const { name, category, description, googleMapUrl, hours, contact, existingImages } = req.body;
-  const dbTransaction = db.transaction(() => {
-    let location = db.prepare('SELECT * FROM attractions WHERE id = ?').get(id);
-    let tableName = 'attractions';
-    if (!location) {
-      location = db.prepare('SELECT * FROM foodShops WHERE id = ?').get(id);
-      tableName = 'foodShops';
-    }
-    if (!location) throw new Error('NOT_FOUND');
-
-    if (location.user_id !== req.user.userId && req.user.role !== 'admin') {
-      throw new Error('FORBIDDEN');
-    }
-
-    const keptImages = existingImages ? JSON.parse(existingImages) : [];
-    const newImageUrls = req.files ? req.files.map(file => `/uploads/${file.filename}`) : [];
-    const cleanKeptImages = keptImages.map(img => img.replace(`http://localhost:5000`, ''));
-    const allImageUrls = [...cleanKeptImages, ...newImageUrls];
-    const imageUrl = allImageUrls[0] || null;
-    const detailImages = JSON.stringify(allImageUrls.slice(1));
-    const coords = extractCoordsFromUrl(googleMapUrl);
-    db.prepare(
-      `UPDATE ${tableName} 
-        SET name=?, category=?, description=?, google_map_url=?, lat=?, lng=?, hours=?, contact=?, imageUrl=?, detailImages=? 
-        WHERE id=?`
-    ).run(name, category, description, googleMapUrl, coords?.lat, coords?.lng, hours, contact, imageUrl, detailImages, id);
-    return db.prepare(`SELECT * FROM ${tableName} WHERE id = ?`).get(id);
-  });
-  try {
-    const updatedLocation = dbTransaction();
-    res.json(formatRowForFrontend(updatedLocation));
-  } catch (err) {
-    if (err.message === 'NOT_FOUND') return res.status(404).json({ error: 'ไม่พบข้อมูลที่ต้องการแก้ไข' });
-    if (err.message === 'FORBIDDEN') return res.status(403).json({ error: 'คุณไม่มีสิทธิ์แก้ไขข้อมูลนี้' });
-    console.error("Error updating location:", err);
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการอัปเดตข้อมูล' });
-  }
-});
-app.delete('/api/locations/:id', authenticateToken, requireAdmin, (req, res) => {
-  const { id } = req.params;
-  const transaction = db.transaction(() => {
-    let result = db.prepare('DELETE FROM attractions WHERE id = ?').run(id);
-    if (result.changes === 0) {
-      result = db.prepare('DELETE FROM foodShops WHERE id = ?').run(id);
-    }
-    if (result.changes === 0) return { changes: 0 };
-    
-    db.prepare('DELETE FROM reviews WHERE location_id = ?').run(id);
-    db.prepare('DELETE FROM famous_products WHERE location_id = ?').run(id);
-    db.prepare('DELETE FROM favorites WHERE location_id = ?').run(id);
-    return { changes: 1 };
-  });
-  try {
-    const { changes } = transaction();
-    if (changes === 0) return res.status(404).json({ error: 'ไม่พบข้อมูลสถานที่ที่ต้องการลบ' });
-    res.json({ message: 'ลบข้อมูลสถานที่สำเร็จ' });
-  } catch (err) {
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการลบข้อมูลสถานที่' });
-  }
-});
-
-app.post('/api/locations/:id/request-deletion', authenticateToken, (req, res) => {
-  const { id } = req.params;
-  let location = db.prepare('SELECT user_id FROM attractions WHERE id = ?').get(id);
-  let tableName = 'attractions';
-  if (!location) {
-    location = db.prepare('SELECT user_id FROM foodShops WHERE id = ?').get(id);
-    tableName = 'foodShops';
-  }
-  if (!location) return res.status(404).json({ error: 'ไม่พบสถานที่' });
-  if (location.user_id !== req.user.userId && req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'คุณไม่มีสิทธิ์ร้องขอลบสถานที่นี้' });
-  }
-  try {
-    db.prepare(`UPDATE ${tableName} SET status = 'pending_deletion', deletion_requested_at = CURRENT_TIMESTAMP WHERE id = ?`).run(id);
-    res.json({ message: 'ส่งคำขอลบสถานที่แล้ว Admin จะตรวจสอบในลำดับถัดไป' });
-  } catch (err) {
-    res.status(500).json({ error: 'เกิดข้อผิดพลาด' });
-  }
-});
-
-app.post('/api/locations/:id/approve-deletion', authenticateToken, requireAdmin, (req, res) => {
-  const { id } = req.params;
-  const transaction = db.transaction(() => {
-    let result = db.prepare('DELETE FROM attractions WHERE id = ?').run(id);
-    if (result.changes === 0) {
-      result = db.prepare('DELETE FROM foodShops WHERE id = ?').run(id);
-    }
-    if (result.changes === 0) return { changes: 0 };
-    
-    db.prepare('DELETE FROM reviews WHERE location_id = ?').run(id);
-    db.prepare('DELETE FROM famous_products WHERE location_id = ?').run(id);
-    db.prepare('DELETE FROM favorites WHERE location_id = ?').run(id);
-    return { changes: 1 };
-  });
-  try {
-    const { changes } = transaction();
-    if (changes > 0) res.json({ message: 'อนุมัติการลบสำเร็จ' });
-    else res.status(404).json({ error: 'ไม่พบสถานที่' });
-  } catch (err) {
-    res.status(500).json({ error: 'เกิดข้อผิดพลาด' });
-  }
-});
-
-app.post('/api/locations/:id/deny-deletion', authenticateToken, requireAdmin, (req, res) => {
-  const { id } = req.params;
-  try {
-    let result = db.prepare(`UPDATE attractions SET status = 'approved', deletion_requested_at = NULL WHERE id = ?`).run(id);
-    if (result.changes === 0) {
-        result = db.prepare(`UPDATE foodShops SET status = 'approved', deletion_requested_at = NULL WHERE id = ?`).run(id);
-    }
-    if (result.changes > 0) res.json({ message: 'ปฏิเสธการลบสำเร็จ' });
-    else res.status(404).json({ error: 'ไม่พบสถานที่' });
-  } catch (err) {
-    res.status(500).json({ error: 'เกิดข้อผิดพลาด' });
-  }
-});
-
-
-app.get('/api/reviews/:locationId', (req, res) => {
-  const { locationId } = req.params;
-  const { userId } = req.query;
-  try {
-    const reviewsData = db.prepare('SELECT * FROM reviews WHERE location_id = ? ORDER BY created_at DESC').all(locationId);
-    const reviews = reviewsData.map(review => {
-      let user_has_liked = false;
-      if (userId) {
-        user_has_liked = !!db.prepare('SELECT 1 FROM review_likes WHERE review_id = ? AND user_id = ?').get(review.id, userId);
-      }
-      return { ...review, image_urls: review.image_urls ? JSON.parse(review.image_urls).map(url => `http://localhost:5000${url}`) : [], user_has_liked };
-    });
-    res.json(reviews);
-  } catch (err) {
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลรีวิว' });
-  }
-});
-app.post('/api/reviews', authenticateToken, upload.array('reviewImages', 5), (req, res) => {
-  const { locationId, locationType, rating, comment } = req.body;
-  const { userId } = req.user;
-  const user = db.prepare('SELECT display_name FROM users WHERE id = ?').get(userId);
-  const author = user ? user.display_name : req.user.username;
-  
-  if (!locationId || !locationType || !rating) return res.status(400).json({ error: 'ข้อมูลไม่ครบถ้วน' });
-  const imageUrlsJson = JSON.stringify(req.files ? req.files.map(file => `/uploads/${file.filename}`) : []);
-  const transaction = db.transaction(() => {
-    const reviewId = crypto.randomUUID();
-    db.prepare('INSERT INTO reviews (id, location_id, user_id, author, rating, comment, image_urls) VALUES (?, ?, ?, ?, ?, ?, ?)').run(reviewId, locationId, userId, author, rating, comment || '', imageUrlsJson);
-    const stats = db.prepare('SELECT AVG(rating) as avg_rating, COUNT(*) as review_count FROM reviews WHERE location_id = ?').get(locationId);
-    const tableName = locationType === 'attraction' ? 'attractions' : 'foodShops';
-    db.prepare(`UPDATE ${tableName} SET rating = ?, reviews = ? WHERE id = ?`).run(stats.avg_rating, stats.review_count, locationId);
-  });
-  try {
-    transaction();
-    res.status(201).json({ message: 'เพิ่มรีวิวสำเร็จ!' });
-  } catch (err) {
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการบันทึกรีวิว' });
-  }
-});
-app.delete('/api/reviews/:reviewId', authenticateToken, (req, res) => {
-  const { reviewId } = req.params;
-  const { locationId, locationType } = req.body;
-  const requestingUser = req.user;
-  if (!locationId || !locationType) return res.status(400).json({ error: 'ข้อมูลสำหรับยืนยันตนไม่ครบถ้วน' });
-  const transaction = db.transaction(() => {
-    const review = db.prepare('SELECT user_id FROM reviews WHERE id = ?').get(reviewId);
-    if (!review) throw new Error('NOT_FOUND');
-    if (review.user_id !== requestingUser.userId && requestingUser.role !== 'admin') throw new Error('FORBIDDEN');
-    db.prepare('DELETE FROM reviews WHERE id = ?').run(reviewId);
-    const stats = db.prepare('SELECT AVG(rating) as avg_rating, COUNT(*) as review_count FROM reviews WHERE location_id = ?').get(locationId);
-    const tableName = locationType === 'attraction' ? 'attractions' : 'foodShops';
-    db.prepare(`UPDATE ${tableName} SET rating = ?, reviews = ? WHERE id = ?`).run(stats.avg_rating || 0, stats.review_count || 0, locationId);
-  });
-  try {
-    transaction();
-    res.json({ message: 'ลบรีวิวสำเร็จ' });
-  } catch (err) {
-    if (err.message === 'NOT_FOUND') return res.status(404).json({ error: 'ไม่พบรีวิวที่ต้องการลบ' });
-    if (err.message === 'FORBIDDEN') return res.status(403).json({ error: 'คุณไม่มีสิทธิ์ลบรีวิวนี้' });
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการลบรีวิว' });
-  }
-});
-app.put('/api/reviews/:reviewId', authenticateToken, upload.array('newImages', 5), (req, res) => {
-  const { reviewId } = req.params;
-  const { locationId, locationType, rating, comment, existingImages } = req.body;
-  const requestingUser = req.user;
-  if (!locationId || !locationType || !rating) return res.status(400).json({ error: 'ข้อมูลสำหรับอัปเดตไม่ครบถ้วน' });
-  const transaction = db.transaction(() => {
-    const review = db.prepare('SELECT user_id FROM reviews WHERE id = ?').get(reviewId);
-    if (!review) throw new Error('NOT_FOUND');
-    if (review.user_id !== requestingUser.userId && requestingUser.role !== 'admin') throw new Error('FORBIDDEN');
-    const keptImages = existingImages ? JSON.parse(existingImages).map(url => url.replace(`http://localhost:5000`, '')) : [];
-    const newImageUrls = req.files ? req.files.map(file => `/uploads/${file.filename}`) : [];
-    const allImageUrlsJson = JSON.stringify([...keptImages, ...newImageUrls]);
-    db.prepare('UPDATE reviews SET rating = ?, comment = ?, image_urls = ? WHERE id = ?').run(rating, comment || '', allImageUrlsJson, reviewId);
-    const stats = db.prepare('SELECT AVG(rating) as avg_rating FROM reviews WHERE location_id = ?').get(locationId);
-    const tableName = locationType === 'attraction' ? 'attractions' : 'foodShops';
-    db.prepare(`UPDATE ${tableName} SET rating = ? WHERE id = ?`).run(stats.avg_rating || 0, locationId);
-  });
-  try {
-    transaction();
-    res.json({ message: 'อัปเดตรีวิวสำเร็จ' });
-  } catch (err) {
-    if (err.message === 'NOT_FOUND') return res.status(404).json({ error: 'ไม่พบรีวิวที่ต้องการแก้ไข' });
-    if (err.message === 'FORBIDDEN') return res.status(403).json({ error: 'คุณไม่มีสิทธิ์แก้ไขรีวิวนี้' });
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการอัปเดตรีวิว' });
-  }
-});
-app.post('/api/reviews/:reviewId/toggle-like', authenticateToken, (req, res) => {
-  const { reviewId } = req.params;
-  const { userId, displayName } = req.user;
-
-  const reviewInfo = db.prepare('SELECT user_id, location_id FROM reviews WHERE id = ?').get(reviewId);
-  if (!reviewInfo) return res.status(404).json({ error: 'Review not found' });
-  
-  let likesCount = 0;
-  const transaction = db.transaction(() => {
-    const existingLike = db.prepare('SELECT * FROM review_likes WHERE review_id = ? AND user_id = ?').get(reviewId, userId);
-    if (existingLike) {
-      db.prepare('DELETE FROM review_likes WHERE review_id = ? AND user_id = ?').run(reviewId, userId);
-    } else {
-      db.prepare('INSERT INTO review_likes (review_id, user_id) VALUES (?, ?)').run(reviewId, userId);
-      
-      const location = db.prepare('SELECT * FROM attractions WHERE id = ?').get(reviewInfo.location_id) || db.prepare('SELECT * FROM foodShops WHERE id = ?').get(reviewInfo.location_id);
-      if (location) {
-        createAndSendNotification({
-          type: 'new_like',
-          actorId: userId,
-          actorName: displayName,
-          recipientId: reviewInfo.user_id,
-          payload: { location }
-        });
-      }
-    }
-    likesCount = db.prepare('SELECT COUNT(*) as count FROM review_likes WHERE review_id = ?').get(reviewId).count;
-    db.prepare('UPDATE reviews SET likes_count = ? WHERE id = ?').run(likesCount, reviewId);
-  });
-
-  try {
-    transaction();
-    res.json({ likesCount });
-  } catch (err) {
-    res.status(500).json({ error: 'เกิดข้อผิดพลาด' });
-  }
-});
-app.get('/api/reviews/:reviewId/comments', (req, res) => {
-  const { reviewId } = req.params;
-  try {
-    const comments = db.prepare('SELECT * FROM review_comments WHERE review_id = ? ORDER BY created_at ASC').all(reviewId);
-    res.json(comments);
-  } catch (err) {
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงคอมเมนต์' });
-  }
-});
-app.post('/api/reviews/:reviewId/comments', authenticateToken, (req, res) => {
-  const { reviewId } = req.params;
-  const { comment } = req.body;
-  const { userId, displayName } = req.user;
-  if (!comment) return res.status(400).json({ error: 'กรุณาใส่ความคิดเห็น' });
-
-  const reviewInfo = db.prepare('SELECT user_id, location_id FROM reviews WHERE id = ?').get(reviewId);
-  if (!reviewInfo) return res.status(404).json({ error: 'Review not found' });
-
-  let newComment;
-  const transaction = db.transaction(() => {
-    newComment = { id: crypto.randomUUID(), review_id: reviewId, user_id: userId, author: displayName, comment };
-    db.prepare('INSERT INTO review_comments (id, review_id, user_id, author, comment) VALUES (@id, @review_id, @user_id, @author, @comment)').run(newComment);
-    const commentCount = db.prepare('SELECT COUNT(*) as count FROM review_comments WHERE review_id = ?').get(reviewId).count;
-    db.prepare('UPDATE reviews SET comments_count = ? WHERE id = ?').run(commentCount, reviewId);
-  });
-  try {
-    transaction();
-    
-    const location = db.prepare('SELECT * FROM attractions WHERE id = ?').get(reviewInfo.location_id) || db.prepare('SELECT * FROM foodShops WHERE id = ?').get(reviewInfo.location_id);
-    if(location) {
-        createAndSendNotification({
-          type: 'new_reply',
-          actorId: userId,
-          actorName: displayName,
-          recipientId: reviewInfo.user_id,
-          payload: { 
-            location,
-            comment: newComment.comment 
-          }
-        });
-    }
-    
-    res.status(201).json(newComment);
-  } catch (err) {
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการโพสต์คอมเมนต์' });
-  }
-});
-app.post('/api/register', async (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) return res.status(400).json({ error: 'กรุณากรอกชื่อผู้ใช้และรหัสผ่าน' });
-  try {
-    if (db.prepare('SELECT * FROM users WHERE username = ?').get(username)) {
-      return res.status(409).json({ error: 'ชื่อผู้ใช้สำหรับเข้าระบบนี้ถูกใช้งานแล้ว' });
-    }
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = { 
-      id: crypto.randomUUID(), username, display_name: username,
-      password: hashedPassword, profile_image_url: null, role: 'user'
+app.get('/api/events', authenticateToken, async (req, res) => {
+    const headers = {
+        'Content-Type': 'text/event-stream',
+        'Connection': 'keep-alive',
+        'Cache-Control': 'no-cache',
+        'X-Accel-Buffering': 'no'
     };
-    db.prepare('INSERT INTO users (id, username, display_name, password, profile_image_url, role) VALUES (?, ?, ?, ?, ?, ?)').run(newUser.id, newUser.username, newUser.display_name, newUser.password, newUser.profile_image_url, newUser.role);
-    res.status(201).json({ message: 'สมัครสมาชิกสำเร็จ!', user: formatUserForFrontend(newUser) });
-  } catch (err) {
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการสมัครสมาชิก' });
-  }
+    res.writeHead(200, headers);
+
+    const clientId = Date.now();
+    const newClient = { id: clientId, res: res, userId: req.user.userId };
+    clients.push(newClient);
+
+    res.write(`data: ${JSON.stringify({ type: 'connected', clientId: clientId })}\n\n`);
+    
+    try {
+        const { data: pastNotifications, error } = await supabase
+            .from('notifications')
+            .select('*')
+            .eq('user_id', req.user.userId)
+            .order('created_at', { ascending: false })
+            .limit(20);
+
+        if (error) throw error;
+
+        if (pastNotifications && pastNotifications.length > 0) {
+            const payload = { type: 'historic_notifications', data: pastNotifications };
+            newClient.res.write(`data: ${JSON.stringify(payload)}\n\n`);
+        }
+    } catch (err) {
+        console.error(`[SSE ERROR] Could not fetch past notifications for user ${req.user.userId}:`, err);
+    }
+
+    req.on('close', () => {
+        clients = clients.filter(client => client.id !== clientId);
+        console.log(`Client ${clientId} disconnected. Remaining clients: ${clients.length}`);
+    });
 });
+
+// ... (The rest of the endpoints are unchanged)
+// --- User Profile Endpoints ---
+app.get('/api/users/:userId', async (req, res) => {
+    const { userId } = req.params;
+    try {
+        const { data: user, error } = await supabase
+            .from('users')
+            .select('id, username, display_name, profile_image_url, role')
+            .eq('id', userId)
+            .single();
+
+        if (error) throw error;
+        if (!user) return res.status(404).json({ error: 'User not found.' });
+        
+        res.json(formatRowForFrontend(user));
+    } catch (err) {
+        if (err.code === 'PGRST116') {
+            return res.status(404).json({ error: 'User not found.' });
+        }
+        res.status(500).json({ error: 'Could not fetch user profile.' });
+    }
+});
+
+app.put('/api/users/:userIdToUpdate', authenticateToken, upload.single('profileImage'), async (req, res) => {
+    const { userIdToUpdate } = req.params;
+    const { userId: authenticatedUserId, role } = req.user;
+
+    if (userIdToUpdate !== authenticatedUserId && role !== 'admin') {
+        return res.status(403).json({ error: 'คุณไม่มีสิทธิ์แก้ไขโปรไฟล์นี้' });
+    }
+
+    const { displayName, currentPassword, newPassword, username } = req.body;
+
+    try {
+        const { data: user, error: fetchError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', userIdToUpdate)
+            .single();
+
+        if (fetchError || !user) {
+            return res.status(404).json({ error: 'ไม่พบผู้ใช้' });
+        }
+        
+        const updateData = {};
+        let needsPasswordVerification = false;
+
+        if (newPassword) needsPasswordVerification = true;
+        if (username && username !== user.username) needsPasswordVerification = true;
+
+        if (needsPasswordVerification) {
+            if (!currentPassword) {
+                return res.status(400).json({ error: 'กรุณากรอกรหัสผ่านปัจจุบันเพื่อยืนยันการเปลี่ยนแปลง' });
+            }
+            const isMatch = await bcrypt.compare(currentPassword, user.password);
+            if (!isMatch) {
+                return res.status(401).json({ error: 'รหัสผ่านปัจจุบันไม่ถูกต้อง' });
+            }
+        }
+        
+        if (displayName && displayName !== user.display_name) {
+            updateData.display_name = displayName;
+            await supabase.from('reviews').update({ author: displayName }).eq('user_id', userIdToUpdate);
+            await supabase.from('review_comments').update({ author: displayName }).eq('user_id', userIdToUpdate);
+        }
+
+        if (username && username !== user.username) {
+            const { data: existingUser } = await supabase.from('users').select('id').eq('username', username).single();
+            if (existingUser && existingUser.id !== userIdToUpdate) {
+                return res.status(409).json({ error: 'ชื่อผู้ใช้นี้ถูกใช้งานแล้ว' });
+            }
+            updateData.username = username;
+        }
+
+        if (newPassword) {
+            updateData.password = await bcrypt.hash(newPassword, 10);
+        }
+
+        if (req.file) {
+            updateData.profile_image_url = [`/uploads/${req.file.filename}`];
+        }
+
+        if (Object.keys(updateData).length === 0) {
+            const token = jwt.sign({ userId: user.id, username: user.username, displayName: user.display_name, role: user.role, profileImageUrl: user.profile_image_url?.[0] || null }, process.env.JWT_SECRET, { expiresIn: '1d' });
+            return res.json({ message: 'ไม่มีข้อมูลที่ต้องอัปเดต', user: formatRowForFrontend(user), token });
+        }
+        
+        const { data: updatedUser, error: updateError } = await supabase
+            .from('users')
+            .update(updateData)
+            .eq('id', userIdToUpdate)
+            .select('id, username, display_name, profile_image_url, role')
+            .single();
+
+        if (updateError) throw updateError;
+        
+        const profileImageUrl = Array.isArray(updatedUser.profile_image_url) && updatedUser.profile_image_url.length > 0 ? updatedUser.profile_image_url[0] : updatedUser.profile_image_url;
+        const token = jwt.sign({ 
+            userId: updatedUser.id, 
+            username: updatedUser.username, 
+            displayName: updatedUser.display_name, 
+            role: updatedUser.role,
+            profileImageUrl: profileImageUrl
+        }, process.env.JWT_SECRET, { expiresIn: '1d' });
+
+        res.json({ message: 'อัปเดตโปรไฟล์สำเร็จ!', user: formatRowForFrontend(updatedUser), token });
+
+    } catch (err) {
+        console.error(`[ERROR] Updating profile for ${userIdToUpdate}:`, err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการอัปเดตโปรไฟล์' });
+    }
+});
+
+app.delete('/api/users/:userIdToDelete', authenticateToken, async (req, res) => {
+    const { userIdToDelete } = req.params;
+    const { userId: authenticatedUserId, role } = req.user;
+    const { currentPassword } = req.body;
+
+    if (userIdToDelete !== authenticatedUserId && role !== 'admin') {
+        return res.status(403).json({ error: 'คุณไม่มีสิทธิ์ลบบัญชีนี้' });
+    }
+    if (!currentPassword) {
+        return res.status(400).json({ error: 'กรุณากรอกรหัสผ่านเพื่อยืนยันการลบ' });
+    }
+
+    try {
+        const { data: user, error: fetchError } = await supabase.from('users').select('password').eq('id', userIdToDelete).single();
+        if (fetchError || !user) {
+            return res.status(404).json({ error: 'ไม่พบผู้ใช้' });
+        }
+
+        const isMatch = await bcrypt.compare(currentPassword, user.password);
+        if (!isMatch) {
+            return res.status(401).json({ error: 'รหัสผ่านไม่ถูกต้อง' });
+        }
+
+        await supabase.from('review_likes').delete().eq('user_id', userIdToDelete);
+        await supabase.from('comment_likes').delete().eq('user_id', userIdToDelete);
+        await supabase.from('review_comments').delete().eq('user_id', userIdToDelete);
+        await supabase.from('reviews').delete().eq('user_id', userIdToDelete);
+        await supabase.from('favorites').delete().eq('user_id', userIdToDelete);
+        await supabase.from('famous_products').delete().eq('user_id', userIdToDelete);
+        await supabase.from('attractions').delete().eq('user_id', userIdToDelete);
+        await supabase.from('foodShops').delete().eq('user_id', userIdToDelete);
+        await supabase.from('users').delete().eq('id', userIdToDelete);
+
+        res.json({ message: 'ลบบัญชีผู้ใช้สำเร็จ' });
+
+    } catch(err) {
+        console.error(`[ERROR] Deleting account for ${userIdToDelete}:`, err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดระหว่างการลบบัญชี' });
+    }
+});
+
+// --- Notifications Endpoints ---
+app.get('/api/notifications', authenticateToken, async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('notifications')
+            .select('*')
+            .eq('user_id', req.user.userId)
+            .order('created_at', { ascending: false })
+            .limit(20);
+
+        if (error) throw error;
+        res.json(data);
+    } catch (err) {
+        res.status(500).json({ error: 'Could not fetch notifications.' });
+    }
+});
+
+app.get('/api/notifications/unread/count', authenticateToken, async (req, res) => {
+    try {
+        const { count, error } = await supabase
+            .from('notifications')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', req.user.userId)
+            .eq('is_read', false);
+        if (error) throw error;
+        res.json({ count: count || 0 });
+    } catch (err) {
+        res.status(500).json({ error: 'Could not fetch unread count.' });
+    }
+});
+
+app.post('/api/notifications/read', authenticateToken, async (req, res) => {
+    try {
+        const { error } = await supabase.from('notifications').update({ is_read: true }).eq('user_id', req.user.userId).eq('is_read', false);
+        if (error) throw error;
+        res.status(200).json({ message: 'Notifications marked as read.' });
+    } catch (err) {
+        res.status(500).json({ error: 'Could not mark notifications as read.' });
+    }
+});
+
+// --- Famous Products Endpoints ---
+app.get('/api/famous-products/random', async (req, res) => {
+    try {
+        const { data, error } = await supabase.from('famous_products').select('*').is('location_id', null);
+        if (error) throw error;
+        const shuffled = data.sort(() => 0.5 - Math.random());
+        res.json(shuffled.slice(0, 2).map(formatRowForFrontend));
+    } catch (err) {
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลของขึ้นชื่อ' });
+    }
+});
+
+app.get('/api/famous-products/all', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const { data: attractions, error: attrError } = await supabase.from('attractions').select('id, name');
+        if (attrError) throw attrError;
+
+        const { data: foodShops, error: foodError } = await supabase.from('foodShops').select('id, name');
+        if (foodError) throw foodError;
+        
+        const locationMap = new Map();
+        attractions.forEach(loc => locationMap.set(loc.id, loc.name));
+        foodShops.forEach(loc => locationMap.set(loc.id, loc.name));
+
+        const { data: products, error: productsError } = await supabase
+            .from('famous_products')
+            .select('*');
+
+        if (productsError) throw productsError;
+
+        const productsWithLocation = products.map(product => {
+            const formatted = formatRowForFrontend(product);
+            return {
+                ...formatted,
+                locationName: product.location_id ? locationMap.get(product.location_id) || 'ไม่พบสถานที่' : 'ส่วนกลาง'
+            };
+        });
+
+        res.json(productsWithLocation);
+    } catch (err) {
+        console.error("Error fetching all famous products with locations:", err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลของขึ้นชื่อทั้งหมด' });
+    }
+});
+
+// --- Location Endpoints ---
+app.get('/api/locations/deletion-requests', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const { data: attractions, error: attrError } = await supabase
+            .from('attractions')
+            .select('*')
+            .eq('status', 'pending_deletion');
+        if (attrError) throw attrError;
+
+        const { data: foodShops, error: foodError } = await supabase
+            .from('foodShops')
+            .select('*')
+            .eq('status', 'pending_deletion');
+        if (foodError) throw foodError;
+
+        const allRequests = [...attractions, ...foodShops];
+        res.json(allRequests.map(formatRowForFrontend));
+    } catch (err) {
+        console.error("Error fetching deletion requests:", err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลคำขอลบ' });
+    }
+});
+
+app.post('/api/locations/:id/deny-deletion', authenticateToken, requireAdmin, async (req, res) => {
+    const { id } = req.params;
+    try {
+        let { data, error } = await supabase
+            .from('attractions')
+            .update({ status: 'approved' })
+            .eq('id', id)
+            .select();
+
+        if (error) throw error;
+        
+        if (!data || data.length === 0) {
+            ({ data, error } = await supabase
+                .from('foodShops')
+                .update({ status: 'approved' })
+                .eq('id', id)
+                .select());
+            if (error) throw error;
+        }
+        
+        if (!data || data.length === 0) {
+             return res.status(404).json({ message: 'ไม่พบคำขอลบสำหรับสถานที่นี้' });
+        }
+
+        res.json({ message: 'ปฏิเสธการลบและคืนสถานะสถานที่เรียบร้อยแล้ว' });
+    } catch (err) {
+        console.error(`Error denying deletion for ${id}:`, err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการปฏิเสธคำขอลบ' });
+    }
+});
+
+app.get('/api/attractions', async (req, res) => {
+    try {
+        let query = supabase.from('attractions').select('*').eq('status', 'approved');
+        if (req.query.sortBy === 'rating') query = query.order('rating', { ascending: false });
+        const { data, error } = await query;
+        if (error) throw error;
+        res.json(data.map(formatRowForFrontend));
+    } catch (err) {
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลสถานที่ท่องเที่ยว' });
+    }
+});
+
+app.get('/api/foodShops', async (req, res) => {
+    try {
+        let query = supabase.from('foodShops').select('*').eq('status', 'approved');
+        if (req.query.sortBy === 'rating') query = query.order('rating', { ascending: false });
+        const { data, error } = await query;
+        if (error) throw error;
+        res.json(data.map(formatRowForFrontend));
+    } catch (err) {
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลร้านอาหาร' });
+    }
+});
+
+app.get('/api/locations/same-category', async (req, res) => {
+    const { category, excludeId } = req.query;
+    if (!category) return res.status(400).json({ error: 'Category is required' });
+    try {
+        const { data: attractions, error: attrError } = await supabase.from('attractions').select('*').eq('category', category).neq('id', excludeId || '').eq('status', 'approved').limit(5);
+        if (attrError) throw attrError;
+        const { data: foodShops, error: foodError } = await supabase.from('foodShops').select('*').eq('category', category).neq('id', excludeId || '').eq('status', 'approved').limit(5);
+        if (foodError) throw foodError;
+        const combined = [...attractions, ...foodShops];
+        res.json(combined.sort(() => 0.5 - Math.random()).slice(0, 5).map(formatRowForFrontend));
+    } catch (err) {
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการค้นหาสถานที่ในหมวดหมู่เดียวกัน' });
+    }
+});
+
+app.get('/api/locations/:locationId/famous-products', async (req, res) => {
+    const { locationId } = req.params;
+    try {
+        const { data, error } = await supabase.from('famous_products').select('*').eq('location_id', locationId);
+        if (error) throw error;
+        res.json(data.map(formatRowForFrontend));
+    } catch (err) {
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลของขึ้นชื่อ' });
+    }
+});
+
+app.get('/api/locations/:id', async (req, res) => {
+    const { id } = req.params;
+    try {
+        let { data: location } = await supabase.from('attractions').select('*').eq('id', id).single();
+        if (!location) ({ data: location } = await supabase.from('foodShops').select('*').eq('id', id).single());
+        
+        if (location) res.json(formatRowForFrontend(location));
+        else res.status(404).json({ error: 'ไม่พบสถานที่' });
+    } catch (err) {
+        if (err.code !== 'PGRST116') res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลสถานที่' });
+        else res.status(404).json({ error: 'ไม่พบสถานที่' });
+    }
+});
+
+app.post('/api/locations', authenticateToken, upload.array('images', 10), async (req, res) => {
+    const { name, category, description, googleMapUrl, hours, contact } = req.body;
+    const { userId, displayName, username, profileImageUrl } = req.user;
+    if (!name || !category) return res.status(400).json({ error: 'กรุณากรอกชื่อและหมวดหมู่' });
+    try {
+        const allImageUrls = req.files ? req.files.map(f => `/uploads/${f.filename}`) : [];
+
+        const newLocation = {
+            id: crypto.randomUUID(), name, category, description: description || '',
+            google_map_url: googleMapUrl, hours, contact, user_id: userId, status: 'approved',
+            image_url: allImageUrls.length > 0 ? allImageUrls[0] : null,
+            detail_images: allImageUrls.length > 1 ? allImageUrls.slice(1) : [],
+            type: ['ร้านอาหาร', 'คาเฟ่', 'ตลาด'].includes(category) ? 'foodshop' : 'attraction',
+            ...extractCoordsFromUrl(googleMapUrl)
+        };
+        const tableName = newLocation.type === 'foodshop' ? 'foodShops' : 'attractions';
+        await supabase.from(tableName).insert(newLocation);
+        
+        createAndSendNotification({
+            type: 'new_location', 
+            actorId: userId, 
+            actorName: displayName || username,
+            actorProfileImageUrl: profileImageUrl,
+            payload: { location: formatRowForFrontend(newLocation) }
+        });
+        res.status(201).json(formatRowForFrontend(newLocation));
+    } catch (err) {
+        console.error("Error creating location:", err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการบันทึกข้อมูล' });
+    }
+});
+
+app.put('/api/locations/:id', authenticateToken, upload.array('images', 10), async (req, res) => {
+    const { id } = req.params;
+    const { userId, role } = req.user;
+    const { name, category, description, googleMapUrl, hours, contact, existingImages } = req.body;
+
+    try {
+        let location, tableName;
+        const { data: attractionData } = await supabase.from('attractions').select('*').eq('id', id).single();
+        if (attractionData) {
+            location = attractionData;
+            tableName = 'attractions';
+        } else {
+            const { data: foodShopData } = await supabase.from('foodShops').select('*').eq('id', id).single();
+            if (foodShopData) {
+                location = foodShopData;
+                tableName = 'foodShops';
+            }
+        }
+
+        if (!location) {
+            return res.status(404).json({ error: 'ไม่พบสถานที่ที่ต้องการแก้ไข' });
+        }
+        if (role !== 'admin' && location.user_id !== userId) {
+            return res.status(403).json({ error: 'คุณไม่มีสิทธิ์แก้ไขข้อมูลนี้' });
+        }
+        
+        let keptImages = [];
+        if (existingImages) {
+            try {
+                const parsedImages = JSON.parse(existingImages);
+                const baseURL = process.env.BASE_URL || `http://localhost:${port}`;
+                keptImages = parsedImages.map(url => url.startsWith(baseURL) ? url.substring(baseURL.length) : url);
+            } catch (e) {
+                if (typeof existingImages === 'string') {
+                    const baseURL = process.env.BASE_URL || `http://localhost:${port}`;
+                    const relativePath = existingImages.startsWith(baseURL) ? existingImages.substring(baseURL.length) : existingImages;
+                    keptImages = [relativePath];
+                }
+            }
+        }
+
+        const newImageUrls = req.files ? req.files.map(f => `/uploads/${f.filename}`) : [];
+        const allImages = [...keptImages, ...newImageUrls];
+
+        const updateData = {
+            name: name || location.name,
+            category: category || location.category,
+            description: description || location.description,
+            google_map_url: googleMapUrl || location.google_map_url,
+            hours: hours || location.hours,
+            contact: contact || location.contact,
+            ...extractCoordsFromUrl(googleMapUrl || location.google_map_url),
+            image_url: allImages.length > 0 ? allImages[0] : null,
+            detail_images: allImages.length > 1 ? allImages.slice(1) : [],
+        };
+
+        const { data: updatedLocation, error: updateError } = await supabase
+            .from(tableName)
+            .update(updateData)
+            .eq('id', id)
+            .select()
+            .single();
+            
+        if (updateError) throw updateError;
+
+        res.json(formatRowForFrontend(updatedLocation));
+    } catch (err) {
+        console.error('Error updating location:', err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการอัปเดตข้อมูลสถานที่' });
+    }
+});
+
+app.post('/api/locations/:id/request-deletion', authenticateToken, async (req, res) => {
+    const { id } = req.params;
+    const { userId, role } = req.user;
+    try {
+        let { data: location } = await supabase.from('attractions').select('user_id').eq('id', id).single();
+        let tableName = 'attractions';
+        if (!location) {
+            ({ data: location } = await supabase.from('foodShops').select('user_id').eq('id', id).single());
+            tableName = 'foodShops';
+        }
+        if (!location) return res.status(404).json({ error: 'Location not found.' });
+        if (location.user_id !== userId && role !== 'admin') return res.status(403).json({ error: 'Not authorized.' });
+        
+        const { error: updateError } = await supabase.from(tableName).update({ status: 'pending_deletion' }).eq('id', id);
+        if (updateError) throw updateError;
+        res.json({ message: 'ส่งคำขอลบเรียบร้อยแล้ว' });
+    } catch (err) {
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการส่งคำขอลบ' });
+    }
+});
+
+app.delete('/api/locations/:id', authenticateToken, requireAdmin, async (req, res) => {
+    const { id } = req.params;
+    try {
+        await supabase.from('reviews').delete().eq('location_id', id);
+        await supabase.from('famous_products').delete().eq('location_id', id);
+        await supabase.from('favorites').delete().eq('location_id', id);
+        
+        await supabase.from('attractions').delete().eq('id', id);
+        await supabase.from('foodShops').delete().eq('id', id);
+        
+        res.json({ message: 'ลบข้อมูลสถานที่สำเร็จ' });
+    } catch (err) {
+        console.error(`Error deleting location ${id}:`, err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการลบข้อมูลสถานที่' });
+    }
+});
+
+// --- Review Endpoints ---
+app.post('/api/reviews/:locationId', authenticateToken, upload.array('reviewImages', 5), async (req, res) => {
+    const { locationId } = req.params;
+    const { rating, comment } = req.body;
+    const { userId, username, displayName, profileImageUrl } = req.user;
+    if (!rating || !comment) return res.status(400).json({ error: 'กรุณากรอกคะแนนและเนื้อหารีวิว' });
+    try {
+        const imageUrls = req.files ? req.files.map(f => `/uploads/${f.filename}`) : [];
+        const newReview = {
+            id: crypto.randomUUID(), location_id: locationId, user_id: userId,
+            author: displayName || username, rating: parseInt(rating, 10), comment: comment,
+            image_urls: imageUrls, likes_count: 0
+        };
+        await supabase.from('reviews').insert(newReview);
+        
+        const { data: allReviews } = await supabase.from('reviews').select('rating').eq('location_id', locationId);
+        const totalRating = allReviews.reduce((sum, r) => sum + r.rating, 0);
+        const averageRating = (allReviews.length > 0) ? (totalRating / allReviews.length).toFixed(1) : 0;
+        await supabase.from('attractions').update({ rating: averageRating }).eq('id', locationId);
+        await supabase.from('foodShops').update({ rating: averageRating }).eq('id', locationId);
+        
+        let { data: location } = await supabase.from('attractions').select('*').eq('id', locationId).single();
+        if (!location) ({ data: location } = await supabase.from('foodShops').select('*').eq('id', locationId).single());
+        
+        if (location) {
+            createAndSendNotification({
+                type: 'new_review', 
+                actorId: userId, 
+                actorName: displayName || username,
+                actorProfileImageUrl: profileImageUrl,
+                recipientId: location.user_id, 
+                payload: { 
+                    location: formatRowForFrontend(location),
+                    commentSnippet: comment.substring(0, 50) 
+                }
+            });
+        }
+        
+        res.status(201).json({ ...newReview, image_urls: newReview.image_urls.map(constructFullUrl) });
+    } catch (err) {
+        console.error("Error creating review:", err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการบันทึกรีวิว' });
+    }
+});
+
+app.get('/api/reviews/:locationId', async (req, res) => {
+    const { locationId } = req.params;
+    const { userId } = req.query;
+    try {
+        // Step 1: Fetch reviews for the location
+        const { data: reviewsData, error: reviewsError } = await supabase
+            .from('reviews')
+            .select('*')
+            .eq('location_id', locationId)
+            .order('created_at', { ascending: false });
+            
+        if (reviewsError) throw reviewsError;
+        if (!reviewsData || reviewsData.length === 0) {
+            return res.json([]);
+        }
+
+        // Step 2: Get all review IDs to fetch their comment counts
+        const reviewIds = reviewsData.map(review => review.id);
+
+        // Step 3: Fetch all comments related to these reviews
+        const { data: commentsData, error: commentsError } = await supabase
+            .from('review_comments')
+            .select('review_id')
+            .in('review_id', reviewIds);
+
+        if (commentsError) throw commentsError;
+
+        // Step 4: Create a map of comment counts for easy lookup
+        const commentCounts = commentsData.reduce((acc, comment) => {
+            acc[comment.review_id] = (acc[comment.review_id] || 0) + 1;
+            return acc;
+        }, {});
+
+        // Step 5: Merge the comment counts back into the reviews data
+        const reviewsWithCount = reviewsData.map(review => ({
+            ...review,
+            comments_count: commentCounts[review.id] || 0
+        }));
+
+        const formatReview = (review) => ({
+            ...review,
+            image_urls: (Array.isArray(review.image_urls) ? review.image_urls : []).filter(Boolean).map(url => constructFullUrl(url))
+        });
+        
+        // If no user is logged in, return reviews without like status
+        if (!userId) {
+            return res.json(reviewsWithCount.map(r => ({ ...formatReview(r), user_has_liked: false })));
+        }
+        
+        // If a user is logged in, check which reviews they have liked
+        const { data: likesData, error: likesError } = await supabase
+            .from('review_likes')
+            .select('review_id')
+            .eq('user_id', userId)
+            .in('review_id', reviewIds);
+            
+        if (likesError) throw likesError;
+        
+        const likedReviewIds = new Set(likesData.map(like => like.review_id));
+        
+        res.json(reviewsWithCount.map(r => ({ ...formatReview(r), user_has_liked: likedReviewIds.has(r.id) })));
+
+    } catch (err) {
+        console.error("Error fetching reviews with comment count:", err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลรีวิว' });
+    }
+});
+
+app.put('/api/reviews/:reviewId', authenticateToken, upload.array('reviewImages', 5), async (req, res) => {
+    const { reviewId } = req.params;
+    const { rating, comment, existingImages } = req.body;
+    const { userId, role } = req.user;
+
+    try {
+        const { data: review, error: fetchError } = await supabase.from('reviews').select('*').eq('id', reviewId).single();
+        if (fetchError || !review) return res.status(404).json({ error: 'ไม่พบรีวิวที่ต้องการแก้ไข' });
+        if (review.user_id !== userId && role !== 'admin') return res.status(403).json({ error: 'คุณไม่มีสิทธิ์แก้ไขรีวิวนี้' });
+
+        const newImageUrls = req.files ? req.files.map(f => `/uploads/${f.filename}`) : [];
+        let keptImages = [];
+        if (existingImages) {
+            try {
+                const parsedImages = JSON.parse(existingImages);
+                const baseURL = process.env.BASE_URL || `http://localhost:${port}`;
+                keptImages = parsedImages.map(url => url.startsWith(baseURL) ? url.substring(baseURL.length) : url);
+            } catch (e) {
+                keptImages = [];
+            }
+        }
+        
+        const updateData = {
+            rating: rating ? parseInt(rating, 10) : review.rating,
+            comment: comment || review.comment,
+            image_urls: [...keptImages, ...newImageUrls]
+        };
+
+        const { data: updatedReview, error: updateError } = await supabase.from('reviews').update(updateData).eq('id', reviewId).select().single();
+        if (updateError) throw updateError;
+
+        const { data: allReviews, error: reviewsError } = await supabase.from('reviews').select('rating').eq('location_id', review.location_id);
+        if (reviewsError) throw reviewsError;
+        const totalRating = allReviews.reduce((sum, r) => sum + r.rating, 0);
+        const averageRating = (allReviews.length > 0) ? (totalRating / allReviews.length).toFixed(1) : 0;
+        await supabase.from('attractions').update({ rating: averageRating }).eq('id', review.location_id);
+        await supabase.from('foodShops').update({ rating: averageRating }).eq('id', review.location_id);
+
+        const formattedReview = {
+            ...updatedReview,
+            image_urls: (updatedReview.image_urls || []).map(url => constructFullUrl(url)),
+            user_has_liked: false
+        };
+        res.json(formattedReview);
+
+    } catch (err) {
+        console.error('Error updating review:', err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการอัปเดตรีวิว' });
+    }
+});
+
+app.delete('/api/reviews/:reviewId', authenticateToken, async (req, res) => {
+    const { reviewId } = req.params;
+    const { userId, role } = req.user;
+
+    try {
+        const { data: review, error: fetchError } = await supabase.from('reviews').select('user_id, location_id').eq('id', reviewId).single();
+        if (fetchError || !review) return res.status(404).json({ error: 'ไม่พบรีวิวที่ต้องการลบ' });
+        if (review.user_id !== userId && role !== 'admin') return res.status(403).json({ error: 'คุณไม่มีสิทธิ์ลบรีวิวนี้' });
+
+        await supabase.from('review_comments').delete().eq('review_id', reviewId);
+        await supabase.from('review_likes').delete().eq('review_id', reviewId);
+
+        const { error: deleteError } = await supabase.from('reviews').delete().eq('id', reviewId);
+        if (deleteError) throw deleteError;
+
+        const { data: allReviews, error: reviewsError } = await supabase.from('reviews').select('rating').eq('location_id', review.location_id);
+        if (reviewsError) throw reviewsError;
+        const totalRating = allReviews.reduce((sum, r) => sum + r.rating, 0);
+        const averageRating = (allReviews.length > 0) ? (totalRating / allReviews.length).toFixed(1) : 0;
+        await supabase.from('attractions').update({ rating: averageRating }).eq('id', review.location_id);
+        await supabase.from('foodShops').update({ rating: averageRating }).eq('id', review.location_id);
+
+        res.json({ message: 'ลบรีวิวสำเร็จ' });
+
+    } catch (err) {
+        console.error('Error deleting review:', err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการลบรีวิว' });
+    }
+});
+
+
+app.post('/api/reviews/:reviewId/toggle-like', authenticateToken, async (req, res) => {
+    const { reviewId } = req.params;
+    const { userId, username, displayName, profileImageUrl } = req.user;
+    try {
+        const { data: existingLikes, error: findError } = await supabase
+            .from('review_likes')
+            .select('id')
+            .match({ user_id: userId, review_id: reviewId });
+
+        if (findError) throw findError;
+        
+        const { data: review, error: reviewError } = await supabase.from('reviews').select('likes_count, user_id, location_id, comment').eq('id', reviewId).single();
+        if (reviewError || !review) return res.status(404).json({ error: 'Review not found' });
+
+        let currentLikes = Number(review.likes_count || 0);
+
+        if (existingLikes && existingLikes.length > 0) {
+            await supabase.from('review_likes').delete().match({ user_id: userId, review_id: reviewId });
+            currentLikes = Math.max(0, currentLikes - 1);
+        } else {
+            await supabase.from('review_likes').insert({ user_id: userId, review_id: reviewId });
+            currentLikes += 1;
+            
+            if (review.user_id !== userId) { 
+                let { data: location } = await supabase.from('attractions').select('*').eq('id', review.location_id).single();
+                if (!location) ({ data: location } = await supabase.from('foodShops').select('*').eq('id', review.location_id).single());
+
+                if (location) {
+                    createAndSendNotification({
+                        type: 'new_like',
+                        actorId: userId,
+                        actorName: displayName || username,
+                        actorProfileImageUrl: profileImageUrl,
+                        recipientId: review.user_id,
+                        payload: {
+                            location: formatRowForFrontend(location),
+                            commentSnippet: review.comment.substring(0, 50)
+                        }
+                    });
+                }
+            }
+        }
+
+        const { data: updatedReview, error: updateError } = await supabase
+            .from('reviews')
+            .update({ likes_count: currentLikes })
+            .eq('id', reviewId)
+            .select('likes_count')
+            .single();
+            
+        if (updateError) throw updateError;
+        
+        res.json({ status: (existingLikes && existingLikes.length > 0) ? 'unliked' : 'liked', likesCount: updatedReview.likes_count });
+
+    } catch (err) {
+        console.error('Error toggling like:', err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการกดไลค์รีวิว' });
+    }
+});
+
+// --- Review Comments Endpoints ---
+app.get('/api/reviews/:reviewId/comments', async (req, res) => {
+    const { reviewId } = req.params;
+    try {
+        const { data, error } = await supabase
+            .from('review_comments')
+            .select('*')
+            .eq('review_id', reviewId)
+            .order('created_at', { ascending: true }); // Order comments chronologically
+
+        if (error) throw error;
+        res.json(data || []);
+    } catch (err) {
+        console.error("Error fetching comments for review:", err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลความคิดเห็น' });
+    }
+});
+
+app.post('/api/reviews/:reviewId/comments', authenticateToken, async (req, res) => {
+    const { reviewId } = req.params;
+    const { comment } = req.body;
+    const { userId, username, displayName, profileImageUrl } = req.user;
+
+    if (!comment) {
+        return res.status(400).json({ error: 'เนื้อหาคอมเมนต์ห้ามว่างเปล่า' });
+    }
+
+    try {
+        const newComment = {
+            id: crypto.randomUUID(),
+            review_id: reviewId,
+            user_id: userId,
+            author: displayName || username,
+            comment: comment,
+            likes_count: 0
+        };
+        const { data, error } = await supabase.from('review_comments').insert(newComment).select().single();
+        if (error) throw error;
+
+        const { data: review } = await supabase.from('reviews').select('user_id, location_id').eq('id', reviewId).single();
+        
+        if (review && review.user_id !== userId) {
+            let { data: location } = await supabase.from('attractions').select('*').eq('id', review.location_id).single();
+            if (!location) ({ data: location } = await supabase.from('foodShops').select('*').eq('id', review.location_id).single());
+
+            if (location) {
+                createAndSendNotification({
+                    type: 'new_reply',
+                    actorId: userId,
+                    actorName: displayName || username,
+                    actorProfileImageUrl: profileImageUrl,
+                    recipientId: review.user_id,
+                    payload: {
+                        location: formatRowForFrontend(location),
+                        commentSnippet: comment.substring(0, 50)
+                    }
+                });
+            }
+        }
+        res.status(201).json(data);
+    } catch (err) {
+        console.error("Error creating comment:", err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการบันทึกคอมเมนต์' });
+    }
+});
+
+app.post('/api/comments/:commentId/toggle-like', authenticateToken, async (req, res) => {
+    const { commentId } = req.params;
+    const { userId, username, displayName, profileImageUrl } = req.user;
+
+    try {
+        const { data: comment, error: commentError } = await supabase
+            .from('review_comments')
+            .select('user_id, review_id, comment, likes_count')
+            .eq('id', commentId)
+            .single();
+
+        if (commentError || !comment) {
+            return res.status(404).json({ error: 'Comment not found.' });
+        }
+
+        const { data: existingLike, error: findError } = await supabase
+            .from('comment_likes')
+            .select('id')
+            .match({ user_id: userId, comment_id: commentId })
+            .single();
+
+        if (findError && findError.code !== 'PGRST116') throw findError;
+
+        let currentLikes = Number(comment.likes_count || 0);
+        let status;
+
+        if (existingLike) {
+            await supabase.from('comment_likes').delete().match({ id: existingLike.id });
+            currentLikes = Math.max(0, currentLikes - 1);
+            status = 'unliked';
+        } else {
+            await supabase.from('comment_likes').insert({ user_id: userId, comment_id: commentId });
+            currentLikes += 1;
+            status = 'liked';
+
+            if (comment.user_id !== userId) {
+                const { data: review } = await supabase.from('reviews').select('location_id').eq('id', comment.review_id).single();
+                if (review) {
+                    let { data: location } = await supabase.from('attractions').select('*').eq('id', review.location_id).single();
+                    if (!location) ({ data: location } = await supabase.from('foodShops').select('*').eq('id', review.location_id).single());
+
+                    if (location) {
+                        createAndSendNotification({
+                            type: 'new_comment_like',
+                            actorId: userId,
+                            actorName: displayName || username,
+                            actorProfileImageUrl: profileImageUrl,
+                            recipientId: comment.user_id,
+                            payload: {
+                                location: formatRowForFrontend(location),
+                                commentSnippet: comment.comment.substring(0, 50)
+                            }
+                        });
+                    }
+                }
+            }
+        }
+
+        const { data: updatedComment, error: updateError } = await supabase
+            .from('review_comments')
+            .update({ likes_count: currentLikes })
+            .eq('id', commentId)
+            .select('likes_count')
+            .single();
+
+        if (updateError) throw updateError;
+        
+        res.json({ status, likesCount: updatedComment.likes_count });
+
+    } catch (err) {
+        console.error("Error toggling comment like:", err);
+        res.status(500).json({ error: 'Failed to toggle like on comment.' });
+    }
+});
+
+
+// --- Auth Endpoints ---
+app.post('/api/register', async (req, res) => {
+    const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ error: 'กรุณากรอกชื่อผู้ใช้และรหัสผ่าน' });
+    try {
+        const { data: existingUser } = await supabase.from('users').select('id').eq('username', username).single();
+        if (existingUser) return res.status(409).json({ error: 'ชื่อผู้ใช้นี้ถูกใช้งานแล้ว' });
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const newUser = { id: crypto.randomUUID(), username, display_name: username, password: hashedPassword, role: 'user' };
+        const { error } = await supabase.from('users').insert(newUser);
+        if (error) throw error;
+        res.status(201).json({ message: 'สมัครสมาชิกสำเร็จ!' });
+    } catch (err) {
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการสมัครสมาชิก' });
+    }
+});
+
 app.post('/api/login', async (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) return res.status(400).json({ error: 'กรุณากรอกชื่อผู้ใช้และรหัสผ่าน' });
-  try {
-    const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
-    if (!user) return res.status(401).json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (isMatch) {
-      const token = jwt.sign({ userId: user.id, username: user.username, displayName: user.display_name, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1d' });
-      res.json({ message: 'เข้าสู่ระบบสำเร็จ!', user: formatUserForFrontend(user), token });
-    } else {
-      res.status(401).json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
+    const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ error: 'กรุณากรอกชื่อผู้ใช้และรหัสผ่าน' });
+    try {
+        const { data: user, error } = await supabase.from('users').select('*').eq('username', username).single();
+        if (error || !user) return res.status(401).json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (isMatch) {
+            const profileImageUrl = Array.isArray(user.profile_image_url) && user.profile_image_url.length > 0 ? user.profile_image_url[0] : user.profile_image_url;
+            const token = jwt.sign({ 
+                userId: user.id, 
+                username: user.username, 
+                displayName: user.display_name, 
+                role: user.role,
+                profileImageUrl: profileImageUrl
+            }, process.env.JWT_SECRET, { expiresIn: '1d' });
+            res.json({ message: 'เข้าสู่ระบบสำเร็จ!', user: formatRowForFrontend(user), token });
+        } else {
+            res.status(401).json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
+        }
+    } catch (err) {
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ' });
     }
-  } catch (err) {
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ' });
-  }
 });
-app.get('/api/favorites', authenticateToken, (req, res) => {
-  const { userId } = req.user;
-  try {
-    const favorites = db.prepare('SELECT location_id FROM favorites WHERE user_id = ?').all(userId).map(row => row.location_id);
-    res.json(favorites);
-  } catch (err) {
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลรายการโปรด' });
-  }
-});
-app.post('/api/favorites/toggle', authenticateToken, (req, res) => {
-  const { locationId } = req.body;
-  const { userId } = req.user;
-  if (!locationId) return res.status(400).json({ error: 'ข้อมูลไม่ครบถ้วน' });
-  try {
-    const existing = db.prepare('SELECT * FROM favorites WHERE user_id = ? AND location_id = ?').get(userId, locationId);
-    if (existing) {
-      db.prepare('DELETE FROM favorites WHERE user_id = ? AND location_id = ?').run(userId, locationId);
-      res.json({ status: 'removed' });
-    } else {
-      db.prepare('INSERT INTO favorites (user_id, location_id) VALUES (?, ?)').run(userId, locationId);
-      res.json({ status: 'added' });
+
+// --- Favorites Endpoints ---
+app.get('/api/favorites', authenticateToken, async (req, res) => {
+    const { userId } = req.user;
+    try {
+      const { data, error } = await supabase.from('favorites').select('location_id').eq('user_id', userId);
+      if (error) throw error;
+      const favoriteIds = data.map(fav => fav.location_id);
+      res.json(favoriteIds);
+    } catch (err) {
+      res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลรายการโปรด' });
     }
-  } catch (err) {
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการบันทึกรายการโปรด' });
-  }
 });
-app.get('/api/users/:userId', (req, res) => {
-  const { userId } = req.params;
-  try {
-    const user = db.prepare('SELECT id, username, display_name, profile_image_url, role FROM users WHERE id = ?').get(userId);
-    if (user) res.json(formatUserForFrontend(user));
-    else res.status(404).json({ error: 'ไม่พบผู้ใช้' });
-  } catch (err) {
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูล' });
-  }
-});
-app.put('/api/users/:userId', authenticateToken, upload.single('profileImage'), async (req, res) => {
-  const userIdToUpdate = req.params.userId;
-  const requestingUser = req.user;
-  if (userIdToUpdate !== requestingUser.userId && requestingUser.role !== 'admin') {
-    return res.status(403).json({ error: "Forbidden: You can only update your own profile." });
-  }
-  const { username, displayName, currentPassword, newPassword } = req.body;
-  try {
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userIdToUpdate);
-    if (!user) return res.status(404).json({ error: 'ไม่พบผู้ใช้' });
-    
-    const isChangeRequiringPassword = (username && username !== user.username) || (newPassword && newPassword.length > 0);
-    if (isChangeRequiringPassword && requestingUser.role !== 'admin') {
-      if (!currentPassword) return res.status(401).json({ error: 'กรุณากรอกรหัสผ่านปัจจุบันเพื่อยืนยันการเปลี่ยนแปลง' });
-      if (!await bcrypt.compare(currentPassword, user.password)) return res.status(401).json({ error: 'รหัสผ่านปัจจุบันไม่ถูกต้อง' });
-    }
-    
-    const transaction = db.transaction(() => {
-      if (username && username !== user.username) {
-        if (db.prepare('SELECT id FROM users WHERE username = ? AND id != ?').get(username, userIdToUpdate)) throw new Error('USERNAME_TAKEN');
-        db.prepare('UPDATE users SET username = ? WHERE id = ?').run(username, userIdToUpdate);
+ 
+app.post('/api/favorites/toggle', authenticateToken, async (req, res) => {
+    const { locationId } = req.body;
+    const { userId } = req.user;
+    if (!locationId) return res.status(400).json({ error: 'ข้อมูลไม่ครบถ้วน' });
+    try {
+      const { data: existing } = await supabase.from('favorites').select('id').match({ user_id: userId, location_id: locationId }).single();
+      if (existing) {
+        await supabase.from('favorites').delete().match({ id: existing.id });
+        res.json({ status: 'removed' });
+      } else {
+        await supabase.from('favorites').insert({ user_id: userId, location_id: locationId });
+        res.json({ status: 'added' });
       }
-      if (displayName && displayName !== user.display_name) {
-        db.prepare('UPDATE users SET display_name = ? WHERE id = ?').run(displayName, userIdToUpdate);
-        db.prepare('UPDATE reviews SET author = ? WHERE user_id = ?').run(displayName, userIdToUpdate);
-        db.prepare('UPDATE review_comments SET author = ? WHERE user_id = ?').run(displayName, userIdToUpdate);
-      }
-      if (newPassword && newPassword.length > 0) {
-        const hashedNewPassword = bcrypt.hashSync(newPassword, 10);
-        db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hashedNewPassword, userIdToUpdate);
-      }
-      if (req.file) {
-        db.prepare('UPDATE users SET profile_image_url = ? WHERE id = ?').run(`/uploads/${req.file.filename}`, userIdToUpdate);
-      }
-    });
-    
-    transaction();
-    const updatedUserRaw = db.prepare('SELECT * FROM users WHERE id = ?').get(userIdToUpdate);
-    
-    const newToken = jwt.sign(
-      { 
-        userId: updatedUserRaw.id, 
-        username: updatedUserRaw.username, 
-        displayName: updatedUserRaw.display_name, 
-        role: updatedUserRaw.role 
-      }, 
-      process.env.JWT_SECRET, 
-      { expiresIn: '1d' }
-    );
-
-    res.json({ 
-      message: 'อัปเดตโปรไฟล์สำเร็จ!', 
-      user: formatUserForFrontend(updatedUserRaw), 
-      token: newToken 
-    });
-  } catch (err) {
-    if (err.message === 'USERNAME_TAKEN') return res.status(409).json({ error: 'ชื่อผู้ใช้สำหรับเข้าระบบนี้ถูกใช้งานแล้ว' });
-    console.error("Profile update error:", err);
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในการอัปเดตโปรไฟล์' });
-  }
-});
-app.delete('/api/users/:userId', authenticateToken, async (req, res) => {
-  const userIdToDelete = req.params.userId;
-  const requestingUser = req.user;
-  const { currentPassword } = req.body;
-
-  if (userIdToDelete !== requestingUser.userId) {
-    return res.status(403).json({ error: "Forbidden: You can only delete your own account." });
-  }
-
-  if (!currentPassword) {
-    return res.status(400).json({ error: 'กรุณากรอกรหัสผ่านปัจจุบันเพื่อยืนยันการลบบัญชี' });
-  }
-
-  try {
-    const user = db.prepare('SELECT password FROM users WHERE id = ?').get(userIdToDelete);
-    if (!user) {
-      return res.status(404).json({ error: 'ไม่พบผู้ใช้' });
+    } catch (err) {
+      res.status(500).json({ error: 'เกิดข้อผิดพลาดในการบันทึกรายการโปรด' });
     }
-
-    const isMatch = await bcrypt.compare(currentPassword, user.password);
-    if (!isMatch) {
-      return res.status(401).json({ error: 'รหัสผ่านปัจจุบันไม่ถูกต้อง' });
-    }
-
-    const deleteTransaction = db.transaction(() => {
-      db.prepare('DELETE FROM reviews WHERE user_id = ?').run(userIdToDelete);
-      db.prepare('DELETE FROM review_comments WHERE user_id = ?').run(userIdToDelete);
-      db.prepare('DELETE FROM review_likes WHERE user_id = ?').run(userIdToDelete);
-      db.prepare('DELETE FROM favorites WHERE user_id = ?').run(userIdToDelete);
-      db.prepare('DELETE FROM famous_products WHERE user_id = ?').run(userIdToDelete);
-      db.prepare('DELETE FROM users WHERE id = ?').run(userIdToDelete);
-    });
-
-    deleteTransaction();
-
-    res.json({ message: 'ลบบัญชีผู้ใช้และข้อมูลทั้งหมดเรียบร้อยแล้ว' });
-
-  } catch (err) {
-    console.error("Account deletion error:", err);
-    res.status(500).json({ error: 'เกิดข้อผิดพลาดในระหว่างการลบบัญชี' });
-  }
 });
 
+// --- Famous Product CRUD ---
+app.post('/api/famous-products', authenticateToken, upload.single('image'), async (req, res) => {
+    const { name, description, locationId } = req.body;
+    const { userId, displayName, username, profileImageUrl } = req.user;
+    if (!name ) return res.status(400).json({ error: 'Name is required.' });
 
-// --- Auto-delete scheduler ---
-setInterval(() => {
-  console.log('Running scheduled job: checking for expired deletion requests...');
-  
-  const transaction = db.transaction(() => {
-    // FIX: Use SQLite's built-in datetime function for reliable time comparison
-    const expiredAttractions = db.prepare("SELECT id FROM attractions WHERE status = 'pending_deletion' AND deletion_requested_at < datetime('now', '-5 days')").all();
-    const expiredFoodShops = db.prepare("SELECT id FROM foodShops WHERE status = 'pending_deletion' AND deletion_requested_at < datetime('now', '-5 days')").all();
-    
-    const allExpired = [...expiredAttractions, ...expiredFoodShops];
+    try {
+        const newProduct = {
+            id: crypto.randomUUID(), name, description: description || '',
+            imageurl: req.file ? `/uploads/${req.file.filename}` : null,
+            location_id: locationId || null,
+            user_id: userId
+        };
+        const { error } = await supabase.from('famous_products').insert(newProduct);
+        if (error) {
+            console.error("Supabase insert error:", error);
+            throw error;
+        }
+        
+        let location = null;
+        if (locationId) {
+             let { data: attraction } = await supabase.from('attractions').select('*').eq('id', locationId).single();
+             if (!attraction) {
+                ({ data: attraction } = await supabase.from('foodShops').select('*').eq('id', locationId).single());
+            }
+            location = attraction;
+        }
 
-    if (allExpired.length > 0) {
-      console.log(`Found ${allExpired.length} expired deletion requests. Deleting now...`);
-      const deleteAttraction = db.prepare('DELETE FROM attractions WHERE id = ?');
-      const deleteFoodShop = db.prepare('DELETE FROM foodShops WHERE id = ?');
-      const deleteReviews = db.prepare('DELETE FROM reviews WHERE location_id = ?');
-      const deleteProducts = db.prepare('DELETE FROM famous_products WHERE location_id = ?');
-      const deleteFavorites = db.prepare('DELETE FROM favorites WHERE location_id = ?');
-
-      for (const loc of allExpired) {
-        deleteReviews.run(loc.id);
-        deleteProducts.run(loc.id);
-        deleteFavorites.run(loc.id);
-        deleteAttraction.run(loc.id);
-        deleteFoodShop.run(loc.id);
-        console.log(`Deleted location ${loc.id} and all related data.`);
-      }
+        createAndSendNotification({
+            type: 'new_product', 
+            actorId: userId, 
+            actorName: displayName || username,
+            actorProfileImageUrl: profileImageUrl,
+            payload: { 
+                location: location ? formatRowForFrontend(location) : null,
+                product: newProduct 
+            }
+        });
+        res.status(201).json(formatRowForFrontend(newProduct));
+    } catch (err) {
+        console.error("Error creating product:", err);
+        res.status(500).json({ error: `Failed to create product: ${err.message}` });
     }
-  });
+});
 
-  try {
-    transaction();
-  } catch(err) {
-    console.error("Error during scheduled deletion:", err);
-  }
+app.put('/api/famous-products/:id', authenticateToken, upload.single('image'), async (req, res) => {
+    const { id } = req.params;
+    const { name, description } = req.body;
+    const { userId, role } = req.user;
+    try {
+        const { data: product } = await supabase.from('famous_products').select('*').eq('id', id).single();
+        if (!product) return res.status(404).json({ error: 'Product not found.' });
+        if (product.user_id !== userId && role !== 'admin') return res.status(403).json({ error: 'Not authorized.' });
+        const updateData = { name: name || product.name, description: description || product.description };
+        if (req.file) updateData.imageurl = `/uploads/${req.file.filename}`;
+        const { data: updatedProduct, error } = await supabase.from('famous_products').update(updateData).eq('id', id).select().single();
+        if (error) throw error;
+        res.json(formatRowForFrontend(updatedProduct));
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to update product.' });
+    }
+});
 
-}, 5 * 24 * 60 * 60 * 1000); // Run every minute for testing. Change to 60 * 60 * 1000 in production.
+app.delete('/api/famous-products/:id', authenticateToken, async (req, res) => {
+    const { id } = req.params;
+    const { userId, role } = req.user;
+    try {
+        const { data: product } = await supabase.from('famous_products').select('user_id').eq('id', id).single();
+        if (!product) return res.status(404).json({ error: 'Product not found.' });
+        if (product.user_id !== userId && role !== 'admin') return res.status(403).json({ error: 'Not authorized.' });
+        const { error } = await supabase.from('famous_products').delete().eq('id', id);
+        if (error) throw error;
+        res.json({ message: 'Product deleted.' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to delete product.' });
+    }
+});
 
 
-// --- Start Server ---
+// Start the server
 app.listen(port, () => {
-  console.log(`✅✅✅ SERVER v14.0 IS RUNNING at http://localhost:${port}`);
-});
-
-process.on('SIGINT', () => {
-  if (db) db.close();
-  process.exit(0);
+    console.log(`✅✅✅ SERVER (SUPABASE) IS RUNNING at http://localhost:${port}`);
 });
 
