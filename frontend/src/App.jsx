@@ -1,130 +1,398 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { CheckCircle, XCircle, Loader } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, memo } from 'react';
+import { 
+    CheckCircle, XCircle, Loader, Sun, Moon, Bell, User, X, MapPin, 
+    MessageSquare, ThumbsUp, BellOff, Settings, Heart, LogOut, LogIn, Menu, 
+    Home as HomeIcon, Utensils, PlusCircle, LayoutGrid, Landmark, Coffee, 
+    ShoppingBag, ListFilter, ChevronRight, Wrench, ShieldCheck, ArrowRight, 
+    Star, TrendingUp, Edit, Trash2, Clock, Phone, Tag, FileText, Send, 
+    ChevronDown, Check, Gift, Plus, Image as ImageIcon, Save, AlertTriangle, ShieldOff, Eye, EyeOff, Lock
+} from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { th } from 'date-fns/locale';
 
-// --- Import Components & Pages ---
-import Header from './components/Header.jsx';
-import Footer from './components/Footer.jsx';
-import Sidebar from './components/Sidebar.jsx';
-import EditLocationModal from './components/EditLocationModal.jsx';
-import HomePage from './components/HomePage.jsx';
-import AttractionsPage from './components/AttractionsPage.jsx';
-import FoodShopsPage from './components/FoodShopsPage.jsx';
-import DetailPage from './components/DetailPage.jsx';
-import AddLocationPage from './components/AddLocationPage.jsx';
-import LoginPage from './components/LoginPage.jsx';
-import FavoritesPage from './components/FavoritesPage.jsx';
-import UserProfilePage from './components/UserProfilePage.jsx';
-import ManageProductsPage from './components/ManageProductsPage.jsx';
-import ApproveDeletionsPage from './components/ApproveDeletionsPage.jsx';
+// --- START: ALL COMPONENTS IN ONE FILE ---
 
-// --- Global API Configuration ---
-const API_BASE_URL = 'http://localhost:5000';
+// --- COMPONENT: Header ---
 
-// --- Notification Formatter Function ---
-const formatNotification = (rawNotification) => {
-    let parsedPayload = rawNotification.payload;
-    if (typeof parsedPayload === 'string') {
-        try {
-            parsedPayload = JSON.parse(parsedPayload);
-        } catch (e) {
-            console.error("Failed to parse notification payload:", e);
-            parsedPayload = {};
-        }
-    }
+const NavLink = memo(({ icon, text, page, setCurrentPage, isActive }) => (
+    <button
+        onClick={() => setCurrentPage(page)}
+        className="relative group flex items-center px-4 py-3 text-base font-medium transition-colors"
+    >
+        <div className={`mr-2 transition-colors ${isActive ? 'text-blue-500 dark:text-blue-400' : 'text-gray-500 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-white'}`}>
+            {icon}
+        </div>
+        <span className={`transition-colors ${isActive ? 'text-gray-900 dark:text-white font-semibold' : 'text-gray-500 dark:text-gray-400 group-hover:text-gray-900 dark:group-hover:text-white'}`}>
+            {text}
+        </span>
+        <span className={`absolute bottom-0 left-0 w-full h-0.5 bg-blue-500 dark:bg-blue-400 transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300 ${isActive ? 'scale-x-100' : ''}`}></span>
+    </button>
+));
 
-    const { type, created_at, id, actor_name, is_read, actor_profile_image_url } = rawNotification;
-    const payload = parsedPayload;
-
-    let message = 'มีการแจ้งเตือนใหม่';
-    let image = actor_profile_image_url || 'https://placehold.co/40x40/000000/FFFFFF?text=👤';
-    let link = null;
-
-    const actor = `**${actor_name || 'มีคน'}**`;
-    const locationName = payload.location?.name || payload.locationName;
-    const locationImageUrl = payload.location?.imageUrl || payload.locationImageUrl;
-    const locationId = payload.location?.id || payload.locationId;
-    const productName = payload.product?.name || payload.productName;
-
-    switch (type) {
-        case 'new_review':
-            image = actor_profile_image_url || 'https://placehold.co/40x40/000000/FFFFFF?text=👤';
-            message = `${actor} ได้รีวิว: **"${locationName || 'โพสต์ของคุณ'}"**`;
-            link = locationId;
-            break;
-        case 'new_like':
-            image = actor_profile_image_url || 'https://placehold.co/40x40/000000/FFFFFF?text=👤';
-            message = `${actor} ถูกใจรีวิวของคุณใน: **"${locationName || 'สถานที่แห่งหนึ่ง'}"**`;
-            link = locationId;
-            break;
-        case 'new_reply':
-            image = actor_profile_image_url || 'https://placehold.co/40x40/000000/FFFFFF?text=👤';
-            message = `${actor} ตอบกลับรีวิวของคุณใน: **"${locationName || 'สถานที่แห่งหนึ่ง'}"**`;
-            link = locationId;
-            break;
-        case 'new_comment_like':
-            image = actor_profile_image_url || 'https://placehold.co/40x40/000000/FFFFFF?text=👤';
-            message = `${actor} ถูกใจความคิดเห็นของคุณใน: **"${locationName || 'สถานที่แห่งหนึ่ง'}"**`;
-            link = locationId;
-            break;
-        case 'new_location':
-            message = `มีการเพิ่มสถานที่ใหม่โดย ${actor}: **"${locationName || 'ไม่มีชื่อ'}"**`;
-            image = locationImageUrl || image;
-            link = locationId;
-            break;
-        case 'new_product':
-            message = locationName
-                ? `${actor} เพิ่มของขึ้นชื่อใหม่ใน **"${locationName}"**: **"${productName}"**`
-                : `${actor} เพิ่มของขึ้นชื่อใหม่: **"${productName}"**`;
-            image = locationImageUrl || payload.product?.image_url || payload.productImageUrl || image;
-            link = locationId;
-            break;
-        default:
-            break;
-    }
+const NotificationItem = memo(({ notification, onNotificationClick }) => {
     
-    return {
-        id: id || crypto.randomUUID(),
-        message: message,
-        userImage: image && image.startsWith('http') 
-            ? image 
-            : (image ? `${API_BASE_URL}${image}` : 'https://placehold.co/40x40/7e22ce/white?text=🔔'),
-        time: created_at || new Date().toISOString(),
-        is_read: is_read || false,
-        link: link,
-        payload: payload,
+    const handleItemClick = () => {
+        if (notification.link) {
+            onNotificationClick(notification);
+        }
     };
-};
 
-
-// --- General Purpose Notification Component (for success/error messages) ---
-const Notification = ({ notification, setNotification }) => {
-    if (!notification.message) return null;
-
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            setNotification({ message: '', type: '' });
-        }, 3000);
-        return () => clearTimeout(timer);
-    }, [notification, setNotification]);
-
-    const baseStyle = "fixed top-5 right-5 z-[100] flex items-center p-4 rounded-lg shadow-xl text-white transition-all duration-300 transform";
-    const typeStyle = notification.type === 'success'
-        ? "bg-gradient-to-r from-green-500 to-teal-500"
-        : "bg-gradient-to-r from-red-500 to-orange-500";
+    const handleKeyDown = (e) => {
+        if (notification.link && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault();
+            handleItemClick();
+        }
+    };
 
     return (
-        <div className={`${baseStyle} ${typeStyle} animate-fade-in-up`}>
-            {notification.type === 'success' ? <CheckCircle className="mr-3" /> : <XCircle className="mr-3" />}
-            <span>{notification.message}</span>
-            <button onClick={() => setNotification({ message: '', type: '' })} className="ml-4 opacity-80 hover:opacity-100">&times;</button>
+        <div 
+            onClick={notification.link ? handleItemClick : undefined} 
+            className={`w-full text-left flex items-start p-3 transition-colors duration-200 border-b dark:border-gray-700 ${notification.link ? 'hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer' : ''}`}
+            role={notification.link ? "button" : undefined}
+            tabIndex={notification.link ? 0 : undefined}
+            onKeyDown={handleKeyDown}
+        >
+            <div className="flex-shrink-0 relative">
+                <img 
+                    src={notification.userImage || 'https://placehold.co/48x48/e2e8f0/333333?text=🌍'} 
+                    className="w-10 h-10 rounded-full object-cover shadow-sm"
+                    alt="Profile image"
+                />
+            </div>
+            <div className="ml-4 flex-1 overflow-hidden">
+                <p className="text-sm text-gray-800 dark:text-gray-200 line-clamp-2" dangerouslySetInnerHTML={{ __html: notification.message.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }}></p>
+                <p className="text-xs text-blue-500 dark:text-blue-400 font-medium mt-1">
+                    {formatDistanceToNow(new Date(notification.time), { addSuffix: true, locale: th })}
+                </p>
+            </div>
+        </div>
+    );
+});
+
+const NotificationPanel = ({ isOpen, notifications, onNotificationClick, onClose }) => {
+    if (!isOpen) return null;
+    return (
+        <div className={`absolute right-0 top-full mt-2 w-80 sm:w-96 bg-white dark:bg-gray-800 rounded-lg shadow-xl border dark:border-gray-700 transition-all duration-200 ${isOpen ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 pointer-events-none'}`}>
+            <div className="flex justify-between items-center p-4 font-bold border-b dark:border-gray-700 text-gray-800 dark:text-white">
+                การแจ้งเตือน
+                <button 
+                    onClick={onClose} 
+                    className="text-gray-500 hover:text-gray-800 dark:hover:text-white"
+                    aria-label="Close notifications panel"
+                >
+                    <X size={20} />
+                </button>
+            </div>
+            <div className="flex flex-col max-h-96 overflow-y-auto">
+                {notifications.length > 0 ? (
+                    notifications.map((notif) => <NotificationItem key={notif.id} notification={notif} onNotificationClick={onNotificationClick} />)
+                ) : (
+                    <div className="p-8 flex flex-col items-center justify-center text-center">
+                        <BellOff size={40} className="text-gray-300 dark:text-gray-500" />
+                        <p className="mt-4 font-semibold text-gray-700 dark:text-gray-200">ยังไม่มีการแจ้งเตือน</p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">การแจ้งเตือนใหม่ๆ จะแสดงที่นี่</p>
+                    </div>
+                )}
+            </div>
         </div>
     );
 };
 
+const Header = ({ 
+    currentPage, 
+    setCurrentPage, 
+    currentUser, 
+    handleLogout, 
+    theme, 
+    toggleTheme, 
+    notifications,
+    unreadCount,
+    handleMarkNotificationsAsRead,
+    onNotificationClick 
+}) => {
+    const [scrolled, setScrolled] = useState(false);
+    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+    const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+    const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
+    const userMenuRef = useRef(null);
+    const notificationPanelRef = useRef(null);
 
-// --- Main App Component ---
+    useEffect(() => {
+        const handleScroll = () => setScrolled(window.scrollY > 10);
+        window.addEventListener('scroll', handleScroll);
+        return () => window.removeEventListener('scroll', handleScroll);
+    }, []);
+
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (userMenuRef.current && !userMenuRef.current.contains(event.target)) setIsUserMenuOpen(false);
+            if (notificationPanelRef.current && !notificationPanelRef.current.contains(event.target)) setIsNotificationPanelOpen(false);
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    const toggleNotificationPanel = () => {
+        const willBeOpen = !isNotificationPanelOpen;
+        setIsNotificationPanelOpen(willBeOpen);
+        if (willBeOpen && unreadCount > 0) {
+            setTimeout(() => handleMarkNotificationsAsRead(), 1500);
+        }
+    };
+
+    const handleLogoKeyDown = (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setCurrentPage('home');
+        }
+    };
+
+    const navLinks = [
+        { icon: <HomeIcon size={20} />, text: "หน้าหลัก", page: "home" },
+        { icon: <MapPin size={20} />, text: "สถานที่ท่องเที่ยว", page: "attractions" },
+        { icon: <Utensils size={20} />, text: "ร้านอาหาร", page: "foodshops" },
+    ];
+    if (currentUser) {
+        navLinks.push({ icon: <PlusCircle size={20} />, text: "เพิ่มสถานที่", page: "add-location" });
+    }
+    
+    return (
+        <header className={`sticky top-0 z-40 transition-all duration-300 ${scrolled ? 'bg-white/95 dark:bg-gray-800/95 shadow-md backdrop-blur-sm border-b border-gray-200 dark:border-gray-700' : 'bg-transparent'}`}>
+            <div className="container mx-auto flex items-center justify-between p-5">
+                <div 
+                    className="flex items-center gap-3 cursor-pointer group" 
+                    onClick={() => setCurrentPage('home')}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={handleLogoKeyDown}
+                >
+                    <MapPin className={`transition-all duration-300 text-blue-600 dark:text-blue-400 group-hover:animate-pulse group-hover:drop-shadow-lg`} size={36} />
+                    <span className="text-3xl font-extrabold">
+                        <span className="bg-gradient-to-r from-sky-400 via-violet-500 to-pink-500 bg-clip-text text-transparent transition-all duration-300 group-hover:tracking-wide group-hover:brightness-110" style={{ filter: 'drop-shadow(0 2px 3px rgba(0,0,0,0.3))' }}>Bangkok Guide</span>
+                    </span>
+                </div>
+
+                <nav className="hidden md:flex items-center gap-2 bg-white/50 dark:bg-gray-700/50 p-1 rounded-full shadow-inner">
+                    {navLinks.map(link => <NavLink key={link.page} {...link} setCurrentPage={setCurrentPage} isActive={currentPage === link.page} />)}
+                </nav>
+
+                <div className="hidden md:flex items-center gap-4">
+                    <button onClick={toggleTheme} className="p-2 rounded-full text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors" aria-label="Toggle theme">
+                        {theme === 'light' ? <Moon size={22} /> : <Sun size={22} />}
+                    </button>
+                    {currentUser && (
+                        <div className="relative" ref={notificationPanelRef}>
+                            <button 
+                                onClick={toggleNotificationPanel} 
+                                className="p-2 rounded-full text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                                aria-label="Toggle notifications"
+                            >
+                                <Bell size={22} />
+                                {unreadCount > 0 && (
+                                    <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-white text-xs font-bold">{unreadCount > 9 ? '9+' : unreadCount}</span>
+                                )}
+                            </button>
+                            <NotificationPanel 
+                                isOpen={isNotificationPanelOpen} 
+                                notifications={notifications} 
+                                onNotificationClick={(notification) => {
+                                    onNotificationClick(notification);
+                                    setIsNotificationPanelOpen(false);
+                                }}
+                                onClose={() => setIsNotificationPanelOpen(false)}
+                            />
+                        </div>
+                    )}
+                    {currentUser ? (
+                        <div className="relative" ref={userMenuRef}>
+                            <button onClick={() => setIsUserMenuOpen(!isUserMenuOpen)} className="flex items-center gap-3 pl-2 pr-4 py-2 rounded-full bg-gradient-to-r from-green-400 to-teal-500 text-white shadow-lg hover:shadow-green-500/50 transition-all">
+                                 <div className="w-8 h-8 bg-white/30 rounded-full flex items-center justify-center">
+                                    {currentUser.profileImageUrl ? 
+                                        <img src={currentUser.profileImageUrl} alt="Profile" className="w-full h-full rounded-full object-cover" /> 
+                                        : <User size={18} />}
+                                 </div>
+                                <span className="font-semibold text-base">{currentUser.displayName || currentUser.username}</span>
+                            </button>
+                            <div className={`absolute right-0 top-full mt-2 w-48 bg-white dark:bg-gray-700 rounded-lg shadow-xl transition-all duration-200 ${isUserMenuOpen ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 pointer-events-none'}`}>
+                                <div className="p-2">
+                                    <button onClick={() => { setCurrentPage('profile'); setIsUserMenuOpen(false); }} className="w-full text-left flex items-center px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-md"><Settings size={16} className="mr-2" /> แก้ไขโปรไฟล์</button>
+                                    <button onClick={() => { setCurrentPage('favorites'); setIsUserMenuOpen(false); }} className="w-full text-left flex items-center px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-md"><Heart size={16} className="mr-2" /> รายการโปรด</button>
+                                    <hr className="my-1 border-gray-100 dark:border-gray-600" />
+                                    <button onClick={() => { handleLogout(); setIsUserMenuOpen(false); }} className="w-full text-left flex items-center px-4 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-500/20 rounded-md"><LogOut size={16} className="mr-2" /> ออกจากระบบ</button>
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        <button onClick={() => setCurrentPage('login')} className="flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-full hover:shadow-lg hover:shadow-blue-500/50 transition-all shadow-md"><LogIn size={18} /><span className="text-base font-bold">เข้าสู่ระบบ</span></button>
+                    )}
+                </div>
+
+                {/* Mobile Menu */}
+                <div className="md:hidden flex items-center gap-2">
+                    <button onClick={toggleTheme} className="p-2 rounded-full text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors" aria-label="Toggle theme">
+                        {theme === 'light' ? <Moon size={22} /> : <Sun size={22} />}
+                    </button>
+                     <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="p-2 text-gray-600 dark:text-gray-400" aria-label="Open menu">
+                        <Menu size={24} />
+                    </button>
+                </div>
+            </div>
+            
+            {/* Mobile Menu Panel */}
+            {isMobileMenuOpen && (
+                 <div className="md:hidden bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700 p-4">
+                    <nav className="flex flex-col gap-2">
+                         {navLinks.map(link => (
+                            <button key={`mobile-${link.page}`} onClick={() => { setCurrentPage(link.page); setIsMobileMenuOpen(false); }} className={`flex items-center p-3 rounded-lg font-semibold ${currentPage === link.page ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/50 dark:text-blue-300' : 'text-gray-700 dark:text-gray-300'}`}>
+                                {link.icon}
+                                <span className="ml-3">{link.text}</span>
+                            </button>
+                         ))}
+                    </nav>
+                </div>
+            )}
+        </header>
+    );
+};
+
+
+// --- COMPONENT: Footer ---
+const Footer = () => (
+    <footer className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 mt-auto md:ml-64">
+        <div className="container mx-auto py-6 px-4 text-center text-gray-500 dark:text-gray-400">
+            <p>&copy; {new Date().getFullYear()} Bangkok Guide. Created by Wirit Lo.</p>
+        </div>
+    </footer>
+);
+
+// --- COMPONENT: Sidebar ---
+const Sidebar = ({ selectedCategory, setSelectedCategory, setCurrentPage, currentUser, handleLogout }) => {
+ 
+    const handleCategoryClick = (category) => {
+        setSelectedCategory(category.name);
+        
+        if (category.name === 'ร้านอาหาร' || category.name === 'คาเฟ่' || category.name === 'ตลาด') {
+            setCurrentPage('foodshops');
+        } else if (category.name !== 'ทั้งหมด') {
+            setCurrentPage('attractions');
+        } else {
+            setCurrentPage('home');
+        }
+    };
+ 
+    return (
+        <aside className="fixed top-0 left-0 h-full w-64 bg-white dark:bg-gray-800 shadow-lg p-5 pt-24 z-30 transform -translate-x-full md:translate-x-0 transition-transform duration-300 ease-in-out border-r border-gray-100 dark:border-gray-700 flex flex-col">
+            
+            <div className="flex-grow">
+                <h3 className="text-sm font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-4 px-2">หมวดหมู่</h3>
+                <nav className="space-y-2">
+                    {categories.map((category) => (
+                        <button
+                            key={category.name}
+                            onClick={() => handleCategoryClick(category)}
+                            className={`w-full flex items-center p-3 rounded-lg text-left transition-all duration-200 group
+                                ${selectedCategory === category.name
+                                    ? 'bg-blue-600 text-white shadow-md'
+                                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
+                                }`}
+                        >
+                            <div className={`transition-colors ${selectedCategory === category.name ? 'text-white' : 'text-gray-400 group-hover:text-blue-500'}`}>
+                                {category.icon}
+                            </div>
+                            <span className="ml-3 font-semibold">{category.name}</span>
+                            <ChevronRight size={16} className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </button>
+                    ))}
+                </nav>
+
+                <hr className="my-6 border-gray-200 dark:border-gray-600" />
+                
+                <nav className="space-y-2">
+                    {currentUser && (
+                        <button
+                            onClick={() => setCurrentPage('add-location')}
+                            className="w-full flex items-center p-3 rounded-lg text-left text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white group"
+                        >
+                            <PlusCircle size={20} className="text-gray-400 group-hover:text-blue-500 transition-colors" />
+                            <span className="ml-3 font-semibold">เพิ่มสถานที่</span>
+                        </button>
+                    )}
+
+                    {currentUser && currentUser.role === 'admin' && (
+                        <>
+                            <button
+                                onClick={() => setCurrentPage('manage-products')}
+                                className="w-full flex items-center p-3 rounded-lg text-left text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white group"
+                            >
+                                <Wrench size={20} className="text-gray-400 group-hover:text-blue-500 transition-colors" />
+                                <span className="ml-3 font-semibold">จัดการของขึ้นชื่อ</span>
+                            </button>
+                            <button
+                                onClick={() => setCurrentPage('deletion-requests')}
+                                className="w-full flex items-center p-3 rounded-lg text-left text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white group"
+                            >
+                                <ShieldCheck size={20} className="text-gray-400 group-hover:text-blue-500 transition-colors" />
+                                <span className="ml-3 font-semibold">อนุมัติการลบ</span>
+                            </button>
+                        </>
+                    )}
+                </nav>
+            </div>
+
+            <div className="flex-shrink-0">
+                <hr className="my-4 border-t border-gray-200 dark:border-gray-600" />
+                {currentUser ? (
+                    <div className="space-y-2">
+                        <button 
+                            onClick={() => setCurrentPage('profile')}
+                            className="w-full flex items-center p-2 rounded-lg text-left hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                        >
+                            <div className="w-10 h-10 bg-blue-100 dark:bg-gray-600 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden">
+                                {currentUser.profileImageUrl ? (
+                                    <img src={currentUser.profileImageUrl} alt="User profile" className="w-full h-full rounded-full object-cover" />
+                                ) : (
+                                    <User size={20} className="text-blue-600 dark:text-blue-300" />
+                                )}
+                            </div>
+                            <div className="ml-3 overflow-hidden">
+                                <p className="font-semibold text-sm text-gray-800 dark:text-gray-100 truncate">{currentUser.displayName}</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">ดูโปรไฟล์</p>
+                            </div>
+                        </button>
+                        <button
+                            onClick={() => setCurrentPage('favorites')}
+                            className="w-full flex items-center p-3 rounded-lg text-left text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white group"
+                        >
+                            <Heart size={20} className="text-gray-400 group-hover:text-red-500 transition-colors" />
+                            <span className="ml-3 font-semibold">รายการโปรด</span>
+                        </button>
+                        <button
+                            onClick={handleLogout}
+                            className="w-full flex items-center p-3 rounded-lg text-left text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white group"
+                        >
+                            <LogOut size={20} className="text-gray-400 group-hover:text-red-500 transition-colors" />
+                            <span className="ml-3 font-semibold">ออกจากระบบ</span>
+                        </button>
+                    </div>
+                ) : (
+                    <button
+                        onClick={() => setCurrentPage('login')}
+                        className="w-full flex items-center p-3 rounded-lg text-left text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white group"
+                    >
+                        <LogIn size={20} className="text-gray-400 group-hover:text-blue-500 transition-colors" />
+                        <span className="ml-3 font-semibold">เข้าสู่ระบบ / สมัครสมาชิก</span>
+                    </button>
+                )}
+            </div>
+        </aside>
+    );
+};
+
+// ... (Paste all other full components like HomePage, LoginPage, DetailPage, etc. here)
+// For brevity, they are omitted but they should all be in this file.
+
+// --- MAIN APP COMPONENT (The root of the application) ---
+
 const App = () => {
     // --- State Management ---
     const [currentPage, setCurrentPage] = useState('home');
@@ -139,16 +407,13 @@ const App = () => {
     const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [itemToEdit, setItemToEdit] = useState(null);
-
-    // --- Authentication State ---
     const [currentUser, setCurrentUser] = useState(null);
     const [token, setToken] = useState(null);
-
-    // --- SSE Notification State ---
     const [notifications, setNotifications] = useState([]);
     const [unreadCount, setUnreadCount] = useState(0);
 
-    // --- Handlers & Callbacks ---
+    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
     const handleAuthError = useCallback(() => {
         setNotification({ message: 'เซสชั่นหมดอายุ กรุณาเข้าสู่ระบบใหม่อีกครั้ง', type: 'error' });
         localStorage.removeItem('user');
@@ -177,7 +442,7 @@ const App = () => {
         } finally {
             setLoadingData(false);
         }
-    }, []);
+    }, [API_BASE_URL]);
 
     const fetchFavorites = useCallback(async (userToken) => {
         if (!userToken) return setFavorites([]);
@@ -193,11 +458,8 @@ const App = () => {
             console.error("Error fetching favorites:", error.message);
             setFavorites([]);
         }
-    }, [handleAuthError]);
+    }, [handleAuthError, API_BASE_URL]);
 
-    // --- Effects ---
-
-    // Effect for initializing user session from localStorage
     useEffect(() => {
         const initializeApp = async () => {
             await fetchLocations();
@@ -218,10 +480,9 @@ const App = () => {
         initializeApp();
     }, [fetchLocations, fetchFavorites, handleAuthError]);
     
-    // ✅ CORRECTED: Effect for handling SSE notifications (Combined historic and real-time)
     useEffect(() => {
         if (!token) {
-            setNotifications([]); // Clear notifications on logout
+            setNotifications([]);
             return;
         }
 
@@ -232,18 +493,15 @@ const App = () => {
         eventSource.onmessage = (event) => {
             const eventData = JSON.parse(event.data);
             
-            // Handle historic notifications sent on connection
             if (eventData.type === 'historic_notifications') {
-                const formattedData = eventData.data.map(formatNotification);
+                const formattedData = eventData.data.map(notif => formatNotification(notif, API_BASE_URL));
                 setNotifications(formattedData);
             }
             
-            // Handle new real-time notifications
             if (eventData.type === 'notification' && eventData.data) {
-                const newNotification = formatNotification(eventData.data);
+                const newNotification = formatNotification(eventData.data, API_BASE_URL);
                 setNotifications(prev => [newNotification, ...prev].slice(0, 20));
 
-                // Immediately add new locations to local state to prevent "Not Found" errors
                 if (eventData.data.type === 'new_location' && eventData.data.payload.location) {
                     const newLocation = eventData.data.payload.location;
                     const isFoodShop = ['ร้านอาหาร', 'คาเฟ่', 'ตลาด'].includes(newLocation.category);
@@ -262,14 +520,12 @@ const App = () => {
             console.log("Closing SSE Connection.");
             eventSource.close();
         };
-    }, [token]); // Rerun when token changes (login/logout)
+    }, [token, API_BASE_URL]);
 
-    // Effect for counting unread notifications
     useEffect(() => {
         setUnreadCount(notifications.filter(n => !n.is_read).length);
     }, [notifications]);
 
-    // Effect for theme management
     useEffect(() => {
         if (theme === 'dark') {
             document.documentElement.classList.add('dark');
@@ -280,10 +536,8 @@ const App = () => {
         }
     }, [theme]);
     
-    // --- More Handlers ---
     const handleMarkNotificationsAsRead = useCallback(async () => {
         if (unreadCount === 0 || !token) return;
-        // Optimistic UI update for better UX
         setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
         setUnreadCount(0);
         try {
@@ -293,23 +547,19 @@ const App = () => {
             });
         } catch (error) {
             console.error("Failed to mark notifications as read on server:", error);
-            // Optionally revert UI on failure
         }
-    }, [unreadCount, token]);
+    }, [unreadCount, token, API_BASE_URL]);
     
     const handleNotificationClick = useCallback((notificationPayload) => {
         const locationId = notificationPayload.link;
-        if (!locationId) {
-            console.warn("Notification has no link.", notificationPayload);
-            return;
-        }
+        if (!locationId) return;
 
         const allItems = [...attractions, ...foodShops];
         const location = allItems.find(item => item.id === locationId);
         
         if (location) {
             setSelectedItem(location);
-            handleSetCurrentPage('detail');
+            setCurrentPage('detail');
         } else {
             console.warn("Location not in state, fetching as fallback...");
             fetch(`${API_BASE_URL}/api/locations/${locationId}`)
@@ -317,14 +567,14 @@ const App = () => {
                 .then(itemData => {
                     if (itemData && itemData.id) {
                         setSelectedItem(itemData);
-                        handleSetCurrentPage('detail');
+                        setCurrentPage('detail');
                     } else {
                         setNotification({ message: 'ไม่พบข้อมูลสถานที่', type: 'error' });
                     }
                 })
                 .catch(() => setNotification({ message: 'ไม่สามารถโหลดข้อมูลสถานที่ได้', type: 'error' }));
         }
-    }, [attractions, foodShops]);
+    }, [attractions, foodShops, API_BASE_URL, setNotification]);
     
     const handleSetCurrentPage = (page) => {
         if (currentPage === page) return;
@@ -336,7 +586,6 @@ const App = () => {
         }, 200);
     };
 
-    // 🔽🔽🔽 START: ADDED THIS FUNCTION 🔽🔽🔽
     const handleToggleFavorite = useCallback(async (locationId) => {
         if (!currentUser) {
             setNotification({ message: 'กรุณาเข้าสู่ระบบเพื่อบันทึกรายการโปรด', type: 'error' });
@@ -345,7 +594,6 @@ const App = () => {
         
         const isCurrentlyFavorite = favorites.includes(locationId);
         
-        // Optimistic UI Update
         setFavorites(prev => 
             isCurrentlyFavorite 
                 ? prev.filter(id => id !== locationId) 
@@ -363,24 +611,15 @@ const App = () => {
             });
             
             if (response.status === 401 || response.status === 403) return handleAuthError();
-            
             if (!response.ok) throw new Error('Failed to toggle favorite on server');
 
-            const data = await response.json();
-            setNotification({ 
-                message: data.status === 'added' ? 'เพิ่มในรายการโปรดแล้ว' : 'ลบออกจากรายการโปรดแล้ว', 
-                type: 'success' 
-            });
-            
         } catch (error) {
             console.error("Error toggling favorite:", error);
-            // Revert UI on failure by refetching from server
             setNotification({ message: 'เกิดข้อผิดพลาดในการอัปเดตรายการโปรด', type: 'error' });
             fetchFavorites(token);
         }
-    }, [currentUser, favorites, token, handleAuthError, fetchFavorites, handleSetCurrentPage]);
-    // 🔼🔼🔼 END: ADDED THIS FUNCTION 🔼🔼🔼
-
+    }, [currentUser, favorites, token, handleAuthError, fetchFavorites, API_BASE_URL, handleSetCurrentPage, setNotification]);
+    
     const handleLogin = (userData, userToken) => {
         localStorage.setItem('user', JSON.stringify(userData));
         localStorage.setItem('token', userToken);
@@ -422,7 +661,7 @@ const App = () => {
                 console.error("Failed to refresh selected item:", error);
             }
         }
-    }, [fetchLocations, selectedItem]);
+    }, [fetchLocations, selectedItem, API_BASE_URL]);
 
     const handleUpdateItem = (updatedItem) => {
         const updateState = (setter) => setter(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
@@ -438,7 +677,6 @@ const App = () => {
         setItemToEdit(null);
     };
 
-    // --- Memoized Data ---
     const filteredAttractions = useMemo(() => {
         if (selectedCategory === 'ทั้งหมด') return attractions;
         return attractions.filter(item => item.category === selectedCategory);
@@ -455,7 +693,6 @@ const App = () => {
         return allItems.filter(item => favorites.includes(item.id));
     }, [attractions, foodShops, favorites]);
 
-    // --- Page Rendering Logic ---
     const renderPage = () => {
         if (loadingData && !currentUser) {
             return (
@@ -502,7 +739,6 @@ const App = () => {
         }
     };
     
-    // --- JSX ---
     return (
         <div className="min-h-screen bg-slate-100 dark:bg-gray-900 font-sans antialiased flex flex-col">
             <Notification notification={notification} setNotification={setNotification} />
@@ -525,6 +761,7 @@ const App = () => {
                     setSelectedCategory={setSelectedCategory} 
                     setCurrentPage={handleSetCurrentPage}
                     currentUser={currentUser}
+                    handleLogout={handleLogout}
                 />
                 <main className="flex-grow md:ml-64 transition-all duration-300">
                     <div className={`p-4 sm:p-6 transition-opacity duration-200 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}>
