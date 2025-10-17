@@ -82,8 +82,12 @@ const EditLocationModal = ({ item, onClose, onItemUpdated, setNotification, hand
             formData.append('images', file);
         });
         
+        // <<< FIX 1 (CRITICAL): ใช้ Environment Variable แทน Hard-coded URL >>>
+        const API_BASE_URL = import.meta.env.VITE_API_URL;
+
         try {
-            const response = await fetch(`http://localhost:5000/api/locations/${item.id}`, {
+            const response = await fetch(`${API_BASE_URL}/api/locations/${item.id}`, {
+            // <<< END FIX 1 >>>
                 method: 'PUT',
                 headers: {
                     'Authorization': `Bearer ${token}`,
@@ -123,12 +127,22 @@ const EditLocationModal = ({ item, onClose, onItemUpdated, setNotification, hand
             >
                 <div className="flex justify-between items-center p-4 border-b dark:border-gray-700">
                     <h2 className="text-2xl font-bold text-gray-800 dark:text-white">แก้ไขข้อมูล: {item.name}</h2>
-                    <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700">
+                    <button 
+                        onClick={onClose} 
+                        className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"
+                        // <<< FIX 3 (A11y): เพิ่ม aria-label >>>
+                        aria-label="Close modal"
+                    >
                         <X size={24} className="text-gray-600 dark:text-gray-300" />
                     </button>
                 </div>
                 
-                <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-4">
+                {/* <<< FIX 2 (BUG/SEMANTIC): เพิ่ม ID ให้ Form >>> */}
+                <form 
+                    id="edit-location-form"
+                    onSubmit={handleSubmit} 
+                    className="p-6 overflow-y-auto space-y-4"
+                >
                     {/* --- Text input fields --- */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">ชื่อสถานที่</label>
@@ -171,7 +185,8 @@ const EditLocationModal = ({ item, onClose, onItemUpdated, setNotification, hand
                                         type="button" 
                                         onClick={() => handleRemoveImage(index)} 
                                         className="absolute top-0 right-0 -m-2 bg-red-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                                        title="ลบรูปภาพนี้"
+                                        // <<< FIX 3 (A11y): เปลี่ยน title เป็น aria-label >>>
+                                        aria-label="ลบรูปภาพนี้"
                                     >
                                         <Trash2 size={16} />
                                     </button>
@@ -186,13 +201,17 @@ const EditLocationModal = ({ item, onClose, onItemUpdated, setNotification, hand
                     </div>
 
                 </form>
+                {/* <<< END FIX 2 >>> */}
 
                 <div className="p-4 border-t dark:border-gray-700 mt-auto flex justify-end gap-4">
                     <button onClick={onClose} className="px-6 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500 font-semibold">
                         ยกเลิก
                     </button>
                     <button 
-                        onClick={handleSubmit} 
+                        // <<< FIX 2 (BUG/SEMANTIC): ลบ onClick, เพิ่ม type="submit" และ form ID >>>
+                        type="submit"
+                        form="edit-location-form"
+                        // <<< END FIX 2 >>>
                         disabled={isSubmitting}
                         className="px-6 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold flex items-center gap-2 disabled:bg-gray-400"
                     >
@@ -206,4 +225,3 @@ const EditLocationModal = ({ item, onClose, onItemUpdated, setNotification, hand
 };
 
 export default EditLocationModal;
-

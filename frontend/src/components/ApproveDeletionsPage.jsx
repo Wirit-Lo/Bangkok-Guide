@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ShieldCheck, ShieldX, Trash2, Eye, AlertTriangle } from 'lucide-react';
 
-const API_BASE_URL = 'http://localhost:5000';
+// <<< START OF CHANGE (1) >>>
+// ลบ const API_BASE_URL ที่ตายตัวทิ้งไป
+// const API_BASE_URL = 'http://localhost:5000';
+// เราจะใช้ import.meta.env.VITE_API_URL ภายในฟังก์ชันแทน
+// <<< END OF CHANGE (1) >>>
 
 const ApproveDeletionsPage = ({ setNotification, handleAuthError, handleItemClick }) => {
     const [requests, setRequests] = useState([]);
@@ -11,6 +15,10 @@ const ApproveDeletionsPage = ({ setNotification, handleAuthError, handleItemClic
         setIsLoading(true);
         const token = localStorage.getItem('token');
         if (!token) return handleAuthError();
+
+        // <<< START OF CHANGE (1) >>>
+        const API_BASE_URL = import.meta.env.VITE_API_URL;
+        // <<< END OF CHANGE (1) >>>
 
         try {
             const response = await fetch(`${API_BASE_URL}/api/locations/deletion-requests`, {
@@ -37,7 +45,20 @@ const ApproveDeletionsPage = ({ setNotification, handleAuthError, handleItemClic
         const token = localStorage.getItem('token');
         if (!token) return handleAuthError();
 
+        // <<< START OF CHANGE (1) >>>
+        const API_BASE_URL = import.meta.env.VITE_API_URL;
+        // <<< END OF CHANGE (1) >>>
+
         const isApprove = action === 'approve';
+
+        // <<< START OF CHANGE (2) --- เพิ่มการยืนยันก่อนลบ >>>
+        if (isApprove) {
+            if (!window.confirm('คุณแน่ใจหรือไม่ว่าต้องการลบสถานที่นี้อย่างถาวร? การดำเนินการนี้ไม่สามารถย้อนกลับได้')) {
+                return; // ผู้ใช้กดยกเลิก
+            }
+        }
+        // <<< END OF CHANGE (2) >>>
+
         const url = isApprove ? `${API_BASE_URL}/api/locations/${locationId}` : `${API_BASE_URL}/api/locations/${locationId}/deny-deletion`;
         const method = isApprove ? 'DELETE' : 'POST';
 
@@ -49,10 +70,24 @@ const ApproveDeletionsPage = ({ setNotification, handleAuthError, handleItemClic
 
             if (response.status === 401 || response.status === 403) return handleAuthError();
             
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || 'การดำเนินการล้มเหลว');
+            // <<< START OF CHANGE (3) --- แก้บั๊ก 204 No Content >>>
+            // ตรวจสอบก่อนว่ามี body response ให้ .json() หรือไม่
+            // (คำสั่ง DELETE มักจะคืนค่า 204 No Content ซึ่งไม่มี body)
+            let data = {};
+            if (response.status !== 204) {
+                 data = await response.json(); // อ่าน JSON เมื่อมี content เท่านั้น
+            }
+            // <<< END OF CHANGE (3) >>>
 
-            setNotification({ message: data.message, type: 'success' });
+            if (!response.ok) {
+                // ถ้ามี error message จาก server (ใน data) ก็ใช้, ถ้าไม่มีก็ใช้ message กลาง
+                throw new Error(data.error || 'การดำเนินการล้มเหลว');
+            }
+
+            // ตั้งค่า message สำเร็จ (เผื่อกรณี 204 ที่ไม่มี data.message)
+            const successMessage = data.message || (isApprove ? 'ลบสถานที่เรียบร้อยแล้ว' : 'ปฏิเสธการลบเรียบร้อยแล้ว');
+            setNotification({ message: successMessage, type: 'success' });
+
             // Remove the processed item from the list
             setRequests(prev => prev.filter(req => req.id !== locationId));
         } catch (error) {
@@ -76,7 +111,7 @@ const ApproveDeletionsPage = ({ setNotification, handleAuthError, handleItemClic
                                     <th className="p-4">ชื่อสถานที่</th>
                                     <th className="p-4 hidden md:table-cell">หมวดหมู่</th>
                                     <th className="p-4 text-right">ดำเนินการ</th>
-                                </tr>
+                                T </tr>
                             </thead>
                             <tbody>
                                 {requests.map(item => (

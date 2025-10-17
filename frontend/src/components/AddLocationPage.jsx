@@ -119,15 +119,18 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        // <<< --- IMPROVEMENT: Better Validation --- >>>
         if (!formData.name.trim()) {
             setNotification({ message: 'กรุณากรอกชื่อสถานที่', type: 'error' });
             return;
         }
-        if (formData.googleMapUrl && !formData.googleMapUrl.startsWith('https://www.google.com/maps')) {
+        
+        // <<< --- START OF CHANGE --- >>>
+        // Updated validation to accept both full Google Maps URLs and short URLs (goo.gl)
+        if (formData.googleMapUrl && !formData.googleMapUrl.startsWith('https://www.google.com/maps') && !formData.googleMapUrl.startsWith('https://maps.app.goo.gl')) {
             setNotification({ message: 'รูปแบบลิงก์ Google Maps ไม่ถูกต้อง', type: 'error' });
             return;
         }
+        // <<< --- END OF CHANGE --- >>>
 
         setIsSubmitting(true);
         
@@ -138,7 +141,6 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
             return;
         }
 
-        // <<< --- IMPROVEMENT: More concise FormData creation --- >>>
         const data = new FormData();
         for (const key in formData) {
             if (key !== 'images') {
@@ -150,7 +152,8 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
         });
 
         try {
-            const response = await fetch('http://localhost:5000/api/locations', {
+            const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+            const response = await fetch(`${apiUrl}/api/locations`, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${token}` },
                 body: data,
@@ -163,7 +166,6 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
 
             const responseData = await response.json();
             if (!response.ok) {
-                // Use the error message from the server if available
                 throw new Error(responseData.error || 'เกิดข้อผิดพลาดที่ไม่รู้จัก');
             }
 
@@ -173,7 +175,6 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
 
         } catch (err) {
             console.error('Submit Error:', err);
-            // <<< --- IMPROVEMENT: Display the actual error message --- >>>
             setNotification({ message: `เกิดข้อผิดพลาดในการบันทึก: ${err.message}`, type: 'error' });
         } finally {
             setIsSubmitting(false);
@@ -197,7 +198,7 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
                     <form onSubmit={handleSubmit} className="space-y-5 overflow-y-auto max-h-[70vh] pr-2">
                         <InputGroup icon={<Tag size={14} />} label="ชื่อสถานที่" id="name" name="name" type="text" value={formData.name} onChange={handleInputChange} required />
                         <CategoryDropdown selectedCategory={formData.category} onSelect={(cat) => setFormData({ ...formData, category: cat })} />
-                        <InputGroup icon={<MapPin size={14} />} label="ลิงก์ Google Maps" id="googleMapUrl" name="googleMapUrl" type="url" value={formData.googleMapUrl} onChange={handleInputChange} placeholder="วางลิงก์แบบเต็มจาก Address Bar" />
+                        <InputGroup icon={<MapPin size={14} />} label="ลิงก์ Google Maps" id="googleMapUrl" name="googleMapUrl" type="url" value={formData.googleMapUrl} onChange={handleInputChange} placeholder="วางลิงก์จาก Address Bar หรือปุ่ม Share" />
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <InputGroup icon={<Clock size={14} />} label="เวลาทำการ" id="hours" name="hours" type="text" value={formData.hours} onChange={handleInputChange} placeholder="เช่น 09:00 - 18:00 น." />
                             <InputGroup icon={<Phone size={14} />} label="เบอร์ติดต่อ" id="contact" name="contact" type="tel" value={formData.contact} onChange={handleInputChange} placeholder="เช่น 02-123-4567" />

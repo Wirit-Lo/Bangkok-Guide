@@ -32,33 +32,54 @@ const LoginPage = ({ onAuthSuccess }) => {
     setLoading(true);
 
     const endpoint = isLoginView ? '/api/login' : '/api/register';
-    
+
+    // <<< --- START OF CHANGE --- >>>
+    // Reverted back to import.meta.env for Vite environment variables
+    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'; // Add fallback for safety
+    // <<< --- END OF CHANGE --- >>>
+
     try {
-      const response = await fetch(`http://localhost:5000${endpoint}`, {
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
 
+      // Check if response is not ok BEFORE trying to parse JSON
+      if (!response.ok) {
+          try {
+              // Attempt to parse error JSON from backend
+              const errorData = await response.json();
+              throw new Error(errorData.error || `เกิดข้อผิดพลาด: ${response.statusText} (${response.status})`);
+          } catch (jsonError) {
+              // If backend sends non-JSON error (like HTML 500 page), use status text
+              throw new Error(`เกิดข้อผิดพลาด: ${response.statusText} (${response.status})`);
+          }
+      }
+
+      // Only parse JSON if response is ok
       const data = await response.json();
 
-      if (!response.ok) {
-        throw new Error(data.error || `เกิดข้อผิดพลาด: ${response.statusText}`);
-      }
-      
       if (isLoginView) {
         if (data.user && data.token) {
           onAuthSuccess(data.user, data.token);
         } else {
+          // This case might indicate an unexpected success response format
           throw new Error('การตอบกลับจากเซิร์ฟเวอร์ไม่สมบูรณ์');
         }
       } else {
-        alert(data.message); 
-        setIsLoginView(true);
+        // Handle registration success
+        alert(data.message || 'สมัครสมาชิกสำเร็จ! กรุณาเข้าสู่ระบบ'); // Provide default message
+        setIsLoginView(true); // Switch to login view
+        // Optionally clear fields after registration
+        // setUsername('');
+        // setPassword('');
       }
 
     } catch (err) {
-      setError(err.message);
+      // Catch errors from fetch itself (network error) or thrown errors
+      console.error("Login/Register Error:", err); // Log the actual error
+      setError(err.message); // Show error message to the user
     } finally {
       setLoading(false);
     }
@@ -66,17 +87,18 @@ const LoginPage = ({ onAuthSuccess }) => {
 
   const handleSocialLogin = (provider) => {
     alert(`การลงชื่อเข้าใช้ด้วย ${provider} ยังไม่เปิดใช้งาน`);
+    // Example: window.location.href = `${import.meta.env.VITE_API_URL}/auth/${provider}`;
   };
 
   return (
     <div className="flex items-center justify-center min-h-[70vh] p-4">
       <div className="w-full max-w-4xl flex flex-col md:flex-row bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden animate-fade-in-up">
-        
+
         {/* --- Left Image Section --- */}
         <div className="hidden md:block md:w-1/2">
-          <img 
+          <img
             src="https://images.unsplash.com/photo-1528543606781-2f6e6857f318?q=80&w=1965&auto=format&fit=crop"
-            alt="Travel background"
+            alt="Scenic travel destination with hot air balloons"
             className="w-full h-full object-cover"
           />
         </div>
@@ -91,23 +113,52 @@ const LoginPage = ({ onAuthSuccess }) => {
                   {isLoginView ? 'เข้าสู่ระบบเพื่อจัดการการเดินทางของคุณ' : 'เข้าร่วมชุมชนนักเดินทางของเรา'}
               </p>
           </div>
-          
+
           <form onSubmit={handleSubmit} className="mt-8 space-y-6">
-            <div className="relative">
-              <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="ชื่อผู้ใช้" required className="w-full pl-12 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
+            <div> {/* Changed from div.relative for label */}
+              <label htmlFor="username-login" className="sr-only">ชื่อผู้ใช้</label>
+              <div className="relative">
+                  <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={20}/>
+                  <input
+                      id="username-login"
+                      type="text"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="ชื่อผู้ใช้ หรือ อีเมล" // Adjusted placeholder
+                      required
+                      className="w-full pl-12 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      autoComplete="username"
+                  />
+              </div>
             </div>
-            <div className="relative">
-              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="รหัสผ่าน" required className="w-full pl-12 pr-12 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
-              <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500">
-                  {showPassword ? <EyeOff /> : <Eye />}
-              </button>
+            <div> {/* Changed from div.relative for label */}
+               <label htmlFor="password-login" className="sr-only">รหัสผ่าน</label>
+               <div className="relative">
+                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={20}/>
+                  <input
+                      id="password-login"
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="รหัสผ่าน"
+                      required
+                      className="w-full pl-12 pr-12 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                      autoComplete={isLoginView ? "current-password" : "new-password"} // Correct autocomplete
+                  />
+                  <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                      aria-label={showPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
+                  >
+                      {showPassword ? <EyeOff size={20}/> : <Eye size={20}/>}
+                  </button>
+               </div>
             </div>
-            
+
             {error && <p className="text-sm text-red-600 text-center">{error}</p>}
 
-            <button type="submit" disabled={loading} className="w-full flex justify-center items-center bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors shadow-lg hover:shadow-blue-500/50">
+            <button type="submit" disabled={loading} className="w-full flex justify-center items-center bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg hover:shadow-blue-500/50">
               <LogIn className="mr-2" />
               {loading ? 'กำลังดำเนินการ...' : (isLoginView ? 'เข้าสู่ระบบ' : 'สมัครสมาชิก')}
             </button>

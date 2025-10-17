@@ -1,8 +1,8 @@
-import React, { useState, useMemo } from 'react';
-import { MapPin, Star, Heart, TrendingUp, List, Edit, Trash2 } from 'lucide-react'; // <<< MODIFIED: Added Edit, Trash2 icons
+import React, { useState, useMemo, memo } from 'react'; // <<< FIX 3: Import 'memo'
+import { MapPin, Star, Heart, TrendingUp, List, Edit, Trash2 } from 'lucide-react';
 
-// <<< MODIFIED: ItemCard now accepts admin props
-const ItemCard = ({ 
+// <<< FIX 3 (PERFORMANCE): Wrap component in memo to prevent unnecessary re-renders >>>
+const ItemCard = memo(({ 
     item, 
     handleItemClick, 
     handleToggleFavorite, 
@@ -12,6 +12,11 @@ const ItemCard = ({
     handleDeleteItem 
 }) => {
     
+    // <<< FIX 1 (BUG/LOGIC): เพิ่มการจัดการ Rating ที่รัดกุม >>>
+    const displayRating = Math.max(0, Math.min(5, parseFloat(item.rating || 0)));
+    const hasRating = item.rating !== null && item.rating !== undefined && parseFloat(item.rating) > 0;
+    // <<< END FIX 1 >>>
+
     // --- NEW: Handlers for admin buttons ---
     const onEditClick = (e) => {
         e.stopPropagation(); // Prevent card click
@@ -23,10 +28,23 @@ const ItemCard = ({
         handleDeleteItem(item.id);
     };
     
+    // <<< FIX 4 (ACCESSIBILITY): Handler for keyboard navigation on card >>>
+    const handleCardKeyDown = (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault(); // Prevent space from scrolling page
+            handleItemClick(item);
+        }
+    };
+    
     return (
         <div 
             className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden transform hover:-translate-y-1 transition-all duration-300 cursor-pointer flex flex-col"
             onClick={() => handleItemClick(item)}
+            // <<< FIX 4 (ACCESSIBILITY): Make card focusable and activatable via keyboard >>>
+            role="button"
+            tabIndex={0}
+            onKeyDown={handleCardKeyDown}
+            // <<< END FIX 4 >>>
         >
             <div className="relative">
                 <img 
@@ -34,17 +52,24 @@ const ItemCard = ({
                     alt={item.name}
                     className="w-full h-48 object-cover"
                 />
-                {item.rating > 0 && (
-                    <div className="absolute top-3 left-3 bg-yellow-400 text-white text-sm font-bold px-3 py-1 rounded-full flex items-center gap-1 shadow-md">
-                        <Star size={14} fill="white" />
-                        <span>{item.rating.toFixed(1)}</span>
+                
+                {/* <<< FIX 1 & 2: ใช้ logic ใหม่ และ แก้สี contrast >>> */}
+                {hasRating && (
+                    <div className="absolute top-3 left-3 bg-yellow-400 text-black text-sm font-bold px-3 py-1 rounded-full flex items-center gap-1 shadow-md">
+                        <Star size={14} fill="black" />
+                        <span>{displayRating.toFixed(1)}</span>
                     </div>
                 )}
+                {/* <<< END FIX 1 & 2 >>> */}
+
                 {/* --- MODIFIED: Show favorite button only for logged-in users --- */}
                 {currentUser && (
                     <button 
                         onClick={(e) => { e.stopPropagation(); handleToggleFavorite(item.id); }}
                         className="absolute top-3 right-3 bg-white/80 dark:bg-gray-800/80 p-2 rounded-full transition-colors"
+                        // <<< FIX 5 (ACCESSIBILITY): Add descriptive label for screen readers >>>
+                        aria-label={isFavorite ? 'ลบออกจากรายการโปรด' : 'เพิ่มในรายการโปรด'}
+                        // <<< END FIX 5 >>>
                     >
                         <Heart size={20} className={`transition-all ${isFavorite ? 'text-red-500 fill-current' : 'text-gray-600 dark:text-gray-300'}`} />
                     </button>
@@ -81,7 +106,7 @@ const ItemCard = ({
             </div>
         </div>
     );
-};
+}); // <<< END FIX 3 (memo) >>>
 
 
 // <<< MODIFIED: FoodShopsPage now accepts admin props
@@ -162,4 +187,3 @@ const FoodShopsPage = ({
 };
 
 export default FoodShopsPage;
-

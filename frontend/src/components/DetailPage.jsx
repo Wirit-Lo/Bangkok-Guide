@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { MapPin, Star, MessageSquare, Clock, Phone, ChevronLeft, Send, X, Edit, Trash2, Heart, ThumbsUp, ChevronRight, Gift, Plus, Image as ImageIcon, Save, AlertTriangle } from 'lucide-react';
 
 // --- BASE API URL ---
-const API_BASE_URL = 'http://localhost:5000';
+const API_BASE_URL = 'http://localhost:5000'; // Fallback for local dev, should be configured in deployment
 
 // --- Helper & UI Components ---
 
@@ -106,7 +106,7 @@ const ReviewCard = ({ review, currentUser, onReviewDeleted, onEditClick }) => {
 
         if (isLiking) return;
         setIsLiking(true);
-
+        
         try {
             const response = await fetch(`${API_BASE_URL}/api/reviews/${review.id}/toggle-like`, {
                 method: 'POST',
@@ -245,6 +245,8 @@ const ProductModal = ({ product, locationId, onClose, onSave, setNotification, h
         const token = localStorage.getItem('token');
         if (!token) return handleAuthError();
         
+        const API_BASE_URL = 'http://localhost:5000'; // Hardcoded for this component
+
         const formData = new FormData();
         formData.append('name', name);
         formData.append('description', description);
@@ -297,12 +299,12 @@ const ProductModal = ({ product, locationId, onClose, onSave, setNotification, h
                     </div>
                     <div>
                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">รูปภาพ</label>
-                          <div className="mt-2 flex items-center">
-                              <div className="w-24 h-24 mr-4 rounded-md bg-gray-100 dark:bg-gray-700 flex items-center justify-center overflow-hidden">
-                                   {imagePreview ? <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" /> : <ImageIcon size={32} className="text-gray-400" />}
-                              </div>
-                              <input type="file" accept="image/*" onChange={handleImageChange} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-gray-50 dark:file:bg-gray-600 file:text-gray-700 dark:file:text-gray-200 hover:file:bg-gray-100 dark:hover:file:bg-gray-500"/>
-                        </div>
+                         <div className="mt-2 flex items-center">
+                             <div className="w-24 h-24 mr-4 rounded-md bg-gray-100 dark:bg-gray-700 flex items-center justify-center overflow-hidden">
+                                    {imagePreview ? <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" /> : <ImageIcon size={32} className="text-gray-400" />}
+                             </div>
+                             <input type="file" accept="image/*" onChange={handleImageChange} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-gray-50 dark:file:bg-gray-600 file:text-gray-700 dark:file:text-gray-200 hover:file:bg-gray-100 dark:hover:file:bg-gray-500"/>
+                         </div>
                     </div>
                     <div className="flex justify-end space-x-3 pt-4">
                         <button type="button" onClick={onClose} className="bg-gray-200 text-gray-700 font-bold py-2 px-4 rounded-lg hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">ยกเลิก</button>
@@ -342,15 +344,14 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
     const [isProductModalOpen, setIsProductModalOpen] = useState(false);
     const [editingProduct, setEditingProduct] = useState(null);
     const [isRequestingDelete, setIsRequestingDelete] = useState(false);
-
-    // --- State for Confirmation Modal ---
     const [confirmState, setConfirmState] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {} });
-
+    
     // --- Data Fetching Effects ---
     useEffect(() => {
         if (item && item.category) {
             setIsSimilarLoading(true);
             const fetchSimilar = async () => {
+                const API_BASE_URL = 'http://localhost:5000';
                 try {
                     const response = await fetch(`${API_BASE_URL}/api/locations/same-category?category=${encodeURIComponent(item.category)}&excludeId=${item.id}`);
                     if (!response.ok) throw new Error(`Server responded with ${response.status}`);
@@ -359,20 +360,21 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
                 } catch (error) {
                     console.error("Failed to fetch similar places:", error);
                     setSimilarPlaces([]);
+                    setNotification({ message: 'ไม่สามารถโหลดสถานที่ใกล้เคียงได้', type: 'error' });
                 } finally {
                     setIsSimilarLoading(false);
                 }
             };
             fetchSimilar();
         }
-    }, [item]);
+    }, [item, setNotification]);
     
     const fetchLocationProducts = useCallback(async () => {
         if (!item) return;
         setIsLoadingProducts(true);
+        const API_BASE_URL = 'http://localhost:5000';
         try {
-            // <<< FIXED: Added cache-busting parameter >>>
-            const response = await fetch(`${API_BASE_URL}/api/locations/${item.id}/famous-products?_=${new Date().getTime()}`);
+            const response = await fetch(`${API_BASE_URL}/api/locations/${item.id}/famous-products`, { cache: 'no-store' });
             if (!response.ok) throw new Error('Failed to fetch famous products');
             const data = await response.json();
             setLocationProducts(data);
@@ -386,7 +388,7 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
 
 
     useEffect(() => {
-        fetchLocationProducts();
+        if(item?.id) fetchLocationProducts();
     }, [item, fetchLocationProducts]);
 
 
@@ -403,14 +405,18 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
 
     const fetchReviews = useCallback(async () => {
         if (!item) return;
+        const API_BASE_URL = 'http://localhost:5000';
         try {
             const userIdQuery = currentUser ? `?userId=${currentUser.id}` : '';
             const response = await fetch(`${API_BASE_URL}/api/reviews/${item.id}${userIdQuery}`);
             if (!response.ok) throw new Error('Failed to fetch reviews');
             const data = await response.json();
             setReviews(data);
-        } catch (error) { console.error("Error fetching reviews:", error); }
-    }, [item, currentUser]);
+        } catch (error) { 
+            console.error("Error fetching reviews:", error); 
+            setNotification({ message: 'ไม่สามารถโหลดรีวิวได้', type: 'error' });
+        }
+    }, [item, currentUser, setNotification]);
 
     useEffect(() => {
         window.scrollTo(0, 0);
@@ -442,6 +448,8 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
         formData.append('rating', newRating);
         formData.append('comment', newComment);
         newReviewImages.forEach(file => formData.append('reviewImages', file));
+        
+        const API_BASE_URL = 'http://localhost:5000';
         
         try {
             const response = await fetch(`${API_BASE_URL}/api/reviews/${item.id}`, { 
@@ -482,6 +490,8 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
     const handleDeleteReview = async (reviewId) => {
         const token = localStorage.getItem('token');
         if (!token) return handleAuthError();
+
+        const API_BASE_URL = 'http://localhost:5000';
 
         try {
             const response = await fetch(`${API_BASE_URL}/api/reviews/${reviewId}`, {
@@ -538,6 +548,8 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
         formData.append('existingImages', JSON.stringify(existingImages));
         newImages.forEach(file => formData.append('reviewImages', file));
         
+        const API_BASE_URL = 'http://localhost:5000';
+        
         try {
             const response = await fetch(`${API_BASE_URL}/api/reviews/${editingReview.id}`, { 
                 method: 'PUT',
@@ -557,8 +569,11 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
     };
 
     const handleNavigate = () => {
-        if (item.googleMapUrl) window.open(item.googleMapUrl, '_blank');
-        else if (item.coords?.lat && item.coords?.lng) window.open(`https://www.google.com/maps/search/?api=1&query=${item.coords.lat},${item.coords.lng}`, '_blank');
+        if (item.googleMapUrl) {
+            window.open(item.googleMapUrl, '_blank');
+        } else if (item.coords?.lat && item.coords?.lng) {
+            window.open(`https://www.google.com/maps?q=${item.coords.lat},${item.coords.lng}`, '_blank');
+        }
     };
 
     const renderStars = (rating) => {
@@ -607,6 +622,8 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
         const token = localStorage.getItem('token');
         if (!token) return handleAuthError();
 
+        const API_BASE_URL = 'http://localhost:5000';
+
         try {
             const response = await fetch(`${API_BASE_URL}/api/famous-products/${productId}`, {
                 method: 'DELETE',
@@ -640,6 +657,8 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
         setIsRequestingDelete(true);
         const token = localStorage.getItem('token');
         if (!token) return handleAuthError();
+
+        const API_BASE_URL = 'http://localhost:5000';
 
         try {
             const response = await fetch(`${API_BASE_URL}/api/locations/${item.id}/request-deletion`, {

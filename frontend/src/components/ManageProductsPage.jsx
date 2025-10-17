@@ -1,19 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Edit, Trash2, Gift, Image as ImageIcon, Save, AlertTriangle, X, MapPin } from 'lucide-react';
 
-const API_BASE_URL = 'http://localhost:5000';
+// <<< FIX 1: Remove hardcoded API_BASE_URL >>>
+// const API_BASE_URL = 'http://localhost:5000';
 
 // --- Reusable Confirmation Modal ---
 const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message }) => {
     if (!isOpen) return null;
     return (
-        <div 
+        <div
             className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in"
-            onClick={onClose}
+            onClick={onClose} // Allow closing by clicking backdrop
         >
-            <div 
+            <div
                 className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-md p-6 transform transition-all"
-                onClick={e => e.stopPropagation()}
+                onClick={e => e.stopPropagation()} // Prevent closing when clicking inside modal
             >
                 <div className="flex items-start">
                     <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 dark:bg-red-900/30 sm:mx-0 sm:h-10 sm:w-10">
@@ -27,14 +28,14 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message }) => {
                     </div>
                 </div>
                 <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
-                    <button 
-                        onClick={onConfirm} 
+                    <button
+                        onClick={onConfirm}
                         className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm transition-colors"
                     >
                         ยืนยัน
                     </button>
-                    <button 
-                        onClick={onClose} 
+                    <button
+                        onClick={onClose}
                         className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 dark:border-gray-500 shadow-sm px-4 py-2 bg-white dark:bg-gray-700 text-base font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none sm:mt-0 sm:w-auto sm:text-sm transition-colors"
                     >
                         ยกเลิก
@@ -66,10 +67,13 @@ const ProductModal = ({ product, onClose, onSave, setNotification, handleAuthErr
     const handleSubmit = async (e) => {
         e.preventDefault();
         setIsSubmitting(true);
-        
+
         const token = localStorage.getItem('token');
         if (!token) return handleAuthError();
-        
+
+        // <<< FIX 1 (CRITICAL): Use Environment Variable >>>
+        const API_BASE_URL = import.meta.env.VITE_API_URL;
+
         const formData = new FormData();
         formData.append('name', name);
         formData.append('description', description);
@@ -91,7 +95,7 @@ const ProductModal = ({ product, onClose, onSave, setNotification, handleAuthErr
                 const err = await response.json();
                 throw new Error(err.error || 'เกิดข้อผิดพลาด');
             }
-            
+
             setNotification({ message: `บันทึกข้อมูล '${name}' สำเร็จ`, type: 'success' });
             onSave();
             onClose();
@@ -107,7 +111,14 @@ const ProductModal = ({ product, onClose, onSave, setNotification, handleAuthErr
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl w-full max-w-lg p-6 animate-fade-in-up" onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-center mb-4">
                     <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100">{isEditing ? `แก้ไข: ${product.name}` : 'เพิ่มของขึ้นชื่อ (ส่วนกลาง)'}</h2>
-                    <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"><X size={24} /></button>
+                    <button
+                        onClick={onClose}
+                        className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
+                        // <<< FIX 2 (A11Y): Add aria-label >>>
+                        aria-label="Close modal"
+                    >
+                        <X size={24} />
+                    </button>
                 </div>
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
@@ -120,16 +131,16 @@ const ProductModal = ({ product, onClose, onSave, setNotification, handleAuthErr
                     </div>
                     <div>
                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">รูปภาพ</label>
-                          <div className="mt-2 flex items-center">
-                              <div className="w-24 h-24 mr-4 rounded-md bg-gray-100 dark:bg-gray-700 flex items-center justify-center overflow-hidden">
-                                   {imagePreview ? <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" /> : <ImageIcon size={32} className="text-gray-400" />}
-                              </div>
-                              <input type="file" accept="image/*" onChange={handleImageChange} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-gray-50 dark:file:bg-gray-600 file:text-gray-700 dark:file:text-gray-200 hover:file:bg-gray-100 dark:hover:file:bg-gray-500"/>
-                        </div>
+                         <div className="mt-2 flex items-center">
+                             <div className="w-24 h-24 mr-4 rounded-md bg-gray-100 dark:bg-gray-700 flex items-center justify-center overflow-hidden">
+                                    {imagePreview ? <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" /> : <ImageIcon size={32} className="text-gray-400" />}
+                             </div>
+                             <input type="file" accept="image/*" onChange={handleImageChange} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-gray-50 dark:file:bg-gray-600 file:text-gray-700 dark:file:text-gray-200 hover:file:bg-gray-100 dark:hover:file:bg-gray-500"/>
+                         </div>
                     </div>
                     <div className="flex justify-end space-x-3 pt-4">
                         <button type="button" onClick={onClose} className="bg-gray-200 text-gray-700 font-bold py-2 px-4 rounded-lg hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">ยกเลิก</button>
-                        <button type="submit" disabled={isSubmitting} className="bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 disabled:bg-blue-300 flex items-center">
+                        <button type="submit" disabled={isSubmitting} className="bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center">
                             <Save size={18} className="mr-2"/>
                             {isSubmitting ? 'กำลังบันทึก...' : 'บันทึก'}
                         </button>
@@ -153,6 +164,9 @@ const ManageProductsPage = ({ setNotification, handleAuthError }) => {
         const token = localStorage.getItem('token');
         if (!token) return handleAuthError();
 
+        // <<< FIX 1 (CRITICAL): Use Environment Variable >>>
+        const API_BASE_URL = import.meta.env.VITE_API_URL;
+
         try {
             const response = await fetch(`${API_BASE_URL}/api/famous-products/all`, {
                 headers: { 'Authorization': `Bearer ${token}` }
@@ -160,7 +174,7 @@ const ManageProductsPage = ({ setNotification, handleAuthError }) => {
 
             if (response.status === 401 || response.status === 403) return handleAuthError();
             if (!response.ok) throw new Error('ไม่สามารถดึงข้อมูลของขึ้นชื่อได้');
-            
+
             const data = await response.json();
             setProducts(data);
         } catch (error) {
@@ -194,9 +208,12 @@ const ManageProductsPage = ({ setNotification, handleAuthError }) => {
 
     const handleDelete = async () => {
         if (!deletingProductId) return;
-        
+
         const token = localStorage.getItem('token');
         if (!token) return handleAuthError();
+
+        // <<< FIX 1 (CRITICAL): Use Environment Variable >>>
+        const API_BASE_URL = import.meta.env.VITE_API_URL;
 
         try {
             const response = await fetch(`${API_BASE_URL}/api/famous-products/${deletingProductId}`, {
@@ -204,7 +221,8 @@ const ManageProductsPage = ({ setNotification, handleAuthError }) => {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             if (response.status === 401 || response.status === 403) return handleAuthError();
-            if (!response.ok) {
+            // Allow 204 No Content for successful DELETE
+            if (!response.ok && response.status !== 204) {
                 const errData = await response.json();
                 throw new Error(errData.error || 'ไม่สามารถลบได้');
             }
@@ -220,7 +238,7 @@ const ManageProductsPage = ({ setNotification, handleAuthError }) => {
     return (
         <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 w-full">
             {isModalOpen && <ProductModal product={editingProduct} onClose={handleCloseModal} onSave={handleSave} setNotification={setNotification} handleAuthError={handleAuthError} />}
-            <ConfirmationModal 
+            <ConfirmationModal
                 isOpen={!!deletingProductId}
                 onClose={() => setDeletingProductId(null)}
                 onConfirm={handleDelete}
@@ -246,7 +264,6 @@ const ManageProductsPage = ({ setNotification, handleAuthError }) => {
                                 <tr className="border-b dark:border-gray-700">
                                     <th className="p-4">รูปภาพ</th>
                                     <th className="p-4">ชื่อ</th>
-                                    {/* <<< NEW: Added Location Header >>> */}
                                     <th className="p-4 hidden sm:table-cell">สถานที่</th>
                                     <th className="p-4 hidden md:table-cell">คำอธิบาย</th>
                                     <th className="p-4 text-right">จัดการ</th>
@@ -259,7 +276,6 @@ const ManageProductsPage = ({ setNotification, handleAuthError }) => {
                                             <img src={product.imageUrl || 'https://placehold.co/100x100/e2e8f0/333333?text=N/A'} alt={product.name} className="w-16 h-16 object-cover rounded-md"/>
                                         </td>
                                         <td className="p-4 font-semibold text-gray-800 dark:text-gray-100">{product.name}</td>
-                                        {/* <<< NEW: Added Location Data Cell >>> */}
                                         <td className="p-4 text-gray-500 dark:text-gray-400 hidden sm:table-cell">
                                             <div className="flex items-center">
                                                 {product.locationName !== 'ส่วนกลาง' && <MapPin size={16} className="mr-2 text-gray-400" />}
@@ -269,8 +285,22 @@ const ManageProductsPage = ({ setNotification, handleAuthError }) => {
                                         <td className="p-4 text-gray-600 dark:text-gray-400 hidden md:table-cell max-w-sm truncate">{product.description}</td>
                                         <td className="p-4 text-right">
                                             <div className="flex justify-end space-x-2">
-                                                <button onClick={() => handleOpenModal(product)} className="p-2 text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-full"><Edit size={18} /></button>
-                                                <button onClick={() => confirmDelete(product.id)} className="p-2 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-full"><Trash2 size={18} /></button>
+                                                <button
+                                                    onClick={() => handleOpenModal(product)}
+                                                    className="p-2 text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-full"
+                                                    // <<< FIX 2 (A11Y): Add aria-label >>>
+                                                    aria-label={`แก้ไข ${product.name}`}
+                                                >
+                                                    <Edit size={18} />
+                                                </button>
+                                                <button
+                                                    onClick={() => confirmDelete(product.id)}
+                                                    className="p-2 text-red-600 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-full"
+                                                    // <<< FIX 2 (A11Y): Add aria-label >>>
+                                                    aria-label={`ลบ ${product.name}`}
+                                                >
+                                                    <Trash2 size={18} />
+                                                </button>
                                             </div>
                                         </td>
                                     </tr>
@@ -291,4 +321,3 @@ const ManageProductsPage = ({ setNotification, handleAuthError }) => {
 };
 
 export default ManageProductsPage;
-

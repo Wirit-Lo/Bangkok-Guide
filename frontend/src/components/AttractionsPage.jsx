@@ -1,8 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, memo } from 'react'; // <<< FIX 4: Import 'memo'
 import { Star, Heart, Edit, Trash2, List, TrendingUp, MapPin } from 'lucide-react';
 
 // --- Reusable Card Component (MODIFIED for Rating Display & Admin) ---
-const ItemCard = ({ 
+// <<< FIX 4 (PERFORMANCE): Wrap component in memo to prevent unnecessary re-renders >>>
+const ItemCard = memo(({ 
     item, 
     handleItemClick, 
     handleToggleFavorite, 
@@ -31,10 +32,23 @@ const ItemCard = ({
         handleDeleteItem(item.id);
     };
     
+    // <<< FIX 5 (ACCESSIBILITY): Handler for keyboard navigation on card >>>
+    const handleCardKeyDown = (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault(); // Prevent space from scrolling page
+            handleItemClick(item);
+        }
+    };
+
     return (
         <div 
             className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden transform hover:-translate-y-1 transition-all duration-300 cursor-pointer flex flex-col"
             onClick={() => handleItemClick(item)}
+            // <<< FIX 5 (ACCESSIBILITY): Make card focusable and activatable via keyboard >>>
+            role="button"
+            tabIndex={0}
+            onKeyDown={handleCardKeyDown}
+            // <<< END FIX 5 >>>
         >
             <div className="relative">
                 <img 
@@ -53,6 +67,9 @@ const ItemCard = ({
                     <button 
                         onClick={(e) => { e.stopPropagation(); handleToggleFavorite(item.id); }}
                         className="absolute top-3 right-3 bg-white/80 dark:bg-gray-800/80 p-2 rounded-full transition-colors"
+                        // <<< FIX 6 (ACCESSIBILITY): Add descriptive label for screen readers >>>
+                        aria-label={isFavorite ? 'ลบออกจากรายการโปรด' : 'เพิ่มในรายการโปรด'}
+                        // <<< END FIX 6 >>>
                     >
                         <Heart size={20} className={`transition-all ${isFavorite ? 'text-red-500 fill-current' : 'text-gray-600 dark:text-gray-300'}`} />
                     </button>
@@ -89,7 +106,7 @@ const ItemCard = ({
             </div>
         </div>
     );
-};
+}); // <<< END FIX 4 (memo) >>>
 
 const AttractionsPage = ({ 
     attractions, 
@@ -168,4 +185,3 @@ const AttractionsPage = ({
 };
 
 export default AttractionsPage;
-
