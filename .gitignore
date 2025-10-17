@@ -1,0 +1,11 @@
+# Dependencies
+/node_modules
+/frontend/node_modules
+/backend/node_modules
+
+# Environment Variables
+.env
+backend/.env
+
+# Uploaded files
+/backend/uploads
