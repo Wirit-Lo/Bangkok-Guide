@@ -12,19 +12,27 @@ const GoogleIcon = () => (
 );
 
 const FacebookIcon = () => (
-    <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24" fill="currentColor">
-        <path d="M22 12c0-5.523-4.477-10-10-10S2 6.477 2 12c0 4.991 3.657 9.128 8.438 9.878V14.89h-2.54V12h2.54V9.797c0-2.506 1.492-3.89 3.777-3.89 1.094 0 2.238.195 2.238.195v2.46h-1.26c-1.243 0-1.63.771-1.63 1.562V12h2.773l-.443 2.89h-2.33v7.046C18.343 21.128 22 16.991 22 12z" />
-    </svg>
+  <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M22 12c0-5.523-4.477-10-10-10S2 6.477 2 12c0 4.991 3.657 9.128 8.438 9.878V14.89h-2.54V12h2.54V9.797c0-2.506 1.492-3.89 3.777-3.89 1.094 0 2.238.195 2.238.195v2.46h-1.26c-1.243 0-1.63.771-1.63 1.562V12h2.773l-.443 2.89h-2.33v7.046C18.343 21.128 22 16.991 22 12z" />
+  </svg>
 );
 
+// ---------- ช่วยลบ key ที่เป็น undefined ออกจาก payload ----------
+const compact = (obj) =>
+  Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined && v !== null));
 
-const LoginPage = ({ onAuthSuccess }) => {
+const LoginPage = ({ onAuthSuccess, setNotification }) => {
   const [isLoginView, setIsLoginView] = useState(true);
-  const [username, setUsername] = useState('');
+  const [username, setUsername] = useState(''); // รองรับทั้ง username หรือ email ในช่องเดียว
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  // ใช้ Vite env และกัน / ซ้ำท้าย
+  const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000').replace(/\/$/, '');
+  // ถ้าแบ็กเอนด์ใช้ cookie session ให้เปลี่ยนเป็น true แล้วเปิด credentials: 'include'
+  const USE_COOKIES = false;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -33,67 +41,85 @@ const LoginPage = ({ onAuthSuccess }) => {
 
     const endpoint = isLoginView ? '/api/login' : '/api/register';
 
-    // <<< --- START OF CHANGE --- >>>
-    // Reverted back to import.meta.env for Vite environment variables
-    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'; // Add fallback for safety
-    // <<< --- END OF CHANGE --- >>>
+    // ผู้ใช้กรอกช่องเดียว: ถ้ามี @ ถือเป็น email, ไม่มีก็เป็น username
+    const id = username.trim();
+    const emailLike = id.includes('@');
+
+    const loginPayload = emailLike
+      ? { email: id.toLowerCase(), password: password.trim() }
+      : { username: id, password: password.trim() };
+
+    // สำหรับ register: บางแบ็กเอนด์ต้องการทั้ง username และ email
+    const registerPayload = emailLike
+      ? { username: id.split('@')[0], email: id.toLowerCase(), password: password.trim() }
+      : { username: id, password: password.trim() };
+
+    const payload = isLoginView ? loginPayload : registerPayload;
 
     try {
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      const res = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        ...(USE_COOKIES ? { credentials: 'include' } : {}),
+        body: JSON.stringify(compact(payload)),
       });
 
-      // Check if response is not ok BEFORE trying to parse JSON
-      if (!response.ok) {
-          try {
-              // Attempt to parse error JSON from backend
-              const errorData = await response.json();
-              throw new Error(errorData.error || `เกิดข้อผิดพลาด: ${response.statusText} (${response.status})`);
-          } catch (jsonError) {
-              // If backend sends non-JSON error (like HTML 500 page), use status text
-              throw new Error(`เกิดข้อผิดพลาด: ${response.statusText} (${response.status})`);
-          }
+      if (res.status === 401) {
+        const msg = 'อีเมล/ชื่อผู้ใช้ หรือรหัสผ่านไม่ถูกต้อง (401)';
+        setError(msg);
+        setNotification?.({ type: 'error', message: msg });
+        return;
+      }
+      if (!res.ok) {
+        let text = '';
+        try {
+          const errJson = await res.json();
+          text = errJson?.error || errJson?.message || '';
+        } catch (_) {
+          text = await res.text();
+        }
+        const msg = `เกิดข้อผิดพลาด: ${text || res.statusText} (${res.status})`;
+        setError(msg);
+        setNotification?.({ type: 'error', message: msg });
+        return;
       }
 
-      // Only parse JSON if response is ok
-      const data = await response.json();
+      const data = await res.json();
 
       if (isLoginView) {
-        if (data.user && data.token) {
-          onAuthSuccess(data.user, data.token);
+        // กรณีใช้ Bearer token
+        if (data?.user && (data?.token || USE_COOKIES)) {
+          onAuthSuccess?.(data.user, data.token ?? null);
+          setNotification?.({ type: 'success', message: `ยินดีต้อนรับ ${data.user?.displayName || data.user?.username || ''}` });
         } else {
-          // This case might indicate an unexpected success response format
-          throw new Error('การตอบกลับจากเซิร์ฟเวอร์ไม่สมบูรณ์');
+          const msg = 'รูปแบบผลลัพธ์จากเซิร์ฟเวอร์ไม่ถูกต้อง';
+          setError(msg);
+          setNotification?.({ type: 'error', message: msg });
         }
       } else {
-        // Handle registration success
-        alert(data.message || 'สมัครสมาชิกสำเร็จ! กรุณาเข้าสู่ระบบ'); // Provide default message
-        setIsLoginView(true); // Switch to login view
-        // Optionally clear fields after registration
-        // setUsername('');
-        // setPassword('');
+        // สมัครสมาชิกสำเร็จ -> โยกไปหน้า Login
+        setNotification?.({ type: 'success', message: data?.message || 'สมัครสมาชิกสำเร็จ! กรุณาเข้าสู่ระบบ' });
+        setIsLoginView(true);
       }
-
     } catch (err) {
-      // Catch errors from fetch itself (network error) or thrown errors
-      console.error("Login/Register Error:", err); // Log the actual error
-      setError(err.message); // Show error message to the user
+      console.error('Login/Register Error:', err);
+      const msg = `เครือข่ายล้มเหลว: ${err.message}`;
+      setError(msg);
+      setNotification?.({ type: 'error', message: msg });
     } finally {
       setLoading(false);
     }
   };
 
   const handleSocialLogin = (provider) => {
-    alert(`การลงชื่อเข้าใช้ด้วย ${provider} ยังไม่เปิดใช้งาน`);
-    // Example: window.location.href = `${import.meta.env.VITE_API_URL}/auth/${provider}`;
+    setNotification?.({ type: 'error', message: `การลงชื่อเข้าใช้ด้วย ${provider} ยังไม่เปิดใช้งาน` });
+    // ตัวอย่าง (ถ้า backend รองรับ):
+    // window.location.href = `${API_BASE_URL}/auth/${provider}`;
   };
 
   return (
     <div className="flex items-center justify-center min-h-[70vh] p-4">
       <div className="w-full max-w-4xl flex flex-col md:flex-row bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden animate-fade-in-up">
-
         {/* --- Left Image Section --- */}
         <div className="hidden md:block md:w-1/2">
           <img
@@ -106,59 +132,64 @@ const LoginPage = ({ onAuthSuccess }) => {
         {/* --- Right Form Section --- */}
         <div className="w-full md:w-1/2 p-8 sm:p-12 flex flex-col justify-center">
           <div className="text-center">
-              <h2 className="text-3xl font-bold text-gray-800 dark:text-white">
-                  {isLoginView ? 'ยินดีต้อนรับกลับ' : 'สร้างบัญชีใหม่'}
-              </h2>
-              <p className="mt-2 text-gray-500 dark:text-gray-400">
-                  {isLoginView ? 'เข้าสู่ระบบเพื่อจัดการการเดินทางของคุณ' : 'เข้าร่วมชุมชนนักเดินทางของเรา'}
-              </p>
+            <h2 className="text-3xl font-bold text-gray-800 dark:text-white">
+              {isLoginView ? 'ยินดีต้อนรับกลับ' : 'สร้างบัญชีใหม่'}
+            </h2>
+            <p className="mt-2 text-gray-500 dark:text-gray-400">
+              {isLoginView ? 'เข้าสู่ระบบเพื่อจัดการการเดินทางของคุณ' : 'เข้าร่วมชุมชนนักเดินทางของเรา'}
+            </p>
           </div>
 
           <form onSubmit={handleSubmit} className="mt-8 space-y-6">
-            <div> {/* Changed from div.relative for label */}
-              <label htmlFor="username-login" className="sr-only">ชื่อผู้ใช้</label>
+            <div>
+              <label htmlFor="username-login" className="sr-only">ชื่อผู้ใช้หรืออีเมล</label>
               <div className="relative">
-                  <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={20}/>
-                  <input
-                      id="username-login"
-                      type="text"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      placeholder="ชื่อผู้ใช้ หรือ อีเมล" // Adjusted placeholder
-                      required
-                      className="w-full pl-12 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                      autoComplete="username"
-                  />
+                <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={20}/>
+                <input
+                  id="username-login"
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="ชื่อผู้ใช้ หรือ อีเมล"
+                  required
+                  className="w-full pl-12 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  autoComplete="username"
+                />
               </div>
             </div>
-            <div> {/* Changed from div.relative for label */}
-               <label htmlFor="password-login" className="sr-only">รหัสผ่าน</label>
-               <div className="relative">
-                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={20}/>
-                  <input
-                      id="password-login"
-                      type={showPassword ? 'text' : 'password'}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="รหัสผ่าน"
-                      required
-                      className="w-full pl-12 pr-12 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                      autoComplete={isLoginView ? "current-password" : "new-password"} // Correct autocomplete
-                  />
-                  <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-                      aria-label={showPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
-                  >
-                      {showPassword ? <EyeOff size={20}/> : <Eye size={20}/>}
-                  </button>
-               </div>
+
+            <div>
+              <label htmlFor="password-login" className="sr-only">รหัสผ่าน</label>
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={20}/>
+                <input
+                  id="password-login"
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="รหัสผ่าน"
+                  required
+                  className="w-full pl-12 pr-12 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  autoComplete={isLoginView ? 'current-password' : 'new-password'}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                  aria-label={showPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
+                >
+                  {showPassword ? <EyeOff size={20}/> : <Eye size={20}/>}
+                </button>
+              </div>
             </div>
 
-            {error && <p className="text-sm text-red-600 text-center">{error}</p>}
+            {(error) && <p className="text-sm text-red-600 text-center">{error}</p>}
 
-            <button type="submit" disabled={loading} className="w-full flex justify-center items-center bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg hover:shadow-blue-500/50">
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full flex justify-center items-center bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg hover:shadow-blue-500/50"
+            >
               <LogIn className="mr-2" />
               {loading ? 'กำลังดำเนินการ...' : (isLoginView ? 'เข้าสู่ระบบ' : 'สมัครสมาชิก')}
             </button>
@@ -171,11 +202,17 @@ const LoginPage = ({ onAuthSuccess }) => {
           </div>
 
           <div className="space-y-4">
-            <button onClick={() => handleSocialLogin('Google')} className="w-full flex items-center justify-center py-3 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+            <button
+              onClick={() => handleSocialLogin('Google')}
+              className="w-full flex items-center justify-center py-3 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            >
               <GoogleIcon />
               <span className="font-semibold text-gray-700 dark:text-gray-200">ดำเนินการต่อด้วย Google</span>
             </button>
-            <button onClick={() => handleSocialLogin('Facebook')} className="w-full flex items-center justify-center py-3 bg-[#1877F2] text-white rounded-lg hover:bg-[#166fe5] transition-colors">
+            <button
+              onClick={() => handleSocialLogin('Facebook')}
+              className="w-full flex items-center justify-center py-3 bg-[#1877F2] text-white rounded-lg hover:bg-[#166fe5] transition-colors"
+            >
               <FacebookIcon />
               <span className="font-semibold">ดำเนินการต่อด้วย Facebook</span>
             </button>
@@ -183,7 +220,10 @@ const LoginPage = ({ onAuthSuccess }) => {
 
           <p className="mt-8 text-sm text-center text-gray-600 dark:text-gray-400">
             {isLoginView ? 'ยังไม่มีบัญชี?' : 'มีบัญชีอยู่แล้ว?'}
-            <button onClick={() => setIsLoginView(!isLoginView)} className="ml-1 font-semibold text-blue-600 dark:text-blue-400 hover:underline">
+            <button
+              onClick={() => setIsLoginView(!isLoginView)}
+              className="ml-1 font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+            >
               {isLoginView ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ'}
             </button>
           </p>
