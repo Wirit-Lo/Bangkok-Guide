@@ -1,32 +1,35 @@
-import React, { memo } from 'react'; // <<< FIX 1: Import memo
+import React, { memo } from 'react';
 import {
     LayoutGrid, Landmark, Coffee, ShoppingBag, Utensils, ListFilter,
     User, Heart, LogIn, LogOut, ChevronRight, PlusCircle, Wrench, ShieldCheck
 } from 'lucide-react';
 
+// Added 'ตลาด' back for completeness, matching other components
 const categories = [
-    // Consider adding targetPage for cleaner navigation logic later if needed
     { name: 'ทั้งหมด', icon: <LayoutGrid size={20} /> },
     { name: 'วัด', icon: <Landmark size={20} /> },
     { name: 'คาเฟ่', icon: <Coffee size={20} /> },
     { name: 'ห้างสรรพสินค้า', icon: <ShoppingBag size={20} /> },
     { name: 'ร้านอาหาร', icon: <Utensils size={20} /> },
+    { name: 'ตลาด', icon: <ListFilter size={20} /> }, // Added back
     { name: 'อื่นๆ', icon: <ListFilter size={20} /> },
 ];
 
-// <<< FIX 1 (PERFORMANCE): Wrap component in memo >>>
 const Sidebar = memo(({ selectedCategory, setSelectedCategory, setCurrentPage, currentUser, handleLogout }) => {
 
     const handleCategoryClick = (category) => {
         setSelectedCategory(category.name);
 
-        // Logic to determine page based on category name
-        if (category.name === 'ร้านอาหาร' || category.name === 'คาเฟ่') {
+        // --- IMPROVED LOGIC ---
+        // This logic is more maintainable. It groups food-related categories together.
+        // Any other category that is not 'ทั้งหมด' will automatically go to attractions.
+        const foodCategories = ['ร้านอาหาร', 'คาเฟ่', 'ตลาด'];
+        
+        if (foodCategories.includes(category.name)) {
             setCurrentPage('foodshops');
-        } else if (category.name === 'วัด' || category.name === 'ห้างสรรพสินค้า' || category.name === 'อื่นๆ') {
-             // Explicitly handle attraction categories
+        } else if (category.name !== 'ทั้งหมด') {
             setCurrentPage('attractions');
-        } else { // 'ทั้งหมด' or any other case defaults to home
+        } else { // 'ทั้งหมด'
             setCurrentPage('home');
         }
     };
@@ -99,12 +102,12 @@ const Sidebar = memo(({ selectedCategory, setSelectedCategory, setCurrentPage, c
                         <button
                             onClick={() => setCurrentPage('profile')}
                             className="w-full flex items-center p-2 rounded-lg text-left hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                             aria-label={`View profile for ${currentUser.displayName || currentUser.username}`}
                         >
-                            <div className="w-10 h-10 bg-blue-100 dark:bg-gray-600 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden"> {/* Added overflow-hidden */}
+                            <div className="w-10 h-10 bg-blue-100 dark:bg-gray-600 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden">
                                 {currentUser.profileImageUrl ? (
                                     <img
                                         src={currentUser.profileImageUrl}
-                                        // <<< FIX 2 (A11Y): Add alt tag >>>
                                         alt="User profile"
                                         className="w-full h-full rounded-full object-cover"
                                      />
@@ -113,7 +116,7 @@ const Sidebar = memo(({ selectedCategory, setSelectedCategory, setCurrentPage, c
                                 )}
                             </div>
                             <div className="ml-3 overflow-hidden">
-                                <p className="font-semibold text-sm text-gray-800 dark:text-gray-100 truncate">{currentUser.displayName || currentUser.username}</p> {/* Added fallback to username */}
+                                <p className="font-semibold text-sm text-gray-800 dark:text-gray-100 truncate">{currentUser.displayName || currentUser.username}</p>
                                 <p className="text-xs text-gray-500 dark:text-gray-400">ดูโปรไฟล์</p>
                             </div>
                         </button>
@@ -144,6 +147,6 @@ const Sidebar = memo(({ selectedCategory, setSelectedCategory, setCurrentPage, c
             </div>
         </aside>
     );
-}); // <<< END FIX 1 (memo) >>>
+});
 
 export default Sidebar;
