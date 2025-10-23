@@ -2,16 +2,16 @@ import React, { useState, useMemo, memo } from 'react'; // <<< FIX 3: Import 'me
 import { MapPin, Star, Heart, TrendingUp, List, Edit, Trash2 } from 'lucide-react';
 
 // <<< FIX 3 (PERFORMANCE): Wrap component in memo to prevent unnecessary re-renders >>>
-const ItemCard = memo(({ 
-    item, 
-    handleItemClick, 
-    handleToggleFavorite, 
-    isFavorite, 
-    currentUser, 
-    handleEditItem, 
-    handleDeleteItem 
+const ItemCard = memo(({
+    item,
+    handleItemClick,
+    handleToggleFavorite,
+    isFavorite,
+    currentUser,
+    handleEditItem,
+    handleDeleteItem
 }) => {
-    
+
     // <<< FIX 1 (BUG/LOGIC): เพิ่มการจัดการ Rating ที่รัดกุม >>>
     const displayRating = Math.max(0, Math.min(5, parseFloat(item.rating || 0)));
     const hasRating = item.rating !== null && item.rating !== undefined && parseFloat(item.rating) > 0;
@@ -27,7 +27,7 @@ const ItemCard = memo(({
         e.stopPropagation(); // Prevent card click
         handleDeleteItem(item.id);
     };
-    
+
     // <<< FIX 4 (ACCESSIBILITY): Handler for keyboard navigation on card >>>
     const handleCardKeyDown = (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -35,9 +35,9 @@ const ItemCard = memo(({
             handleItemClick(item);
         }
     };
-    
+
     return (
-        <div 
+        <div
             className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden transform hover:-translate-y-1 transition-all duration-300 cursor-pointer flex flex-col"
             onClick={() => handleItemClick(item)}
             // <<< FIX 4 (ACCESSIBILITY): Make card focusable and activatable via keyboard >>>
@@ -47,12 +47,12 @@ const ItemCard = memo(({
             // <<< END FIX 4 >>>
         >
             <div className="relative">
-                <img 
-                    src={item.imageUrl || 'https://placehold.co/400x300/e2e8f0/64748b?text=Image'} 
+                <img
+                    src={item.imageUrl || 'https://placehold.co/400x300/e2e8f0/64748b?text=Image'}
                     alt={item.name}
                     className="w-full h-48 object-cover"
                 />
-                
+
                 {/* <<< FIX 1 & 2: ใช้ logic ใหม่ และ แก้สี contrast >>> */}
                 {hasRating && (
                     <div className="absolute top-3 left-3 bg-yellow-400 text-black text-sm font-bold px-3 py-1 rounded-full flex items-center gap-1 shadow-md">
@@ -64,7 +64,7 @@ const ItemCard = memo(({
 
                 {/* --- MODIFIED: Show favorite button only for logged-in users --- */}
                 {currentUser && (
-                    <button 
+                    <button
                         onClick={(e) => { e.stopPropagation(); handleToggleFavorite(item.id); }}
                         className="absolute top-3 right-3 bg-white/80 dark:bg-gray-800/80 p-2 rounded-full transition-colors"
                         // <<< FIX 5 (ACCESSIBILITY): Add descriptive label for screen readers >>>
@@ -78,17 +78,17 @@ const ItemCard = memo(({
             <div className="p-4 flex-grow flex flex-col">
                 <h3 className="text-lg font-bold text-gray-800 dark:text-white truncate">{item.name}</h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 flex-grow truncate">{item.description}</p>
-                
+
                 {/* --- NEW: Conditional rendering for Admin Controls --- */}
                 {currentUser && currentUser.role === 'admin' ? (
                     <div className="mt-4 flex gap-2">
-                        <button 
+                        <button
                             className="w-full bg-yellow-500 text-white font-semibold py-2 rounded-lg hover:bg-yellow-600 transition-colors flex items-center justify-center gap-2"
                             onClick={onEditClick}
                         >
                             <Edit size={16} /> แก้ไข
                         </button>
-                        <button 
+                        <button
                             className="w-full bg-red-600 text-white font-semibold py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
                             onClick={onDeleteClick}
                         >
@@ -96,7 +96,7 @@ const ItemCard = memo(({
                         </button>
                     </div>
                 ) : (
-                    <button 
+                    <button
                         className="mt-4 w-full bg-blue-600 text-white font-semibold py-2 rounded-lg hover:bg-blue-700 transition-colors"
                         onClick={() => handleItemClick(item)}
                     >
@@ -109,15 +109,17 @@ const ItemCard = memo(({
 }); // <<< END FIX 3 (memo) >>>
 
 
-// <<< MODIFIED: FoodShopsPage now accepts admin props
-const FoodShopsPage = ({ 
-    foodShops, 
-    handleItemClick, 
-    favorites, 
+// <<< MODIFIED: FoodShopsPage now accepts admin props and selectedCategory
+const FoodShopsPage = ({
+    foodShops,
+    handleItemClick,
+    favorites,
     handleToggleFavorite,
     currentUser,
     handleEditItem,
-    handleDeleteItem
+    handleDeleteItem,
+    // --- ⭐ NEW: รับ selectedCategory มาจาก App.jsx ---
+    selectedCategory
 }) => {
     const [sortOrder, setSortOrder] = useState('default'); // 'default' or 'rating'
 
@@ -129,27 +131,31 @@ const FoodShopsPage = ({
         return sorted;
     }, [foodShops, sortOrder]);
 
+    // --- ⭐ NEW: กำหนด title ตาม selectedCategory ---
+    const pageTitle = selectedCategory === 'ทั้งหมด'
+        ? 'ร้านอาหารและคาเฟ่ทั้งหมด'
+        : `${selectedCategory}`; // หมวดหมู่ร้านอาหารมักจะเป็นชื่อเลย เช่น 'ร้านอาหาร', 'คาเฟ่'
+
     return (
         <div className="container mx-auto px-4 py-8">
             <div className="flex flex-col sm:flex-row justify-between items-center mb-8 gap-4">
-                <h1 className="text-4xl font-bold text-gray-800 dark:text-white">ร้านอาหารและคาเฟ่</h1>
-                
+                 {/* --- ⭐ EDIT: แสดง pageTitle ที่สร้างขึ้น --- */}
+                <h1 className="text-4xl font-bold text-gray-800 dark:text-white">{pageTitle}</h1>
+
                 {/* Sort Buttons */}
                 <div className="flex items-center bg-gray-100 dark:bg-gray-700 p-1 rounded-full">
                     <button
                         onClick={() => setSortOrder('default')}
-                        className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-full transition-colors ${
-                            sortOrder === 'default' ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                        }`}
+                        className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-full transition-colors ${sortOrder === 'default' ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                            }`}
                     >
                         <List size={16} />
                         ทั้งหมด
                     </button>
                     <button
                         onClick={() => setSortOrder('rating')}
-                        className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-full transition-colors ${
-                            sortOrder === 'rating' ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                        }`}
+                        className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-full transition-colors ${sortOrder === 'rating' ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                            }`}
                     >
                         <TrendingUp size={16} />
                         ยอดนิยม
@@ -160,12 +166,13 @@ const FoodShopsPage = ({
             {sortedFoodShops.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
                     {sortedFoodShops.map((item) => (
-                        <ItemCard 
-                            key={item.id} 
-                            item={item} 
+                        <ItemCard
+                            key={item.id}
+                            item={item}
                             handleItemClick={handleItemClick}
                             handleToggleFavorite={handleToggleFavorite}
-                            isFavorite={favorites.includes(item.id)}
+                            // --- ⭐ EDIT: ตรวจสอบ favorites ก่อนใช้ .includes ---
+                            isFavorite={Array.isArray(favorites) && favorites.includes(item.id)}
                             // --- NEW: Pass admin props down to ItemCard ---
                             currentUser={currentUser}
                             handleEditItem={handleEditItem}
@@ -176,9 +183,16 @@ const FoodShopsPage = ({
             ) : (
                 <div className="text-center py-16 px-4 bg-white dark:bg-gray-800 rounded-2xl">
                     <MapPin size={48} className="mx-auto text-gray-400 dark:text-gray-500" />
-                    <h3 className="mt-4 text-xl font-semibold text-gray-800 dark:text-gray-100">ไม่พบร้านอาหารหรือคาเฟ่</h3>
+                    {/* --- ⭐ EDIT: เปลี่ยนข้อความตาม selectedCategory --- */}
+                    <h3 className="mt-4 text-xl font-semibold text-gray-800 dark:text-gray-100">
+                        {selectedCategory === 'ทั้งหมด'
+                            ? 'ไม่พบร้านอาหารหรือคาเฟ่'
+                            : `ไม่พบข้อมูล${selectedCategory}` }
+                    </h3>
                     <p className="mt-2 text-gray-500 dark:text-gray-400">
-                        ยังไม่มีข้อมูลร้านอาหารหรือคาเฟ่ในหมวดหมู่นี้
+                        {selectedCategory === 'ทั้งหมด'
+                            ? 'ยังไม่มีข้อมูลร้านอาหารหรือคาเฟ่ในระบบ'
+                            : `ยังไม่มีข้อมูล${selectedCategory}ในหมวดหมู่นี้`}
                     </p>
                 </div>
             )}

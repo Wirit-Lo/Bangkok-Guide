@@ -1,152 +1,202 @@
 import React, { memo } from 'react';
 import {
-    LayoutGrid, Landmark, Coffee, ShoppingBag, Utensils, ListFilter,
-    User, Heart, LogIn, LogOut, ChevronRight, PlusCircle, Wrench, ShieldCheck
+    LayoutGrid, Landmark, Coffee, ShoppingBag, Utensils, Store,
+    User, Heart, LogIn, LogOut, PlusCircle, Wrench, ShieldCheck,
+    ChevronLeft, Menu, X, MapPin
 } from 'lucide-react';
 
-// Added 'ตลาด' back for completeness, matching other components
+// --- Reusable Navigation Item Component with new design ---
+const NavItem = ({ icon, text, onClick, isSelected, isOpen, color }) => (
+    <button
+        onClick={onClick}
+        title={!isOpen ? text : ''}
+        className={`w-full flex items-center p-3 rounded-xl text-left transition-all duration-300 group relative
+            ${!isOpen && 'justify-center'}
+            ${isSelected
+                ? 'bg-gradient-to-tr from-indigo-500 to-cyan-400 text-white shadow-lg shadow-indigo-500/30'
+                : 'text-gray-500 dark:text-gray-400 hover:bg-slate-200/50 dark:hover:bg-gray-700/60'
+            }`}
+    >
+        <div className={isSelected ? 'text-white' : `${color || 'text-gray-500 dark:text-gray-400'} transition-colors group-hover:opacity-90`}>
+            {React.cloneElement(icon, { strokeWidth: isSelected ? 2.5 : 2 })}
+        </div>
+        <span className={`font-semibold whitespace-nowrap transition-all duration-200 ${isOpen ? 'ml-4 opacity-100' : 'w-0 opacity-0'}`}>
+            {text}
+        </span>
+    </button>
+);
+
 const categories = [
-    { name: 'ทั้งหมด', icon: <LayoutGrid size={20} /> },
-    { name: 'วัด', icon: <Landmark size={20} /> },
-    { name: 'คาเฟ่', icon: <Coffee size={20} /> },
-    { name: 'ห้างสรรพสินค้า', icon: <ShoppingBag size={20} /> },
-    { name: 'ร้านอาหาร', icon: <Utensils size={20} /> },
-    { name: 'ตลาด', icon: <ListFilter size={20} /> }, // Added back
-    { name: 'อื่นๆ', icon: <ListFilter size={20} /> },
+    { name: 'ทั้งหมด', icon: <LayoutGrid size={22} />, color: 'text-sky-500' },
+    { name: 'วัด', icon: <Landmark size={22} />, color: 'text-amber-500' },
+    { name: 'คาเฟ่', icon: <Coffee size={22} />, color: 'text-orange-500' },
+    { name: 'ห้างสรรพสินค้า', icon: <ShoppingBag size={22} />, color: 'text-rose-500' },
+    { name: 'ร้านอาหาร', icon: <Utensils size={22} />, color: 'text-emerald-500' },
+    { name: 'ตลาด', icon: <Store size={22} />, color: 'text-violet-500' },
+    { name: 'อื่นๆ', icon: <Menu size={22} />, color: 'text-slate-500' },
 ];
 
-const Sidebar = memo(({ selectedCategory, setSelectedCategory, setCurrentPage, currentUser, handleLogout }) => {
+const Sidebar = memo(({ 
+    selectedCategory, 
+    setSelectedCategory, // เราต้องการ prop นี้
+    setCurrentPage, 
+    currentUser, 
+    handleLogout,
+    isSidebarOpen, 
+    toggleSidebar 
+}) => {
 
     const handleCategoryClick = (category) => {
         setSelectedCategory(category.name);
-
-        // --- IMPROVED LOGIC ---
-        // This logic is more maintainable. It groups food-related categories together.
-        // Any other category that is not 'ทั้งหมด' will automatically go to attractions.
         const foodCategories = ['ร้านอาหาร', 'คาเฟ่', 'ตลาด'];
         
         if (foodCategories.includes(category.name)) {
             setCurrentPage('foodshops');
         } else if (category.name !== 'ทั้งหมด') {
             setCurrentPage('attractions');
-        } else { // 'ทั้งหมด'
+        } else {
             setCurrentPage('home');
         }
     };
+    
+    // --- ฟังก์ชันสำหรับคลิกโลโก้ ---
+    const handleLogoClick = () => {
+        setCurrentPage('home');
+        setSelectedCategory('ทั้งหมด'); // รีเซ็ตหมวดหมู่เป็น 'ทั้งหมด' ด้วย
+    };
+
+    const sidebarContainerClasses = `
+        sticky top-4 h-[calc(100dvh-2rem)] z-40
+        flex flex-col rounded-3xl shadow-2xl shadow-slate-900/10 dark:shadow-black/20
+        bg-white/80 dark:bg-gray-800/80 backdrop-blur-2xl border border-white/50 dark:border-gray-700/50
+        transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]
+        ${isSidebarOpen ? 'w-72' : 'w-0 md:w-[100px]'} 
+        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-[calc(100%+2rem)] md:translate-x-0'}
+    `;
 
     return (
-        <aside className="fixed top-0 left-0 h-full w-64 bg-white dark:bg-gray-800 shadow-lg p-5 pt-24 z-20 transform -translate-x-full md:translate-x-0 transition-transform duration-300 ease-in-out border-r border-gray-100 dark:border-gray-700 flex flex-col">
+        <>
+            {isSidebarOpen && (
+                <div
+                    onClick={toggleSidebar}
+                    className="fixed inset-0 bg-black/50 z-30 md:hidden" // z-index lower than sidebar
+                    aria-hidden="true"
+                ></div>
+            )}
+            <aside className={`${sidebarContainerClasses} relative`}>
+                <button 
+                    onClick={toggleSidebar} 
+                    className="hidden md:flex items-center justify-center w-8 h-8 bg-white dark:bg-gray-700 text-gray-500 hover:bg-blue-500 hover:text-white dark:hover:bg-blue-500 rounded-full shadow-lg border border-slate-200 dark:border-slate-600 absolute top-1/2 -translate-y-1/2 -right-4 z-50 transition-all duration-300"
+                    aria-label={isSidebarOpen ? 'ย่อเมนู' : 'ขยายเมนู'}
+                >
+                    <ChevronLeft size={18} className={`transition-transform duration-500 ease-in-out ${!isSidebarOpen && 'rotate-180'}`} />
+                </button>
 
-            {/* --- Category Section --- */}
-            <div className="flex-grow">
-                <h3 className="text-sm font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-4 px-2">หมวดหมู่</h3>
-                <nav className="space-y-2">
-                    {categories.map((category) => (
-                        <button
-                            key={category.name}
-                            onClick={() => handleCategoryClick(category)}
-                            className={`w-full flex items-center p-3 rounded-lg text-left transition-all duration-200 group
-                                ${selectedCategory === category.name
-                                    ? 'bg-blue-600 text-white shadow-md'
-                                    : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
-                                }`}
-                        >
-                            <div className={`transition-colors ${selectedCategory === category.name ? 'text-white' : 'text-gray-400 group-hover:text-blue-500'}`}>
-                                {category.icon}
-                            </div>
-                            <span className="ml-3 font-semibold">{category.name}</span>
-                            <ChevronRight size={16} className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity" />
-                        </button>
-                    ))}
-                </nav>
-
-                <hr className="my-6 border-gray-200 dark:border-gray-600" />
-
-                <nav className="space-y-2">
-                    {currentUser && (
-                        <button
-                            onClick={() => setCurrentPage('add-location')}
-                            className="w-full flex items-center p-3 rounded-lg text-left text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white group"
-                        >
-                            <PlusCircle size={20} className="text-gray-400 group-hover:text-blue-500 transition-colors" />
-                            <span className="ml-3 font-semibold">เพิ่มสถานที่</span>
-                        </button>
-                    )}
-
-                    {currentUser && currentUser.role === 'admin' && (
-                        <>
-                            <button
-                                onClick={() => setCurrentPage('manage-products')}
-                                className="w-full flex items-center p-3 rounded-lg text-left text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white group"
-                            >
-                                <Wrench size={20} className="text-gray-400 group-hover:text-blue-500 transition-colors" />
-                                <span className="ml-3 font-semibold">จัดการของขึ้นชื่อ</span>
-                            </button>
-                            <button
-                                onClick={() => setCurrentPage('deletion-requests')}
-                                className="w-full flex items-center p-3 rounded-lg text-left text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white group"
-                            >
-                                <ShieldCheck size={20} className="text-gray-400 group-hover:text-blue-500 transition-colors" />
-                                <span className="ml-3 font-semibold">อนุมัติการลบ</span>
-                            </button>
-                        </>
-                    )}
-                </nav>
-            </div>
-
-            {/* --- User Account Section --- */}
-            <div className="flex-shrink-0">
-                <hr className="my-4 border-t border-gray-200 dark:border-gray-600" />
-                {currentUser ? (
-                    <div className="space-y-2">
-                        <button
-                            onClick={() => setCurrentPage('profile')}
-                            className="w-full flex items-center p-2 rounded-lg text-left hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                             aria-label={`View profile for ${currentUser.displayName || currentUser.username}`}
-                        >
-                            <div className="w-10 h-10 bg-blue-100 dark:bg-gray-600 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden">
-                                {currentUser.profileImageUrl ? (
-                                    <img
-                                        src={currentUser.profileImageUrl}
-                                        alt="User profile"
-                                        className="w-full h-full rounded-full object-cover"
-                                     />
-                                ) : (
-                                    <User size={20} className="text-blue-600 dark:text-blue-300" />
-                                )}
-                            </div>
-                            <div className="ml-3 overflow-hidden">
-                                <p className="font-semibold text-sm text-gray-800 dark:text-gray-100 truncate">{currentUser.displayName || currentUser.username}</p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400">ดูโปรไฟล์</p>
-                            </div>
-                        </button>
-                        <button
-                            onClick={() => setCurrentPage('favorites')}
-                            className="w-full flex items-center p-3 rounded-lg text-left text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white group"
-                        >
-                            <Heart size={20} className="text-gray-400 group-hover:text-red-500 transition-colors" />
-                            <span className="ml-3 font-semibold">รายการโปรด</span>
-                        </button>
-                        <button
-                            onClick={handleLogout}
-                            className="w-full flex items-center p-3 rounded-lg text-left text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white group"
-                        >
-                            <LogOut size={20} className="text-gray-400 group-hover:text-red-500 transition-colors" />
-                            <span className="ml-3 font-semibold">ออกจากระบบ</span>
-                        </button>
-                    </div>
-                ) : (
+                {/* --- ⭐ EDIT HERE --- */}
+                {/* เปลี่ยน div ที่หุ้มโลโก้เป็น button และเพิ่ม onClick */}
+                <div className="flex items-center justify-center pt-8 pb-6 px-4 flex-shrink-0 relative">
                     <button
-                        onClick={() => setCurrentPage('login')}
-                        className="w-full flex items-center p-3 rounded-lg text-left text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white group"
+                        onClick={handleLogoClick}
+                        className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-cyan-400 flex items-center justify-center text-white shadow-lg shadow-indigo-500/30 transition-transform duration-200 hover:scale-105 active:scale-95"
+                        aria-label="กลับไปหน้าหลัก"
                     >
-                        <LogIn size={20} className="text-gray-400 group-hover:text-blue-500 transition-colors" />
-                        <span className="ml-3 font-semibold">เข้าสู่ระบบ / สมัครสมาชิก</span>
+                        <MapPin size={32} strokeWidth={2.5} />
                     </button>
-                )}
-            </div>
-        </aside>
+                    {/* --- END EDIT --- */}
+
+                     <button onClick={toggleSidebar} className="absolute top-4 right-4 p-1 rounded-full text-gray-500 dark:text-gray-400 hover:bg-slate-100 dark:hover:bg-slate-700 md:hidden">
+                         <X size={22} />
+                     </button>
+                </div>
+
+                <div className="flex-grow overflow-y-auto overflow-x-hidden p-4 space-y-6">
+                    <div>
+                        <h3 className={`px-3 mb-2 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider transition-opacity ${!isSidebarOpen && 'hidden'}`}>
+                            หมวดหมู่
+                        </h3>
+                        <nav className="space-y-1">
+                            {categories.map((category) => (
+                                <NavItem
+                                    key={category.name}
+                                    icon={category.icon}
+                                    text={category.name}
+                                    isOpen={isSidebarOpen}
+                                    isSelected={selectedCategory === category.name}
+                                    onClick={() => handleCategoryClick(category)}
+                                    color={category.color}
+                                />
+                            ))}
+                        </nav>
+                    </div>
+
+                    {(currentUser) && (
+                        <div>
+                             <h3 className={`px-3 mb-2 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider transition-opacity ${!isSidebarOpen && 'hidden'}`}>
+                                การจัดการ
+                            </h3>
+                            <nav className="space-y-1">
+                                <NavItem
+                                    icon={<PlusCircle size={22} />}
+                                    text="เพิ่มสถานที่"
+                                    isOpen={isSidebarOpen}
+                                    onClick={() => setCurrentPage('add-location')}
+                                    color="text-green-500"
+                                />
+                                {currentUser.role === 'admin' && (
+                                    <>
+                                        <NavItem
+                                            icon={<Wrench size={22} />}
+                                            text="จัดการของขึ้นชื่อ"
+                                            isOpen={isSidebarOpen}
+                                            onClick={() => setCurrentPage('manage-products')}
+                                            color="text-blue-500"
+                                        />
+                                        <NavItem
+                                            icon={<ShieldCheck size={22} />}
+                                            text="อนุมัติการลบ"
+                                            isOpen={isSidebarOpen}
+                                            onClick={() => setCurrentPage('deletion-requests')}
+                                            color="text-teal-500"
+                                        />
+                                    </>
+                                )}
+                            </nav>
+                        </div>
+                    )}
+                </div>
+
+                <div className="flex-shrink-0 p-4 border-t border-slate-200/50 dark:border-slate-700/50">
+                    {currentUser ? (
+                        <div className="space-y-2">
+                            <NavItem icon={<Heart size={22} />} text="รายการโปรด" isOpen={isSidebarOpen} onClick={() => setCurrentPage('favorites')} color="text-red-500"/>
+                            <hr className="border-slate-200/80 dark:border-slate-700/80 my-3 mx-3"/>
+                             <button
+                                onClick={() => setCurrentPage('profile')}
+                                className={`w-full flex items-center p-2 rounded-lg text-left transition-colors hover:bg-slate-100 dark:hover:bg-gray-700/50 ${!isSidebarOpen && 'justify-center'}`}
+                                aria-label={`View profile for ${currentUser.displayName || currentUser.username}`}
+                            >
+                                <div className="w-11 h-11 bg-slate-200 dark:bg-gray-600 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden">
+                                    {currentUser.profileImageUrl ? (
+                                        <img src={currentUser.profileImageUrl} alt="User profile" className="w-full h-full object-cover" />
+                                    ) : (
+                                        <User size={24} className="text-slate-500 dark:text-slate-300" />
+                                    )}
+                                </div>
+                                <div className={`overflow-hidden transition-all duration-200 ${isSidebarOpen ? 'ml-3 w-auto opacity-100' : 'w-0 opacity-0'}`}>
+                                    <p className="font-semibold text-sm text-gray-800 dark:text-gray-100 truncate">{currentUser.displayName || currentUser.username}</p>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400">ดูโปรไฟล์</p>
+                                </div>
+                            </button>
+                            <NavItem icon={<LogOut size={22} />} text="ออกจากระบบ" isOpen={isSidebarOpen} onClick={handleLogout} color="text-red-500" />
+                        </div>
+                    ) : (
+                         <NavItem icon={<LogIn size={22} />} text="เข้าสู่ระบบ" isOpen={isSidebarOpen} onClick={() => setCurrentPage('login')} color="text-lime-500" />
+                    )}
+                </div>
+            </aside>
+        </>
     );
 });
 
 export default Sidebar;
+

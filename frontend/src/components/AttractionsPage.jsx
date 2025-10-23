@@ -3,16 +3,16 @@ import { Star, Heart, Edit, Trash2, List, TrendingUp, MapPin } from 'lucide-reac
 
 // --- Reusable Card Component (MODIFIED for Rating Display & Admin) ---
 // <<< FIX 4 (PERFORMANCE): Wrap component in memo to prevent unnecessary re-renders >>>
-const ItemCard = memo(({ 
-    item, 
-    handleItemClick, 
-    handleToggleFavorite, 
-    isFavorite, 
-    currentUser, 
-    handleEditItem, 
-    handleDeleteItem 
+const ItemCard = memo(({
+    item,
+    handleItemClick,
+    handleToggleFavorite,
+    isFavorite,
+    currentUser,
+    handleEditItem,
+    handleDeleteItem
 }) => {
-    
+
     // --- FIX 1 (IMPROVED): แปลงและจำกัดค่า rating ---
     // บรรทัดนี้จะป้องกันไม่ให้คะแนนแสดงผลเกิน 5 และจัดการค่าที่ไม่มี
     const displayRating = Math.max(0, Math.min(5, parseFloat(item.rating || 0)));
@@ -31,7 +31,7 @@ const ItemCard = memo(({
         e.stopPropagation(); // Prevent card click
         handleDeleteItem(item.id);
     };
-    
+
     // <<< FIX 5 (ACCESSIBILITY): Handler for keyboard navigation on card >>>
     const handleCardKeyDown = (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -41,7 +41,7 @@ const ItemCard = memo(({
     };
 
     return (
-        <div 
+        <div
             className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden transform hover:-translate-y-1 transition-all duration-300 cursor-pointer flex flex-col"
             onClick={() => handleItemClick(item)}
             // <<< FIX 5 (ACCESSIBILITY): Make card focusable and activatable via keyboard >>>
@@ -51,8 +51,8 @@ const ItemCard = memo(({
             // <<< END FIX 5 >>>
         >
             <div className="relative">
-                <img 
-                    src={item.imageUrl || 'https://placehold.co/400x300/e2e8f0/64748b?text=Image'} 
+                <img
+                    src={item.imageUrl || 'https://placehold.co/400x300/e2e8f0/64748b?text=Image'}
                     alt={item.name}
                     className="w-full h-48 object-cover"
                 />
@@ -64,7 +64,7 @@ const ItemCard = memo(({
                     </div>
                 )}
                 {currentUser && (
-                    <button 
+                    <button
                         onClick={(e) => { e.stopPropagation(); handleToggleFavorite(item.id); }}
                         className="absolute top-3 right-3 bg-white/80 dark:bg-gray-800/80 p-2 rounded-full transition-colors"
                         // <<< FIX 6 (ACCESSIBILITY): Add descriptive label for screen readers >>>
@@ -82,13 +82,13 @@ const ItemCard = memo(({
                 {/* --- Conditional rendering for Admin Controls --- */}
                 {currentUser && currentUser.role === 'admin' ? (
                     <div className="mt-4 flex gap-2">
-                        <button 
+                        <button
                             className="w-full bg-yellow-500 text-white font-semibold py-2 rounded-lg hover:bg-yellow-600 transition-colors flex items-center justify-center gap-2"
                             onClick={onEditClick}
                         >
                             <Edit size={16} /> แก้ไข
                         </button>
-                        <button 
+                        <button
                             className="w-full bg-red-600 text-white font-semibold py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
                             onClick={onDeleteClick}
                         >
@@ -96,7 +96,7 @@ const ItemCard = memo(({
                         </button>
                     </div>
                 ) : (
-                    <button 
+                    <button
                         className="mt-4 w-full bg-blue-600 text-white font-semibold py-2 rounded-lg hover:bg-blue-700 transition-colors"
                         onClick={() => handleItemClick(item)}
                     >
@@ -108,14 +108,16 @@ const ItemCard = memo(({
     );
 }); // <<< END FIX 4 (memo) >>>
 
-const AttractionsPage = ({ 
-    attractions, 
-    handleItemClick, 
-    favorites, 
-    handleToggleFavorite, 
-    currentUser, 
-    handleEditItem, 
-    handleDeleteItem 
+const AttractionsPage = ({
+    attractions,
+    handleItemClick,
+    favorites,
+    handleToggleFavorite,
+    currentUser,
+    handleEditItem,
+    handleDeleteItem,
+    // --- ⭐ NEW: รับ selectedCategory มาจาก App.jsx ---
+    selectedCategory
 }) => {
     const [sortOrder, setSortOrder] = useState('default'); // 'default' or 'rating'
 
@@ -127,27 +129,31 @@ const AttractionsPage = ({
         return sorted;
     }, [attractions, sortOrder]);
 
+    // --- ⭐ NEW: กำหนด title ตาม selectedCategory ---
+    const pageTitle = selectedCategory === 'ทั้งหมด'
+        ? 'สถานที่ท่องเที่ยวทั้งหมด'
+        : `สถานที่ท่องเที่ยว: ${selectedCategory}`;
+
     return (
         <div className="container mx-auto px-4 py-8">
             <div className="flex flex-col sm:flex-row justify-between items-center mb-8 gap-4">
-                <h1 className="text-4xl font-bold text-gray-800 dark:text-white">สถานที่ท่องเที่ยวในเขตบางเขน</h1>
-                
+                {/* --- ⭐ EDIT: แสดง pageTitle ที่สร้างขึ้น --- */}
+                <h1 className="text-4xl font-bold text-gray-800 dark:text-white">{pageTitle}</h1>
+
                 {/* Sort Buttons */}
                 <div className="flex items-center bg-gray-100 dark:bg-gray-700 p-1 rounded-full">
                     <button
                         onClick={() => setSortOrder('default')}
-                        className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-full transition-colors ${
-                            sortOrder === 'default' ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                        }`}
+                        className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-full transition-colors ${sortOrder === 'default' ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                            }`}
                     >
                         <List size={16} />
                         ทั้งหมด
                     </button>
                     <button
                         onClick={() => setSortOrder('rating')}
-                        className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-full transition-colors ${
-                            sortOrder === 'rating' ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                        }`}
+                        className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-full transition-colors ${sortOrder === 'rating' ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                            }`}
                     >
                         <TrendingUp size={16} />
                         ยอดนิยม
@@ -158,12 +164,13 @@ const AttractionsPage = ({
             {sortedAttractions.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
                     {sortedAttractions.map((item) => (
-                        <ItemCard 
-                            key={item.id} 
-                            item={item} 
+                        <ItemCard
+                            key={item.id}
+                            item={item}
                             handleItemClick={handleItemClick}
                             handleToggleFavorite={handleToggleFavorite}
-                            isFavorite={favorites.includes(item.id)}
+                            // --- ⭐ EDIT: ตรวจสอบ favorites ก่อนใช้ .includes ---
+                            isFavorite={Array.isArray(favorites) && favorites.includes(item.id)}
                             // --- Pass admin props down to ItemCard ---
                             currentUser={currentUser}
                             handleEditItem={handleEditItem}
@@ -176,7 +183,10 @@ const AttractionsPage = ({
                     <MapPin size={48} className="mx-auto text-gray-400 dark:text-gray-500" />
                     <h3 className="mt-4 text-xl font-semibold text-gray-800 dark:text-gray-100">ไม่พบสถานที่ท่องเที่ยว</h3>
                     <p className="mt-2 text-gray-500 dark:text-gray-400">
-                        ยังไม่มีข้อมูลสถานที่ท่องเที่ยวในหมวดหมู่นี้
+                        {/* --- ⭐ EDIT: เปลี่ยนข้อความตาม selectedCategory --- */}
+                        {selectedCategory === 'ทั้งหมด'
+                            ? 'ยังไม่มีข้อมูลสถานที่ท่องเที่ยวในระบบ'
+                            : `ยังไม่มีข้อมูลสถานที่ท่องเที่ยวในหมวดหมู่ "${selectedCategory}" นี้`}
                     </p>
                 </div>
             )}

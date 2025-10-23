@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { MapPin, Star, MessageSquare, Clock, Phone, ChevronLeft, Send, X, Edit, Trash2, Heart, ThumbsUp, ChevronRight, Gift, Plus, Image as ImageIcon, Save, AlertTriangle } from 'lucide-react';
+// --- ⭐ FIX: เพิ่ม Icon User สำหรับ Placeholder ---
+import { MapPin, Star, MessageSquare, Clock, Phone, ChevronLeft, Send, X, Edit, Trash2, Heart, ThumbsUp, ChevronRight, Gift, Plus, Image as ImageIcon, Save, AlertTriangle, User } from 'lucide-react';
 
 // --- START: API URL Configuration ---
 // This function dynamically sets the API URL based on the hostname.
 // It uses the production URL for the deployed site and localhost for local development.
 const getApiBaseUrl = () => {
-    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-        return 'http://localhost:5000';
-    }
-    // Replace with your actual deployed backend URL
-    return 'https://bangkok-guide.onrender.com'; 
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        return 'http://localhost:5000';
+    }
+    // Replace with your actual deployed backend URL
+    return 'https://bangkok-guide.onrender.com';
 };
 const API_BASE_URL = getApiBaseUrl();
 // --- END: API URL Configuration ---
@@ -18,309 +19,297 @@ const API_BASE_URL = getApiBaseUrl();
 // --- Helper & UI Components ---
 
 const ImageLightbox = ({ images, selectedIndex, onClose, onNext, onPrev }) => {
-    if (!images || images.length === 0) return null;
+    if (!images || images.length === 0) return null;
 
-    useEffect(() => {
-        const handleKeyDown = (e) => {
-            if (e.key === 'ArrowRight') onNext();
-            if (e.key === 'ArrowLeft') onPrev();
-            if (e.key === 'Escape') onClose();
-        };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [onClose, onNext, onPrev]);
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key === 'ArrowRight') onNext();
+            if (e.key === 'ArrowLeft') onPrev();
+            if (e.key === 'Escape') onClose();
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [onClose, onNext, onPrev]);
 
-    return (
-        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
-            <button onClick={onClose} className="absolute top-4 right-4 text-white hover:opacity-75"><X size={32} /></button>
-            <button onClick={(e) => { e.stopPropagation(); onPrev(); }} className="absolute left-4 p-2 bg-white/20 rounded-full text-white hover:bg-white/40 transition-colors"><ChevronLeft size={32} /></button>
-            <div className="relative w-full h-full max-w-4xl max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
-                {images.map((img, index) => (
-                    <img key={index} src={img} alt={`Gallery view ${index + 1}`} className={`absolute inset-0 w-full h-full object-contain transition-opacity duration-300 ${index === selectedIndex ? 'opacity-100' : 'opacity-0'}`} />
-                ))}
-            </div>
-            <button onClick={(e) => { e.stopPropagation(); onNext(); }} className="absolute right-4 p-2 bg-white/20 rounded-full text-white hover:bg-white/40 transition-colors"><ChevronRight size={32} /></button>
-        </div>
-    );
+    return (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+            <button onClick={onClose} className="absolute top-4 right-4 text-white hover:opacity-75"><X size={32} /></button>
+            <button onClick={(e) => { e.stopPropagation(); onPrev(); }} className="absolute left-4 p-2 bg-white/20 rounded-full text-white hover:bg-white/40 transition-colors"><ChevronLeft size={32} /></button>
+            <div className="relative w-full h-full max-w-4xl max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
+                {images.map((img, index) => (
+                    <img key={index} src={img} alt={`Gallery view ${index + 1}`} className={`absolute inset-0 w-full h-full object-contain transition-opacity duration-300 ${index === selectedIndex ? 'opacity-100' : 'opacity-0'}`} />
+                ))}
+            </div>
+            <button onClick={(e) => { e.stopPropagation(); onNext(); }} className="absolute right-4 p-2 bg-white/20 rounded-full text-white hover:bg-white/40 transition-colors"><ChevronRight size={32} /></button>
+        </div>
+    );
 };
 
 const StarRatingInput = ({ rating, setRating }) => (
-  <div className="flex items-center space-x-1">
-    {[1, 2, 3, 4, 5].map((star) => (
-      <Star 
-        key={star} 
-        size={28} 
-        className="cursor-pointer transition-transform transform hover:scale-110 text-gray-300 dark:text-gray-600" 
-        onClick={() => setRating(star)} 
-        fill={star <= rating ? "#facc15" : "currentColor"} 
-        stroke={star <= rating ? "#facc15" : "#9ca3af"} 
-      />
-    ))}
-    </div>
+  <div className="flex items-center space-x-1">
+    {[1, 2, 3, 4, 5].map((star) => (
+      <Star
+        key={star}
+        size={28}
+        className="cursor-pointer transition-transform transform hover:scale-110 text-gray-300 dark:text-gray-600"
+        onClick={() => setRating(star)}
+        fill={star <= rating ? "#facc15" : "currentColor"}
+        stroke={star <= rating ? "#facc15" : "#9ca3af"}
+      />
+    ))}
+    </div>
 );
 
 const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message }) => {
-    if (!isOpen) return null;
+    if (!isOpen) return null;
 
-    return (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in">
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
-                <div className="flex items-start">
-                    <div className="flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 dark:bg-red-900/50 sm:mx-0 sm:h-10 sm:w-10">
-                        <AlertTriangle className="h-6 w-6 text-red-600 dark:text-red-400" aria-hidden="true" />
-                    </div>
-                    <div className="ml-4 text-left">
-                        <h3 className="text-lg leading-6 font-bold text-gray-900 dark:text-gray-100" id="modal-title">{title}</h3>
-                        <div className="mt-2">
-                            <p className="text-sm text-gray-500 dark:text-gray-300">{message}</p>
-                        </div>
-                    </div>
-                </div>
-                <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
-                    <button
-                        type="button"
-                        className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none sm:ml-3 sm:w-auto sm:text-sm"
-                        onClick={onConfirm}
-                    >
-                        ยืนยัน
-                    </button>
-                    <button
-                        type="button"
-                        className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 dark:border-gray-500 shadow-sm px-4 py-2 bg-white dark:bg-gray-700 text-base font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none sm:mt-0 sm:w-auto sm:text-sm"
-                        onClick={onClose}
-                    >
-                        ยกเลิก
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
+    return (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+                <div className="flex items-start">
+                    <div className="flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 dark:bg-red-900/50 sm:mx-0 sm:h-10 sm:w-10">
+                        <AlertTriangle className="h-6 w-6 text-red-600 dark:text-red-400" aria-hidden="true" />
+                    </div>
+                    <div className="ml-4 text-left">
+                        <h3 className="text-lg leading-6 font-bold text-gray-900 dark:text-gray-100" id="modal-title">{title}</h3>
+                        <div className="mt-2">
+                            <p className="text-sm text-gray-500 dark:text-gray-300">{message}</p>
+                        </div>
+                    </div>
+                </div>
+                <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
+                    <button
+                        type="button"
+                        className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none sm:ml-3 sm:w-auto sm:text-sm"
+                        onClick={onConfirm}
+                    >
+                        ยืนยัน
+                    </button>
+                    <button
+                        type="button"
+                        className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 dark:border-gray-500 shadow-sm px-4 py-2 bg-white dark:bg-gray-700 text-base font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none sm:mt-0 sm:w-auto sm:text-sm"
+                        onClick={onClose}
+                    >
+                        ยกเลิก
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
 };
 
 
 // --- Review Card Component ---
 const ReviewCard = ({ review, currentUser, onReviewDeleted, onEditClick }) => {
-    const numericRating = parseFloat(review.rating || 0);
-    const [likes, setLikes] = useState(Number(review.likes_count || 0));
-    const [userHasLiked, setUserHasLiked] = useState(review.user_has_liked);
-    const [comments, setComments] = useState([]);
-    const [showComments, setShowComments] = useState(false);
-    const [newReply, setNewReply] = useState("");
-    const [commentCount, setCommentCount] = useState(review.comments_count || 0);
-    const [isLiking, setIsLiking] = useState(false); 
-    const canModify = currentUser && (currentUser.id === review.user_id || currentUser.role === 'admin');
+    const numericRating = parseFloat(review.rating || 0);
+    const [likes, setLikes] = useState(Number(review.likes_count || 0));
+    const [userHasLiked, setUserHasLiked] = useState(review.user_has_liked);
+    const [comments, setComments] = useState([]);
+    const [showComments, setShowComments] = useState(false);
+    const [newReply, setNewReply] = useState("");
+    const [commentCount, setCommentCount] = useState(review.comments_count || 0);
+    const [isLiking, setIsLiking] = useState(false);
+    const canModify = currentUser && (currentUser.id === review.user_id || currentUser.role === 'admin');
 
-    const handleToggleLike = async () => {
-        if (!currentUser) return alert('กรุณาเข้าสู่ระบบเพื่อกดถูกใจ');
-        const token = localStorage.getItem('token');
-        if (!token) return alert('เซสชั่นหมดอายุ กรุณาเข้าสู่ระบบใหม่');
+    // --- ⭐ FIX: Profile Image URL ---
+    // Assuming the backend will eventually provide this field
+    const authorProfileImageUrl = review.author_profile_image_url;
+    // --- END FIX ---
 
-        if (isLiking) return;
-        setIsLiking(true);
-        
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/reviews/${review.id}/toggle-like`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-            });
+    const handleToggleLike = async () => {
+        if (!currentUser) return alert('กรุณาเข้าสู่ระบบเพื่อกดถูกใจ');
+        const token = localStorage.getItem('token');
+        if (!token) return alert('เซสชั่นหมดอายุ กรุณาเข้าสู่ระบบใหม่');
 
-            const data = await response.json();
+        if (isLiking) return;
+        setIsLiking(true);
 
-            if (response.ok) {
-                setLikes(Number(data.likesCount));
-                setUserHasLiked(data.status === 'liked');
-            } else {
-                console.error("Failed to toggle like:", data.error);
-                alert('เกิดข้อผิดพลาด: ไม่สามารถอัปเดตสถานะการไลก์ได้');
-            }
-        } catch (error) {
-            console.error("Network error during like toggle:", error);
-            alert('เกิดข้อผิดพลาด: ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้');
-        } finally {
-            setIsLiking(false);
-        }
-    };
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/reviews/${review.id}/toggle-like`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+            });
 
-    const fetchComments = async () => {
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/reviews/${review.id}/comments`);
-            const data = await response.json();
-            setComments(data);
-            setCommentCount(data.length);
-        } catch (error) { console.error("Error fetching comments:", error); }
-    };
+            const data = await response.json();
 
-    const handleToggleComments = () => {
-        const newShowState = !showComments;
-        setShowComments(newShowState);
-        if (newShowState) fetchComments();
-    };
+            if (response.ok) {
+                setLikes(Number(data.likesCount));
+                setUserHasLiked(data.status === 'liked');
+            } else {
+                console.error("Failed to toggle like:", data.error);
+                alert('เกิดข้อผิดพลาด: ไม่สามารถอัปเดตสถานะการไลก์ได้');
+            }
+        } catch (error) {
+            console.error("Network error during like toggle:", error);
+            alert('เกิดข้อผิดพลาด: ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้');
+        } finally {
+            setIsLiking(false);
+        }
+    };
 
-    const handlePostReply = async (e) => {
-        e.preventDefault();
-        if (!newReply.trim()) return;
-        const token = localStorage.getItem('token');
-        if (!token && !currentUser) return alert('กรุณาเข้าสู่ระบบเพื่อแสดงความคิดเห็น');
+    const fetchComments = async () => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/reviews/${review.id}/comments`);
+            const data = await response.json();
+            // --- ⭐ FIX: Assume comments data might contain profile image ---
+            // If backend provides profileImageUrl in comment object:
+            // const formattedComments = data.map(c => ({
+            //    ...c,
+            //    authorProfileImageUrl: c.author_profile_image_url
+            // }));
+            // setComments(formattedComments);
+            // --- END FIX ---
+            setComments(data); // Using original for now
+            setCommentCount(data.length);
+        } catch (error) { console.error("Error fetching comments:", error); }
+    };
 
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/reviews/${review.id}/comments`, {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({ comment: newReply }),
-            });
-            if (response.ok) { setNewReply(""); fetchComments(); }
-        } catch (error) { alert('เกิดข้อผิดพลาดในการแสดงความคิดเห็น'); }
-    };
+    const handleToggleComments = () => {
+        const newShowState = !showComments;
+        setShowComments(newShowState);
+        if (newShowState) fetchComments();
+    };
 
-    return (
-        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-            <div className="flex justify-between items-start">
-                <div>
-                    <div className="flex items-center mb-2">
-                        <div className="font-bold text-gray-800 dark:text-gray-100 mr-4">{review.author}</div>
-                        <div className="flex">{[...Array(5)].map((_, i) => (<Star key={i} size={16} fill={i < numericRating ? '#facc15' : '#e5e7eb'} className={i < numericRating ? 'text-yellow-400' : 'text-gray-300 dark:text-gray-600'} strokeWidth={0} />))}</div>
-                    </div>
-                    <p className="text-gray-600 dark:text-gray-300 whitespace-pre-wrap">{review.comment}</p>
+    const handlePostReply = async (e) => {
+        e.preventDefault();
+        if (!newReply.trim()) return;
+        const token = localStorage.getItem('token');
+        if (!token && !currentUser) return alert('กรุณาเข้าสู่ระบบเพื่อแสดงความคิดเห็น');
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/reviews/${review.id}/comments`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ comment: newReply }),
+            });
+            if (response.ok) { setNewReply(""); fetchComments(); }
+        } catch (error) { alert('เกิดข้อผิดพลาดในการแสดงความคิดเห็น'); }
+    };
+
+    return (
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+            {/* --- ⭐ FIX: Use Flexbox for layout --- */}
+            <div className="flex items-start space-x-4">
+                {/* Profile Image Column */}
+                <div className="flex-shrink-0">
+                     <img
+                        src={authorProfileImageUrl || 'https://placehold.co/40x40/cbd5e1/475569?text=User'} // Placeholder
+                        alt={`${review.author}'s profile`}
+                        className="w-10 h-10 rounded-full object-cover bg-gray-200 dark:bg-gray-600"
+                        onError={(e) => { e.target.src = 'https://placehold.co/40x40/cbd5e1/475569?text=Err'; }} // Error placeholder
+                    />
                 </div>
-                {canModify && (
-                    <div className="flex space-x-2 flex-shrink-0 ml-4">
-                        <button onClick={() => onEditClick(review)} className="p-2 text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full" title="แก้ไขรีวิว"><Edit size={18} /></button>
-                        <button onClick={() => onReviewDeleted(review.id)} className="p-2 text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full" title="ลบรีวิว"><Trash2 size={18} /></button>
+
+                {/* Main Content Column */}
+                <div className="flex-grow">
+                     <div className="flex justify-between items-start mb-1">
+                        {/* Author Info & Rating */}
+                        <div>
+                            <div className="font-bold text-gray-800 dark:text-gray-100">{review.author}</div>
+                            <div className="flex mt-1">{[...Array(5)].map((_, i) => (<Star key={i} size={14} fill={i < numericRating ? '#facc15' : '#e5e7eb'} className={i < numericRating ? 'text-yellow-400' : 'text-gray-300 dark:text-gray-600'} strokeWidth={0} />))}</div>
+                        </div>
+                        {/* Modify Buttons */}
+                        {canModify && (
+                             <div className="flex space-x-1 flex-shrink-0">
+                                <button onClick={() => onEditClick(review)} className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full" title="แก้ไขรีวิว"><Edit size={16} /></button>
+                                <button onClick={() => onReviewDeleted(review.id)} className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full" title="ลบรีวิว"><Trash2 size={16} /></button>
+                            </div>
+                        )}
                     </div>
-                )}
-            </div>
-            {review.image_urls && review.image_urls.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-3">
-                    {review.image_urls.map((imgUrl, index) => (
-                        <img 
-                            key={index} 
-                            src={imgUrl} 
-                            alt={`Review ${index + 1}`} 
-                            className="w-24 h-24 object-cover rounded-md bg-gray-200 dark:bg-gray-700" 
-                            onError={(e) => { 
-                                console.error(`Failed to load review image: ${imgUrl}`);
-                                e.target.src = 'https://placehold.co/100x100/cccccc/333333?text=Error';
-                            }}
-                        />
-                    ))}
-                </div>
-            )}
-            <div className="flex items-center space-x-4 mt-3 text-sm text-gray-500 dark:text-gray-400">
-                <button 
-                    onClick={handleToggleLike} 
-                    disabled={isLiking}
-                    className={`flex items-center space-x-1 hover:text-blue-600 dark:hover:text-blue-400 transition-colors ${userHasLiked ? 'text-blue-600 dark:text-blue-400 font-bold' : ''} ${isLiking ? 'opacity-50 cursor-not-allowed' : ''}`}
-                >
-                    <ThumbsUp size={16} />
-                    <span>{isLiking ? 'กำลังโหลด' : `${likes} ถูกใจ`}</span> 
-                </button>
-                <button onClick={handleToggleComments} className="flex items-center space-x-1 hover:text-blue-600 dark:hover:text-blue-400"><MessageSquare size={16} /><span>{showComments ? 'ซ่อนความคิดเห็น' : `ความคิดเห็น (${commentCount})`}</span></button>
-                <span className="text-xs text-gray-400 dark:text-gray-500 flex-grow text-right">{new Date(review.created_at).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
-            </div>
-            {showComments && (
-                <div className="mt-4 pl-6 border-l-2 border-gray-200 dark:border-gray-600 space-y-3">
-                    {comments.map(comment => (<div key={comment.id} className="text-sm"><p><span className="font-bold text-gray-700 dark:text-gray-200">{comment.author}:</span> <span className="text-gray-600 dark:text-gray-300">{comment.comment}</span></p></div>))}
-                    <form onSubmit={handlePostReply} className="flex space-x-2 pt-2"><input type="text" value={newReply} onChange={(e) => setNewReply(e.target.value)} placeholder="แสดงความคิดเห็น..." className="flex-grow p-2 border rounded-lg text-sm bg-gray-50 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white" /><button type="submit" className="px-4 py-2 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-600">ส่ง</button></form>
-                </div>
-            )}
-        </div>
-    );
-};
 
-const ProductModal = ({ product, locationId, onClose, onSave, setNotification, handleAuthError }) => {
-    const [name, setName] = useState(product?.name || '');
-    const [description, setDescription] = useState(product?.description || '');
-    const [imageFile, setImageFile] = useState(null);
-    const [imagePreview, setImagePreview] = useState(product?.imageUrl || null);
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const isEditing = !!product?.id;
+                    {/* Review Comment */}
+                    <p className="text-gray-600 dark:text-gray-300 whitespace-pre-wrap mt-1">{review.comment}</p>
 
-    const handleImageChange = (e) => {
-        const file = e.target.files[0];
-        if (file) {
-            setImageFile(file);
-            setImagePreview(URL.createObjectURL(file));
-        }
-    };
+                    {/* Review Images */}
+                    {review.image_urls && review.image_urls.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-3">
+                            {review.image_urls.map((imgUrl, index) => (
+                                <img
+                                    key={index}
+                                    src={imgUrl}
+                                    alt={`Review ${index + 1}`}
+                                    className="w-20 h-20 sm:w-24 sm:h-24 object-cover rounded-md bg-gray-200 dark:bg-gray-700 cursor-pointer hover:opacity-80 transition-opacity"
+                                    onClick={() => {/* Potentially open lightbox here */}}
+                                    onError={(e) => { e.target.src = 'https://placehold.co/100x100/cccccc/333333?text=Error'; }}
+                                />
+                            ))}
+                        </div>
+                    )}
 
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        setIsSubmitting(true);
-        const token = localStorage.getItem('token');
-        if (!token) return handleAuthError();
-        
-        const formData = new FormData();
-        formData.append('name', name);
-        formData.append('description', description);
-        if (imageFile) formData.append('image', imageFile);
-
-        if (!isEditing) formData.append('locationId', locationId);
-
-        const url = isEditing ? `${API_BASE_URL}/api/famous-products/${product.id}` : `${API_BASE_URL}/api/famous-products`;
-        const method = isEditing ? 'PUT' : 'POST';
-
-        try {
-            const response = await fetch(url, { method: method, headers: { 'Authorization': `Bearer ${token}` }, body: formData });
-            if (response.status === 401 || response.status === 403) return handleAuthError();
-            if (!response.ok) { const err = await response.json(); throw new Error(err.error || 'เกิดข้อผิดพลาด'); }
-            setNotification({ message: `บันทึกข้อมูล '${name}' สำเร็จ`, type: 'success' });
-            onSave();
-            onClose();
-        } catch (error) {
-            setNotification({ message: error.message, type: 'error' });
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
-
-    return (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl w-full max-w-lg p-6 animate-fade-in-up" onClick={e => e.stopPropagation()}>
-                <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100">{isEditing ? 'แก้ไขข้อมูลของขึ้นชื่อ' : 'เพิ่มของขึ้นชื่อใหม่'}</h2>
-                    <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"><X size={24} /></button>
-                </div>
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    <div>
-                        <label htmlFor="prod-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">ชื่อ</label>
-                        <input type="text" id="prod-name" value={name} onChange={e => setName(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" required />
-                    </div>
-                    <div>
-                        <label htmlFor="prod-description" className="block text-sm font-medium text-gray-700 dark:text-gray-300">คำอธิบาย</label>
-                        <textarea id="prod-description" value={description} onChange={e => setDescription(e.target.value)} rows="3" className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"></textarea>
-                    </div>
-                    <div>
-                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">รูปภาพ</label>
-                         <div className="mt-2 flex items-center">
-                             <div className="w-24 h-24 mr-4 rounded-md bg-gray-100 dark:bg-gray-700 flex items-center justify-center overflow-hidden">
-                                    {imagePreview ? <img src={imagePreview} alt="Preview" className="w-full h-full object-cover" /> : <ImageIcon size={32} className="text-gray-400" />}
-                             </div>
-                             <input type="file" accept="image/*" onChange={handleImageChange} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-gray-50 dark:file:bg-gray-600 file:text-gray-700 dark:file:text-gray-200 hover:file:bg-gray-100 dark:hover:file:bg-gray-500"/>
-                         </div>
-                    </div>
-                    <div className="flex justify-end space-x-3 pt-4">
-                        <button type="button" onClick={onClose} className="bg-gray-200 text-gray-700 font-bold py-2 px-4 rounded-lg hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">ยกเลิก</button>
-                        <button type="submit" disabled={isSubmitting} className="bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 disabled:bg-blue-300 flex items-center">
-                            <Save size={18} className="mr-2"/>
-                            {isSubmitting ? 'กำลังบันทึก...' : 'บันทึก'}
+                    {/* Action Buttons & Date */}
+                     <div className="flex items-center space-x-4 mt-3 text-sm text-gray-500 dark:text-gray-400">
+                        <button
+                            onClick={handleToggleLike}
+                            disabled={isLiking}
+                            className={`flex items-center space-x-1 hover:text-blue-600 dark:hover:text-blue-400 transition-colors ${userHasLiked ? 'text-blue-600 dark:text-blue-400 font-semibold' : ''} ${isLiking ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                            <ThumbsUp size={16} />
+                            <span>{isLiking ? '...' : `${likes} ถูกใจ`}</span>
                         </button>
+                        <button onClick={handleToggleComments} className="flex items-center space-x-1 hover:text-blue-600 dark:hover:text-blue-400">
+                            <MessageSquare size={16} />
+                            <span>{showComments ? 'ซ่อน' : `${commentCount} ความคิดเห็น`}</span>
+                        </button>
+                        <span className="text-xs text-gray-400 dark:text-gray-500 flex-grow text-right">{new Date(review.created_at).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })}</span>
                     </div>
-                </form>
+
+                    {/* Comments Section */}
+                    {showComments && (
+                         <div className="mt-4 pl-0 border-t border-gray-200 dark:border-gray-700 pt-3 space-y-3">
+                            {comments.map(comment => (
+                                 <div key={comment.id} className="text-sm flex items-start space-x-2">
+                                     {/* --- ⭐ FIX: Show commenter's profile image if available --- */}
+                                     <img
+                                        // Assume comment object might have authorProfileImageUrl
+                                        src={comment.authorProfileImageUrl || 'https://placehold.co/24x24/e2e8f0/475569?text=C'}
+                                        alt={`${comment.author}'s profile`}
+                                        className="w-6 h-6 rounded-full flex-shrink-0 bg-gray-200 dark:bg-gray-600"
+                                        onError={(e) => { e.target.src = 'https://placehold.co/24x24/e2e8f0/475569?text=E'; }}
+                                    />
+                                    {/* --- END FIX --- */}
+                                    <p>
+                                        <span className="font-semibold text-gray-700 dark:text-gray-200">{comment.author}:</span>{' '}
+                                        <span className="text-gray-600 dark:text-gray-300">{comment.comment}</span>
+                                    </p>
+                                </div>
+                            ))}
+                            {/* Reply Form */}
+                            {currentUser && (
+                                <form onSubmit={handlePostReply} className="flex space-x-2 pt-2 items-center">
+                                     <img
+                                        src={currentUser.profileImageUrl || 'https://placehold.co/24x24/94a3b8/ffffff?text=Me'}
+                                        alt="Your profile"
+                                        className="w-6 h-6 rounded-full flex-shrink-0 bg-gray-200 dark:bg-gray-600"
+                                    />
+                                    <input
+                                        type="text"
+                                        value={newReply}
+                                        onChange={(e) => setNewReply(e.target.value)}
+                                        placeholder="แสดงความคิดเห็น..."
+                                        className="flex-grow p-2 border rounded-lg text-sm bg-gray-50 dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                    />
+                                    <button type="submit" className="px-3 py-1.5 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-600 transition-colors flex-shrink-0">ส่ง</button>
+                                </form>
+                             )}
+                        </div>
+                    )}
+                </div>
             </div>
-        </div>
-    );
+            {/* --- END FIX --- */}
+        </div>
+    );
 };
 
-
+// ... (ส่วนที่เหลือของ DetailPage.jsx เหมือนเดิม) ...
 // --- Main Detail Page Component ---
 const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, currentUser, favorites, handleToggleFavorite, handleEditItem, setNotification, handleAuthError }) => {
-    
+
     const [reviews, setReviews] = useState([]);
     const [showReviewForm, setShowReviewForm] = useState(false);
     const [newRating, setNewRating] = useState(0);
@@ -363,7 +352,7 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
             fetchSimilar();
         }
     }, [item, setNotification]);
-    
+
     const fetchLocationProducts = useCallback(async () => {
         if (!item) return;
         setIsLoadingProducts(true);
@@ -402,12 +391,21 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
             const response = await fetch(`${API_BASE_URL}/api/reviews/${item.id}${userIdQuery}`);
             if (!response.ok) throw new Error('Failed to fetch reviews');
             const data = await response.json();
-            setReviews(data);
-        } catch (error) { 
-            console.error("Error fetching reviews:", error); 
+            // --- ⭐ FIX: Assume backend now returns author_profile_image_url ---
+            // You might need to adjust the field name based on your actual backend response
+            const reviewsWithProfileImages = data.map(review => ({
+                ...review,
+                // Make sure your backend query includes this field
+                author_profile_image_url: review.author_profile_image_url
+            }));
+            setReviews(reviewsWithProfileImages);
+            // --- END FIX ---
+        } catch (error) {
+            console.error("Error fetching reviews:", error);
             setNotification({ message: 'ไม่สามารถโหลดรีวิวได้', type: 'error' });
         }
     }, [item, currentUser, setNotification]);
+
 
     useEffect(() => {
         window.scrollTo(0, 0);
@@ -418,7 +416,7 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
             fetchReviews();
         }
     }, [item, fetchReviews]);
-    
+
     const handleReviewImageChange = (e) => { if (e.target.files) setNewReviewImages(prev => [...prev, ...Array.from(e.target.files)].slice(0, 5)); };
     const handleRemoveReviewImage = (index) => setNewReviewImages(prev => prev.filter((_, i) => i !== index));
     const handleReviewSubmit = async (e) => {
@@ -440,10 +438,10 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
             setNotification({ message: 'ขอบคุณสำหรับรีวิวครับ!', type: 'success' });
             if(onReviewSubmitted) onReviewSubmitted();
             fetchReviews();
-        } catch (error) { setNotification({ message: `เกิดข้อผิดพลาด: ${error.message}`, type: 'error' }); } 
+        } catch (error) { setNotification({ message: `เกิดข้อผิดพลาด: ${error.message}`, type: 'error' }); }
         finally { setIsSubmittingReview(false); }
     };
-    
+
     const confirmDeleteReview = (reviewId) => { setConfirmState({ isOpen: true, title: 'ยืนยันการลบรีวิว', message: 'คุณแน่ใจหรือไม่ว่าต้องการลบรีวิวนี้?', onConfirm: () => { handleDeleteReview(reviewId); setConfirmState({ isOpen: false, title: '', message: '', onConfirm: () => {} }); } }); };
     const handleDeleteReview = async (reviewId) => {
         const token = localStorage.getItem('token');
@@ -500,7 +498,7 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
         const full = Math.floor(r), half = r % 1 >= 0.5, empty = 5 - full - (half ? 1 : 0);
         return (<><svg width="0" height="0" className="absolute"><defs><linearGradient id="half-gradient"><stop offset="50%" stopColor="#facc15" /><stop offset="50%" stopColor="#e5e7eb" /></linearGradient></defs></svg>{[...Array(full)].map((_, i) => <Star key={`f-${i}`} size={20} fill="#facc15" stroke="#facc15" />)}{half && <Star key="h" size={20} fill="url(#half-gradient)" stroke="#facc15" />}{[...Array(Math.max(0, empty))].map((_, i) => <Star key={`e-${i}`} size={20} fill="#e5e7eb" stroke="#9ca3af" />)}</>);
     };
-    
+
     const openLightbox = (index) => { setSelectedImageIndex(index); setIsLightboxOpen(true); };
     const closeLightbox = () => setIsLightboxOpen(false);
     const goToNextImage = () => setSelectedImageIndex(prev => (prev + 1) % allImages.length);
@@ -535,7 +533,7 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
             if (!response.ok) throw new Error(data.error || 'เกิดข้อผิดพลาด');
             setNotification({ message: data.message, type: 'success' });
             setTimeout(() => { setCurrentPage(item.type === 'attraction' ? 'attractions' : 'foodshops'); }, 2000);
-        } catch (error) { setNotification({ message: error.message, type: 'error' }); } 
+        } catch (error) { setNotification({ message: error.message, type: 'error' }); }
         finally { setIsRequestingDelete(false); }
     };
 
@@ -579,7 +577,16 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
                             <div className="flex items-center justify-center mb-6 text-gray-700 dark:text-gray-300"><div className="flex items-center mr-4">{renderStars(itemRating)}<span className="ml-2 text-xl font-bold">{itemRating.toFixed(1)}</span></div><div className="flex items-center"><MessageSquare size={20} className="mr-2 text-blue-500" /><span className="text-lg">{reviews.length || 0} รีวิว</span></div></div>
                             <p className="text-gray-700 dark:text-gray-300 text-lg leading-relaxed mb-6">{item.fullDescription || item.description}</p>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-gray-700 dark:text-gray-200 mb-6"><div className="flex items-center p-3 bg-gray-100 dark:bg-gray-700 rounded-lg shadow-sm"><Clock size={24} className="mr-3 text-purple-600" /> <span className="font-semibold">เวลาทำการ:</span> <span className="ml-2">{item.hours || 'ไม่มีข้อมูล'}</span></div><div className="flex items-center p-3 bg-gray-100 dark:bg-gray-700 rounded-lg shadow-sm"><Phone size={24} className="mr-3 text-green-600" /> <span className="font-semibold">ติดต่อ:</span> <span className="ml-2">{item.contact || 'ไม่มีข้อมูล'}</span></div></div>
-                            <div className="mt-8"><h3 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-4">ตำแหน่งบนแผนที่</h3><div className="text-center p-4 bg-gray-100 dark:bg-gray-700 rounded-lg"><p className="text-gray-600 dark:text-gray-300">ส่วนแสดงแผนที่ถูกปิดใช้งานชั่วคราว</p></div></div>
+                            
+                            {/* --- ⭐ FIX: ลบส่วนแผนที่ออก --- */}
+                            {/* <div className="mt-8">
+                                <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-4">ตำแหน่งบนแผนที่</h3>
+                                <div className="text-center p-4 bg-gray-100 dark:bg-gray-700 rounded-lg">
+                                    <p className="text-gray-600 dark:text-gray-300">ส่วนแสดงแผนที่ถูกปิดใช้งานชั่วคราว</p>
+                                </div>
+                            </div> */}
+                            {/* --- END FIX --- */}
+                            
                             <button onClick={handleNavigate} className="w-full mt-8 bg-gradient-to-r from-teal-500 to-green-600 text-white py-4 px-6 rounded-full flex items-center justify-center space-x-3 hover:from-teal-600 hover:to-green-700 transition transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-teal-300 shadow-lg font-bold text-xl"><MapPin size={24} /><span>นำทางด้วย Google Maps</span></button>
                             <hr className="my-8 border-t-2 border-gray-100 dark:border-gray-700" />
                             <div className="space-y-6">
