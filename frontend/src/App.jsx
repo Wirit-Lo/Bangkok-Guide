@@ -1,3 +1,4 @@
+// test
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 // --- ⭐⭐⭐ แก้ไข: เพิ่ม Loader เข้าไปใน import ⭐⭐⭐ ---
 import { CheckCircle, XCircle, Loader, AlertTriangle, X } from 'lucide-react';
