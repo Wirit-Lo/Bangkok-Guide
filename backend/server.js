@@ -9,7 +9,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import 'dotenv/config';
 
-console.log('--- SERVER WITH SUPABASE STORAGE (v21.3 - FORMATTER FIX 2 + CORS OPTIONS) LOADING ---'); // Updated version note
+console.log('--- SERVER WITH SUPABASE STORAGE (v21.3 - Favorites Fix + OPTIONS Fix) LOADING ---'); // Updated version note
 
 // --- Supabase Client Setup ---
 if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY || !process.env.JWT_SECRET) {
@@ -68,7 +68,6 @@ const upload = multer({ storage: storage }); // Multer instance using memory sto
 // Verifies JWT token from Authorization header or query parameter
 const authenticateToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
-    // Check for standard 'Bearer <token>' format
     let token = authHeader && authHeader.startsWith('Bearer ') && authHeader.split(' ')[1];
 
     // Allow token via query parameter (useful for SSE connections initiated from browser JS)
@@ -284,7 +283,7 @@ const extractCoordsFromUrl = (url) => {
     }
 
     // If no coordinates are found, log a warning and return nulls
-    console.warn(`Could not extract coordinates from Google Maps URL: ${url}`);
+    // console.warn(`Could not extract coordinates from Google Maps URL: ${url}`); // Maybe too noisy
     return { lat: null, lng: null };
 };
 
@@ -292,190 +291,172 @@ const extractCoordsFromUrl = (url) => {
 // --- NOTIFICATION HANDLING ---
 async function createAndSendNotification({ type, actorId, actorName, actorProfileImageUrl, recipientId, payload }) {
     try {
-        // Prepare the notification object to be sent via SSE
         const liveNotification = {
-            id: crypto.randomUUID(), // Generate unique ID for the live event
+            id: crypto.randomUUID(),
             actor_id: actorId,
             actor_name: actorName,
             actor_profile_image_url: actorProfileImageUrl,
             type: type,
-            payload: payload, // Send the full, potentially rich payload via SSE
+            payload: payload, // Send full payload live
             is_read: false,
             created_at: new Date().toISOString(),
         };
-
-        // Prepare a simplified payload for database storage (e.g., only IDs and names)
         const dbNotificationPayload = {};
         if (payload.location) {
             dbNotificationPayload.locationId = payload.location.id;
             dbNotificationPayload.locationName = payload.location.name;
-            // Optionally include image URL if needed for display directly from DB payload
-            dbNotificationPayload.locationImageUrl = payload.location.imageUrl;
+            dbNotificationPayload.locationImageUrl = payload.location.imageUrl; // Add image URL for location
         }
         if (payload.product) {
             dbNotificationPayload.productId = payload.product.id;
             dbNotificationPayload.productName = payload.product.name;
-            dbNotificationPayload.productImageUrl = payload.product.imageUrl;
+            dbNotificationPayload.productImageUrl = payload.product.imageUrl; // Add image URL for product
         }
         if (payload.reviewId) dbNotificationPayload.reviewId = payload.reviewId;
         if (payload.commentId) dbNotificationPayload.commentId = payload.commentId;
-        if (payload.commentSnippet) dbNotificationPayload.commentSnippet = payload.commentSnippet; // Store snippet if provided
-
-        // Prepare the notification object for database insertion
+        if (payload.commentSnippet) dbNotificationPayload.commentSnippet = payload.commentSnippet;
         const dbNotification = {
             actor_id: actorId,
             actor_name: actorName,
-            actor_profile_image_url: actorProfileImageUrl, // Store actor image URL in DB as well
+            actor_profile_image_url: actorProfileImageUrl, // Store actor image
             type: type,
-            payload: dbNotificationPayload, // Store the simplified payload
+            payload: dbNotificationPayload, // Store simplified payload
             is_read: false,
-            // created_at will be set by the database default value
         };
-
-        // --- Database Insertion Logic ---
+        // Send notification to a specific recipient (if not the actor themselves)
         if (recipientId && recipientId !== actorId) {
-            // Send notification to a specific recipient (if not the actor themselves)
-            const { error: insertError } = await supabase.from('notifications').insert({ ...dbNotification, user_id: recipientId });
-            if (insertError) throw insertError; // Throw error to be caught below
-            console.log(`Notification '${type}' sent to user ${recipientId}.`);
-        } else if (!recipientId) {
-            // Handle broadcast notifications (e.g., for new location)
-            // Be cautious with broadcasting to avoid unnecessary load/notifications
+            await supabase.from('notifications').insert({ ...dbNotification, user_id: recipientId });
+        }
+        // Handle broadcast notifications (e.g., for new locations)
+        else if (!recipientId) {
             if (type === 'new_location') {
-                // Fetch all users except the actor
-                const { data: users, error: userFetchError } = await supabase.from('users').select('id').neq('id', actorId);
-                if (userFetchError) throw userFetchError; // Throw error if fetching users fails
-
-                if (users && users.length > 0) {
-                    // Create an array of notification objects for bulk insertion
+                const { data: users, error: userFetchError } = await supabase.from('users').select('id').neq('id', actorId); // Don't notify the actor
+                if (userFetchError) {
+                    console.error("Error fetching users for broadcast:", userFetchError);
+                    // Decide if we should proceed or throw
+                    // For now, just log and continue without broadcasting
+                } else if (users && users.length > 0) {
                     const notificationsToInsert = users.map(user => ({ ...dbNotification, user_id: user.id }));
-                    const { error: bulkInsertError } = await supabase.from('notifications').insert(notificationsToInsert);
-                    if (bulkInsertError) throw bulkInsertError; // Throw error if bulk insert fails
+                    await supabase.from('notifications').insert(notificationsToInsert);
                     console.log(`Broadcasted '${type}' notification to ${users.length} users.`);
                 }
             } else {
-                // Log if a type is not configured for broadcast but has no recipient
-                console.log(`Notification type '${type}' not configured for broadcast and has no specific recipient.`);
+                // Log if a type is marked for broadcast but not handled
+                // console.log(`Notification type '${type}' not configured for broadcast.`);
             }
         }
-
-        // --- SSE Sending Logic ---
+        // Send the live notification via SSE
         const liveEventPayload = { type: 'notification', data: liveNotification };
-        // Iterate through all connected SSE clients
         clients.forEach(client => {
             try {
-                // Send to specific recipient OR broadcast (excluding the sender)
-                if (recipientId) {
-                    // Send only if the client's user ID matches the recipient and is not the actor
+                // Send to specific recipient OR broadcast (excluding sender)
+                if (recipientId) { // Direct notification
                     if (client.userId === recipientId && client.userId !== actorId) {
                         client.res.write(`data: ${JSON.stringify(liveEventPayload)}\n\n`);
                     }
-                } else if (type === 'new_location') { // Only broadcast 'new_location' type live
-                    // Send to all clients except the actor
-                    if (client.userId !== actorId) {
+                } else if (type === 'new_location') { // Broadcast notification
+                    if (client.userId !== actorId) { // Don't send to the person who triggered it
                         client.res.write(`data: ${JSON.stringify(liveEventPayload)}\n\n`);
                     }
                 }
             } catch (e) {
-                // Handle errors during SSE write (e.g., client disconnected)
-                console.error(`Error writing SSE for client ${client.id} (User ${client.userId}):`, e.message);
-                // Remove the client immediately if writing fails
+                // Handle errors writing to a specific client (likely disconnected)
+                console.error(`Error writing SSE for client ${client.id}:`, e);
+                // Remove the failed client from the active list
                 clients = clients.filter(c => c.id !== client.id);
-                console.log(`Client ${client.id} removed due to write error. Remaining clients: ${clients.length}`);
+                console.log(`Client ${client.id} removed due to write error. Remaining: ${clients.length}`);
             }
         });
     } catch (error) {
-        // Catch errors from database operations or user fetching
-        console.error(`Error creating/sending notification (Type: ${type}):`, error);
+        // Catch errors during DB insertion or user fetching
+        console.error('Error creating/sending notification:', error);
     }
 }
 
 
 // --- SERVER-SENT EVENTS (SSE) SETUP ---
-// Sends a keep-alive comment every 15 seconds to prevent connection timeouts
+// Sends heartbeats to keep connections alive and handles new client connections
 const sendHeartbeat = () => {
-    // console.log(`Sending heartbeat to ${clients.length} clients...`); // Optional: verbose logging
     clients.forEach(client => {
         try {
             client.res.write(':keep-alive\n\n'); // Send comment line as heartbeat
         } catch (e) {
-            // If writing fails, assume client disconnected and remove them
-            console.error(`Heartbeat failed for client ${client.id} (User ${client.userId}):`, e.message);
-            clients = clients.filter(c => c.id !== client.id);
+            // If writing fails, assume client disconnected
+            console.error(`Heartbeat failed for client ${client.id}:`, e);
+            clients = clients.filter(c => c.id !== client.id); // Remove client
             console.log(`Client ${client.id} disconnected (Heartbeat failed). Remaining clients: ${clients.length}`);
         }
     });
 };
-const heartbeatInterval = setInterval(sendHeartbeat, 15000); // Run every 15 seconds
+// Start sending heartbeats every 15 seconds
+const heartbeatInterval = setInterval(sendHeartbeat, 15000);
 
 // Endpoint for clients to establish an SSE connection
 app.get('/api/events', authenticateToken, async (req, res) => {
-    // Set headers required for SSE connection
+    // Set headers required for SSE
     const headers = {
         'Content-Type': 'text/event-stream',
         'Connection': 'keep-alive',
         'Cache-Control': 'no-cache',
-        'X-Accel-Buffering': 'no' // Important for Nginx or similar proxies
+        'X-Accel-Buffering': 'no' // Important for Nginx proxies
     };
-    res.writeHead(200, headers);
+    res.writeHead(200, headers); // Send headers immediately
 
     // Generate a unique ID for this client connection
-    const clientId = Date.now() + Math.random().toString(36).substring(2, 15);
-    // Store client details including response object and authenticated user ID
+    const clientId = Date.now() + Math.random();
+    // Store client details (ID, response object, user ID)
     const newClient = { id: clientId, res: res, userId: req.user.userId };
     clients.push(newClient);
     console.log(`Client ${clientId} connected (User ${newClient.userId}). Total clients: ${clients.length}`);
 
-    // Immediately send a confirmation message to the client
+    // Send a confirmation message to the client
     try {
         res.write(`data: ${JSON.stringify({ type: 'connected', clientId: clientId })}\n\n`);
-        // Send an initial comment (like a heartbeat) to confirm write capability
+        // Send an initial comment line (can be used by client to confirm connection)
         res.write(':initial-connection\n\n');
     } catch (e) {
-        // If initial write fails, remove client immediately
-        console.error(`Initial write failed for client ${clientId}:`, e.message);
+        // If initial write fails, remove the client immediately
+        console.error(`Initial write failed for client ${clientId}:`, e);
         clients = clients.filter(client => client.id !== clientId);
-        // Don't keep the connection open if we can't write to it
-        // res.end(); // Optionally end the response here
-        return;
+        return; // Stop processing for this failed connection
     }
 
-    // Attempt to send past (historic) notifications to the newly connected client
+    // Attempt to send past notifications to the newly connected client
     try {
         const { data: pastNotifications, error } = await supabase
             .from('notifications')
             .select('*')
-            .eq('user_id', req.user.userId) // Fetch only for the authenticated user
-            .order('created_at', { ascending: false }) // Get latest first
-            .limit(20); // Limit the number of past notifications sent
+            .eq('user_id', req.user.userId) // Only for this user
+            .order('created_at', { ascending: false }) // Newest first
+            .limit(20); // Limit the number of past notifications
 
-        if (error) throw error; // Throw DB errors to be caught below
+        if (error) throw error; // Handle Supabase errors
 
         if (pastNotifications && pastNotifications.length > 0) {
             const payload = { type: 'historic_notifications', data: pastNotifications };
-            // Ensure the client is still in the active list before attempting to write
+            // Check if client is still connected before writing
             if (clients.some(c => c.id === clientId)) {
                 try {
                     newClient.res.write(`data: ${JSON.stringify(payload)}\n\n`);
                 } catch (e) {
-                    // If writing historic data fails, remove the client
-                    console.error(`Error writing historic notifications for ${clientId}:`, e.message);
-                    clients = clients.filter(client => client.id !== clientId);
+                    // Handle write error if client disconnected between check and write
+                    console.error(`Error writing historic notifications for ${clientId}:`, e);
+                    clients = clients.filter(client => client.id !== clientId); // Remove client
                 }
             }
         }
     } catch (err) {
-        // Log errors during fetching/sending historic notifications, but don't kill connection
-        console.error(`[SSE ERROR] Could not fetch/send past notifications for user ${req.user.userId}:`, err);
+        // Log error fetching past notifications but don't disconnect the client
+        console.error(`[SSE ERROR] Could not fetch past notifications for user ${req.user.userId}:`, err);
     }
 
-    // Handle client disconnection (e.g., browser tab closed)
+    // Handle client disconnection
     req.on('close', () => {
-        clients = clients.filter(client => client.id !== clientId);
-        console.log(`Client ${clientId} disconnected (closed connection). Remaining clients: ${clients.length}`);
+        clients = clients.filter(client => client.id !== clientId); // Remove client from list
+        console.log(`Client ${clientId} disconnected. Remaining clients: ${clients.length}`);
     });
 
-    // Keep the connection open indefinitely for SSE; do not call res.end() here.
+    // Note: Do not call res.end() here, as SSE requires the connection to stay open.
 });
 
 
@@ -483,38 +464,37 @@ app.get('/api/events', authenticateToken, async (req, res) => {
 app.get('/api/status', (req, res) => res.json({ status: 'ok', version: '21.3', database: 'supabase_storage' }));
 
 // --- USER PROFILE ---
+// GET user profile details
 app.get('/api/users/:userId', async (req, res) => {
     const { userId } = req.params;
     try {
-        // Fetch specific user data by ID
         const { data: user, error } = await supabase
             .from('users')
-            .select('id, username, display_name, profile_image_url, role') // Select only necessary public fields
+            .select('id, username, display_name, profile_image_url, role') // Select specific fields
             .eq('id', userId)
-            .single(); // Expect only one user
+            .single(); // Expect one or zero results
 
         // Handle database errors (excluding 'not found')
         if (error && error.code !== 'PGRST116') throw error;
         // Handle user not found specifically
         if (!user) return res.status(404).json({ error: 'User not found.' });
 
-        // Format and send the user data
+        // Format and send user data
         res.json(formatRowForFrontend(user));
     } catch (err) {
         console.error(`Error fetching user profile ${userId}:`, err);
-        // Return 404 if the error was 'not found'
+        // Return 404 if error was 'not found', otherwise 500
         if (err.code === 'PGRST116') return res.status(404).json({ error: 'User not found.' });
-        // Return 500 for other unexpected errors
         res.status(500).json({ error: 'Could not fetch user profile.' });
     }
 });
 
-// Endpoint to update user profile information
+// PUT update user profile (requires authentication)
 app.put('/api/users/:userIdToUpdate', authenticateToken, upload.single('profileImage'), async (req, res) => {
-    const { userIdToUpdate } = req.params; // ID of the user being updated
-    const { userId: authenticatedUserId, role } = req.user; // ID and role of the logged-in user making the request
+    const { userIdToUpdate } = req.params; // ID of the user to update
+    const { userId: authenticatedUserId, role } = req.user; // ID and role of the logged-in user
 
-    // Authorization: Allow update only if the user is updating their own profile or if the user is an admin
+    // Authorization: Allow update only if user is updating their own profile OR is an admin
     if (userIdToUpdate !== authenticatedUserId && role !== 'admin') {
         return res.status(403).json({ error: 'คุณไม่มีสิทธิ์แก้ไขโปรไฟล์นี้' });
     }
@@ -523,156 +503,152 @@ app.put('/api/users/:userIdToUpdate', authenticateToken, upload.single('profileI
     let newImageUrl = null; // To track if a new image was uploaded for potential cleanup on error
 
     try {
-        // Fetch the full user record to verify current password and get existing image URL
+        // Fetch the current user data for validation and comparison
         const { data: user, error: fetchError } = await supabase.from('users').select('*').eq('id', userIdToUpdate).single();
         if (fetchError || !user) return res.status(404).json({ error: 'ไม่พบผู้ใช้' });
 
         const updateData = {}; // Object to store fields to be updated
 
-        // --- Password/Username Change Validation ---
-        // Require current password if changing password OR username
-        if (newPassword || (username && username.trim() && username.trim() !== user.username)) {
+        // Password/Username Change Validation: Require current password if changing username or password
+        if (newPassword || (username && username.trim() !== user.username)) {
             if (!currentPassword) return res.status(400).json({ error: 'กรุณากรอกรหัสผ่านปัจจุบันเพื่อยืนยันการเปลี่ยนแปลง' });
-            // Verify the provided current password against the stored hash
             const isMatch = await bcrypt.compare(currentPassword, user.password);
             if (!isMatch) return res.status(401).json({ error: 'รหัสผ่านปัจจุบันไม่ถูกต้อง' });
         }
 
-        // --- Update Display Name ---
-        if (displayName && displayName.trim() && displayName.trim() !== user.display_name) {
+        // Handle Display Name Update: Propagate change to related tables (reviews, comments)
+        if (displayName && displayName.trim() !== user.display_name) {
             updateData.display_name = displayName.trim();
-            // Propagate display name change to related tables (reviews, comments)
-            // Use Promise.allSettled to attempt both updates even if one fails
+            // Update author name in reviews and comments concurrently
             await Promise.allSettled([
                 supabase.from('reviews').update({ author: updateData.display_name }).eq('user_id', userIdToUpdate),
                 supabase.from('review_comments').update({ author: updateData.display_name }).eq('user_id', userIdToUpdate)
             ]).then(results => results.forEach((result, i) => result.status === 'rejected' && console.error(`Failed to update author name in ${i === 0 ? 'reviews' : 'comments'}:`, result.reason)));
         }
 
-        // --- Update Username ---
-        if (username && username.trim() && username.trim() !== user.username) {
+        // Handle Username Update: Check for uniqueness and basic validation
+        if (username && username.trim() !== user.username) {
             const trimmedUsername = username.trim();
-            // Check for username uniqueness
+            // Check if the new username is already taken by another user
             const { data: existingUser } = await supabase.from('users').select('id').eq('username', trimmedUsername).maybeSingle();
             if (existingUser && existingUser.id !== userIdToUpdate) return res.status(409).json({ error: 'ชื่อผู้ใช้นี้ถูกใช้งานแล้ว' });
-            // Add basic validation for username format (example: 3-20 chars, alphanumeric + underscore)
+            // Basic username format validation (example: 3-20 alphanumeric chars + underscore)
             if (!/^[a-zA-Z0-9_]{3,20}$/.test(trimmedUsername)) return res.status(400).json({ error: 'ชื่อผู้ใช้ต้องมี 3-20 ตัวอักษร (a-z, A-Z, 0-9, _)' });
             updateData.username = trimmedUsername;
         }
 
-        // --- Update Password ---
+        // Handle Password Update: Hash the new password
         if (newPassword) {
             if (newPassword.length < 6) return res.status(400).json({ error: 'รหัสผ่านใหม่ต้องมีอย่างน้อย 6 ตัวอักษร' });
-            updateData.password = await bcrypt.hash(newPassword, 10); // Hash the new password
+            updateData.password = await bcrypt.hash(newPassword, 10);
         }
 
-        // --- Update Profile Image ---
-        if (req.file) { // Check if a new file was uploaded
-            // Delete the old profile image from storage, if it exists
-            await deleteFromSupabase(user.profile_image_url);
-            // Upload the new image and get its URL
-            newImageUrl = await uploadToSupabase(req.file);
-            // Store the new URL (potentially as an array if design allows multiple)
-            updateData.profile_image_url = [newImageUrl];
+        // Handle Profile Image Update: Delete old, upload new
+        if (req.file) {
+            await deleteFromSupabase(user.profile_image_url); // Delete old image(s)
+            newImageUrl = await uploadToSupabase(req.file); // Upload new one
+            updateData.profile_image_url = [newImageUrl]; // Store as array (assuming DB schema expects array)
         }
 
-        // --- Perform Update ---
-        // If no fields were actually changed, return current user info and token
+        // If no data was actually changed, return current info with a message
         if (Object.keys(updateData).length === 0) {
             const currentFormattedUser = formatRowForFrontend(user);
-            // Re-sign token in case role/info changed, though nothing was updated here
+            // Reissue token in case some info changed implicitly (though unlikely here)
             const token = jwt.sign({ userId: currentFormattedUser.id, username: currentFormattedUser.username, displayName: currentFormattedUser.displayName, role: currentFormattedUser.role, profileImageUrl: currentFormattedUser.profileImageUrl }, process.env.JWT_SECRET, { expiresIn: '1d' });
             return res.json({ message: 'ไม่มีข้อมูลที่ต้องอัปเดต', user: currentFormattedUser, token });
         }
 
-        // Update the user record in the database
+        // Perform the database update
         const { data: updatedUserResult, error: updateError } = await supabase
             .from('users')
             .update(updateData)
             .eq('id', userIdToUpdate)
-            .select('id, username, display_name, profile_image_url, role') // Select the updated fields
-            .single(); // Expect one row back
+            .select('id, username, display_name, profile_image_url, role') // Select updated fields
+            .single();
 
-        if (updateError) throw updateError; // Throw DB errors
+        if (updateError) throw updateError; // Handle DB update errors
 
-        // --- Respond with Updated Info and New Token ---
+        // Generate a new JWT token containing the updated user information
         const formattedUpdatedUser = formatRowForFrontend(updatedUserResult);
-        // Generate a new JWT with potentially updated claims (username, displayName, profileImageUrl, role)
         const token = jwt.sign({
             userId: formattedUpdatedUser.id,
             username: formattedUpdatedUser.username,
             displayName: formattedUpdatedUser.displayName,
             role: formattedUpdatedUser.role,
-            profileImageUrl: formattedUpdatedUser.profileImageUrl // Ensure updated image URL is in token
+            profileImageUrl: formattedUpdatedUser.profileImageUrl // Include potentially updated image URL
         }, process.env.JWT_SECRET, { expiresIn: '1d' });
 
+        // Send success response with updated user data and new token
         res.json({ message: 'อัปเดตโปรไฟล์สำเร็จ!', user: formattedUpdatedUser, token });
 
     } catch (err) {
         console.error(`[ERROR] Updating profile for ${userIdToUpdate}:`, err);
-        // If an error occurred after a new image was uploaded, attempt to delete the new image
+        // If update failed after uploading a new image, try to delete the newly uploaded image
         if (newImageUrl) await deleteFromSupabase(newImageUrl);
         res.status(500).json({ error: 'เกิดข้อผิดพลาดในการอัปเดตโปรไฟล์' });
     }
 });
 
-// Endpoint to delete a user account
+// DELETE user account (requires authentication and current password)
 app.delete('/api/users/:userIdToDelete', authenticateToken, async (req, res) => {
-    const { userIdToDelete } = req.params; // ID of the user to delete
-    const { userId: authenticatedUserId, role } = req.user; // ID/role of user making request
+    const { userIdToDelete } = req.params; // ID of user to delete
+    const { userId: authenticatedUserId, role } = req.user; // ID/role of logged-in user
     const { currentPassword } = req.body; // Password confirmation required
 
     // Authorization: User can delete own account, or admin can delete any account
-    if (userIdToDelete !== authenticatedUserId && role !== 'admin') return res.status(403).json({ error: 'คุณไม่มีสิทธิ์ลบบัญชีนี้' });
-    // Require password confirmation
-    if (!currentPassword) return res.status(400).json({ error: 'กรุณากรอกรหัสผ่านเพื่อยืนยันการลบ' });
+    if (userIdToDelete !== authenticatedUserId && role !== 'admin') {
+        return res.status(403).json({ error: 'คุณไม่มีสิทธิ์ลบบัญชีนี้' });
+    }
+    // Password is required for confirmation
+    if (!currentPassword) {
+        return res.status(400).json({ error: 'กรุณากรอกรหัสผ่านเพื่อยืนยันการลบ' });
+    }
 
     try {
-        // Fetch user to verify password and get profile image URL
+        // Fetch user to verify password and get profile image URL for deletion
         const { data: user, error: fetchError } = await supabase.from('users').select('password, profile_image_url').eq('id', userIdToDelete).single();
         if (fetchError || !user) return res.status(404).json({ error: 'ไม่พบผู้ใช้' });
 
-        // Verify the provided password
+        // Verify the provided current password
         const isMatch = await bcrypt.compare(currentPassword, user.password);
         if (!isMatch) return res.status(401).json({ error: 'รหัสผ่านไม่ถูกต้อง' });
 
-        // --- Deletion Process ---
-        // 1. Delete associated profile image from storage
+        // Delete profile image from storage
         await deleteFromSupabase(user.profile_image_url);
 
-        // 2. Delete related data from other tables (order might matter depending on constraints/cascades)
-        // It's generally safer to delete dependent records first.
-        // Consider using database CASCADE constraints for simplicity if applicable.
+        // --- Delete related user data ---
+        // Consider using CASCADE DELETE in your database schema for simplicity if possible.
+        // Otherwise, delete related records manually in the correct order.
         console.log(`Starting deletion process for user ${userIdToDelete}...`);
+        // Delete likes given by the user
         await supabase.from('review_likes').delete().eq('user_id', userIdToDelete);
         console.log(`Deleted review likes for user ${userIdToDelete}.`);
         await supabase.from('comment_likes').delete().eq('user_id', userIdToDelete);
         console.log(`Deleted comment likes for user ${userIdToDelete}.`);
-        // Dependent tables need careful handling. Comments depend on Reviews.
-        // If deleting Reviews cascades to Comments, deleting Comments first might be redundant or fail.
-        // Assuming no cascade or specific order needed for likes/comments/reviews here:
+        // Delete comments made by the user
         await supabase.from('review_comments').delete().eq('user_id', userIdToDelete);
         console.log(`Deleted review comments for user ${userIdToDelete}.`);
-        // TODO: Also delete comments on reviews *created by* this user? (More complex query needed)
+        // Delete reviews made by the user
         await supabase.from('reviews').delete().eq('user_id', userIdToDelete);
         console.log(`Deleted reviews for user ${userIdToDelete}.`);
-        // TODO: Also delete reviews for locations *created by* this user?
+        // Delete favorites of the user
         await supabase.from('favorites').delete().eq('user_id', userIdToDelete);
         console.log(`Deleted favorites for user ${userIdToDelete}.`);
-        // Delete items potentially created *by* this user (assuming 'user_id' FK exists)
+        // Delete items created by the user (if applicable and desired)
+        // Ensure user_id column exists and cascading isn't handled elsewhere
         await supabase.from('famous_products').delete().eq('user_id', userIdToDelete);
         console.log(`Deleted famous products created by user ${userIdToDelete}.`);
         await supabase.from('attractions').delete().eq('user_id', userIdToDelete);
         console.log(`Deleted attractions created by user ${userIdToDelete}.`);
         await supabase.from('foodShops').delete().eq('user_id', userIdToDelete);
         console.log(`Deleted foodShops created by user ${userIdToDelete}.`);
-        // TODO: Handle notifications related to/sent to this user?
 
-        // 3. Finally, delete the user record itself
+        // Finally, delete the user record itself
         const { error: userDeleteError } = await supabase.from('users').delete().eq('id', userIdToDelete);
-        if (userDeleteError) throw userDeleteError; // Throw if final delete fails
+        if (userDeleteError) throw userDeleteError; // Handle potential error deleting the user
         console.log(`Successfully deleted user record for ${userIdToDelete}.`);
 
+        // Send success response
         res.json({ message: 'ลบบัญชีผู้ใช้สำเร็จ' });
 
     } catch(err) {
@@ -683,47 +659,47 @@ app.delete('/api/users/:userIdToDelete', authenticateToken, async (req, res) => 
 
 
 // --- NOTIFICATIONS ---
-// Fetch recent notifications for the logged-in user
+// GET notifications for the logged-in user
 app.get('/api/notifications', authenticateToken, async (req, res) => {
     try {
         const { data, error } = await supabase
             .from('notifications')
-            .select('*') // Select all columns for now
-            .eq('user_id', req.user.userId) // Filter by logged-in user
-            .order('created_at', { ascending: false }) // Show newest first
+            .select('*')
+            .eq('user_id', req.user.userId)
+            .order('created_at', { ascending: false }) // Newest first
             .limit(20); // Limit results
         if (error) throw error;
-        res.json(data); // Return raw notification data (formatting might happen on client)
+        res.json(data); // Send raw notification data (formatting done on frontend)
     } catch (err) {
         console.error(`Error fetching notifications for ${req.user.userId}:`, err);
         res.status(500).json({ error: 'Could not fetch notifications.' });
     }
 });
 
-// Get the count of unread notifications for the logged-in user
+// GET count of unread notifications for the logged-in user
 app.get('/api/notifications/unread/count', authenticateToken, async (req, res) => {
     try {
-        // Use Supabase count feature for efficiency
+        // Use count aggregation for efficiency
         const { count, error } = await supabase
             .from('notifications')
-            .select('*', { count: 'exact', head: true }) // Fetch only the count
-            .eq('user_id', req.user.userId) // Filter by user
-            .eq('is_read', false); // Filter by unread status
+            .select('*', { count: 'exact', head: true }) // head: true prevents fetching data
+            .eq('user_id', req.user.userId)
+            .eq('is_read', false); // Filter for unread
         if (error) throw error;
-        res.json({ count: count || 0 }); // Return the count (or 0 if null)
+        res.json({ count: count || 0 }); // Return count (or 0 if null)
     } catch (err) {
         console.error(`Error fetching unread count for ${req.user.userId}:`, err);
         res.status(500).json({ error: 'Could not fetch unread count.' });
     }
 });
 
-// Mark all unread notifications as read for the logged-in user
+// POST mark all unread notifications as read for the logged-in user
 app.post('/api/notifications/read', authenticateToken, async (req, res) => {
     try {
         const { error } = await supabase
             .from('notifications')
             .update({ is_read: true }) // Set is_read to true
-            .eq('user_id', req.user.userId) // Filter by user
+            .eq('user_id', req.user.userId) // For the current user
             .eq('is_read', false); // Only update currently unread ones
         if (error) throw error;
         res.status(200).json({ message: 'Notifications marked as read.' });
@@ -735,40 +711,59 @@ app.post('/api/notifications/read', authenticateToken, async (req, res) => {
 
 
 // --- FAMOUS PRODUCTS ---
-// (Endpoints for famous products: GET all (admin), GET random, GET by ID, POST, PUT, DELETE)
-// These sections are collapsed for brevity but contain the full logic as provided previously.
+// GET all famous products (Admin only, includes location name)
 app.get('/api/famous-products/all', authenticateToken, requireAdmin, async (req, res) => {
-    const locationMap = new Map();
+    const locationMap = new Map(); // To map location IDs to names
     let products = [];
     try {
+        // Fetch location names efficiently
         const [attractionsRes, foodShopsRes] = await Promise.all([
-             supabase.from('attractions').select('id, name'),
-             supabase.from('foodShops').select('id, name')
+            supabase.from('attractions').select('id, name'),
+            supabase.from('foodShops').select('id, name')
         ]);
+        // Populate the map, ignoring potential errors for individual fetches
         if (attractionsRes.error) console.error("Error fetching attractions for product map:", attractionsRes.error);
+        else (attractionsRes.data || []).forEach(loc => locationMap.set(loc.id, loc.name));
         if (foodShopsRes.error) console.error("Error fetching foodShops for product map:", foodShopsRes.error);
-        (attractionsRes.data || []).forEach(loc => locationMap.set(loc.id, loc.name));
-        (foodShopsRes.data || []).forEach(loc => locationMap.set(loc.id, loc.name));
-    } catch (err) { console.error("CRITICAL Error fetching locations for product mapping:", err); }
+        else (foodShopsRes.data || []).forEach(loc => locationMap.set(loc.id, loc.name));
+    } catch (err) {
+        console.error("CRITICAL Error fetching locations for product mapping:", err);
+    }
+    // Fetch all famous products
     try {
         const { data: fetchedProducts, error: productsError } = await supabase.from('famous_products').select('*');
-        if (productsError) { console.error("Error fetching famous products:", productsError); return res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลของขึ้นชื่อ' }); }
-        else { products = fetchedProducts || []; }
-    } catch (err) { console.error("CRITICAL Error fetching famous products:", err); return res.status(500).json({ error: 'เกิดข้อผิดพลาดร้ายแรงในการดึงข้อมูลของขึ้นชื่อ' }); }
+        if (productsError) throw productsError;
+        products = fetchedProducts || [];
+    } catch (err) {
+        console.error("Error fetching famous products:", err);
+        return res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลของขึ้นชื่อ' });
+    }
+    // Add locationName to each product and format
     const productsWithLocation = products.map(product => {
         const formatted = formatRowForFrontend(product);
-        return { ...formatted, locationName: product.location_id ? locationMap.get(product.location_id) || 'ไม่พบสถานที่' : 'ส่วนกลาง' };
+        return {
+            ...formatted,
+            locationName: product.location_id ? locationMap.get(product.location_id) || 'ไม่พบสถานที่' : 'ส่วนกลาง'
+        };
     });
     res.json(productsWithLocation);
 });
+
+// GET random famous products (not associated with a location)
 app.get('/api/famous-products/random', async (req, res) => {
     try {
         const { data, error } = await supabase.from('famous_products').select('*').is('location_id', null);
         if (error) throw error;
+        // Shuffle the results and take the first 2
         const shuffled = (data || []).sort(() => 0.5 - Math.random());
         res.json(shuffled.slice(0, 2).map(formatRowForFrontend));
-    } catch (err) { console.error("Error fetching random famous products:", err); res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลของขึ้นชื่อ' }); }
+    } catch (err) {
+        console.error("Error fetching random famous products:", err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลของขึ้นชื่อ' });
+    }
 });
+
+// GET a specific famous product by ID
 app.get('/api/famous-products/:id', async (req, res) => {
     const { id } = req.params;
     try {
@@ -776,24 +771,45 @@ app.get('/api/famous-products/:id', async (req, res) => {
         if (error && error.code !== 'PGRST116') throw error;
         if (!product) return res.status(404).json({ error: 'ไม่พบของขึ้นชื่อ' });
         res.json(formatRowForFrontend(product));
-    } catch (err) { console.error(`Error fetching famous product ${id}:`, err); if (err.code === 'PGRST116') { return res.status(404).json({ error: 'ไม่พบของขึ้นชื่อ' }); } res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลของขึ้นชื่อ' }); }
+    } catch (err) {
+        console.error(`Error fetching famous product ${id}:`, err);
+        if (err.code === 'PGRST116') return res.status(404).json({ error: 'ไม่พบของขึ้นชื่อ' });
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลของขึ้นชื่อ' });
+    }
 });
+
+// POST create a new famous product (requires authentication)
 app.post('/api/famous-products', authenticateToken, upload.single('image'), async (req, res) => {
     const { name, description, locationId } = req.body;
-    const { userId } = req.user;
+    const { userId, displayName, username } = req.user; // Get creator info
     if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required.' });
     let imageUrl = null;
     try {
-        imageUrl = req.file ? await uploadToSupabase(req.file) : null; // Handle optional image
-        const newProduct = { id: crypto.randomUUID(), name: name.trim(), description: description ? description.trim() : '', imageurl: imageUrl, location_id: locationId || null, user_id: userId };
+        imageUrl = await uploadToSupabase(req.file); // Upload image
+        const newProduct = {
+            id: crypto.randomUUID(),
+            name: name.trim(),
+            description: description ? description.trim() : '',
+            imageurl: imageUrl, // Column name in DB
+            location_id: locationId || null, // Allow associating with location or not
+            user_id: userId // Associate with the creator
+        };
         const { data, error } = await supabase.from('famous_products').insert(newProduct).select().single();
         if (error) throw error;
+        // Optionally send notification
+        // createAndSendNotification({ type: 'new_product', ... });
         res.status(201).json(formatRowForFrontend(data));
-    } catch (err) { console.error("Error creating product:", err); if(imageUrl) await deleteFromSupabase(imageUrl); res.status(500).json({ error: `Failed to create product: ${err.message}` }); }
+    } catch (err) {
+        console.error("Error creating product:", err);
+        if(imageUrl) await deleteFromSupabase(imageUrl); // Cleanup uploaded image on error
+        res.status(500).json({ error: `Failed to create product: ${err.message}` });
+    }
 });
+
+// PUT update a famous product (requires authentication, owner or admin)
 app.put('/api/famous-products/:id', authenticateToken, upload.single('image'), async (req, res) => {
     const { id } = req.params;
-    const { name, description } = req.body;
+    const { name, description } = req.body; // Only allow updating these fields via this route
     const { userId, role } = req.user;
     let newImageUrl = null;
     try {
@@ -804,19 +820,29 @@ app.put('/api/famous-products/:id', authenticateToken, upload.single('image'), a
         const updateData = {};
         if (name !== undefined) updateData.name = name.trim();
         if (description !== undefined) updateData.description = description.trim();
-        if (req.file) { await deleteFromSupabase(product.imageurl); newImageUrl = await uploadToSupabase(req.file); updateData.imageurl = newImageUrl; }
+        if (req.file) { // Handle image update
+            await deleteFromSupabase(product.imageurl);
+            newImageUrl = await uploadToSupabase(req.file);
+            updateData.imageurl = newImageUrl;
+        }
         if (Object.keys(updateData).length > 0) {
             const { data: updatedProduct, error: updateError } = await supabase.from('famous_products').update(updateData).eq('id', id).select().single();
             if (updateError) throw updateError;
-            return res.json(formatRowForFrontend(updatedProduct));
+            res.json(formatRowForFrontend(updatedProduct));
         } else {
-            const { data: currentProduct, error: currentError } = await supabase.from('famous_products').select('*').eq('id', id).single();
-            if(currentError) throw currentError;
-            currentProduct.imageurl = product.imageurl; // Ensure current image URL is correct
-            return res.json(formatRowForFrontend(currentProduct));
+            // If nothing to update, return current data (fetch again to be sure)
+             const { data: currentProduct, error: currentError } = await supabase.from('famous_products').select('*').eq('id', id).single();
+             if(currentError) throw currentError;
+             res.json(formatRowForFrontend(currentProduct));
         }
-    } catch (err) { console.error(`Error updating product ${id}:`, err); if (newImageUrl) await deleteFromSupabase(newImageUrl); res.status(500).json({ error: 'Failed to update product.' }); }
+    } catch (err) {
+        console.error(`Error updating product ${id}:`, err);
+        if (newImageUrl) await deleteFromSupabase(newImageUrl); // Cleanup
+        res.status(500).json({ error: 'Failed to update product.' });
+    }
 });
+
+// DELETE a famous product (requires authentication, owner or admin)
 app.delete('/api/famous-products/:id', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const { userId, role } = req.user;
@@ -825,367 +851,850 @@ app.delete('/api/famous-products/:id', authenticateToken, async (req, res) => {
         if (fetchError && fetchError.code !== 'PGRST116') throw fetchError;
         if (!product) return res.status(404).json({ error: 'Product not found.' });
         if (product.user_id !== userId && role !== 'admin') return res.status(403).json({ error: 'Not authorized.' });
-        await deleteFromSupabase(product.imageurl);
-        const { error: deleteError } = await supabase.from('famous_products').delete().eq('id', id);
+        await deleteFromSupabase(product.imageurl); // Delete image from storage
+        const { error: deleteError } = await supabase.from('famous_products').delete().eq('id', id); // Delete DB record
         if (deleteError) throw deleteError;
-        res.status(204).send();
-    } catch (err) { console.error(`Error deleting product ${id}:`, err); res.status(500).json({ error: 'Failed to delete product.' }); }
+        res.status(204).send(); // Success - No Content
+    } catch (err) {
+        console.error(`Error deleting product ${id}:`, err);
+        res.status(500).json({ error: 'Failed to delete product.' });
+    }
 });
 
 
-// --- LOCATIONS ---
-// (Endpoints for locations: GET attractions, GET foodShops, GET by ID, POST, PUT, DELETE,
-// GET similar category, GET famous products for location, GET/POST deletion requests)
+// --- LOCATIONS (Attractions & FoodShops) ---
+// GET list of locations pending deletion (Admin only)
 app.get('/api/locations/deletion-requests', authenticateToken, requireAdmin, async (req, res) => {
     try {
         const [attractionsRes, foodShopsRes] = await Promise.all([
-             supabase.from('attractions').select('*').eq('status', 'pending_deletion'),
-             supabase.from('foodShops').select('*').eq('status', 'pending_deletion')
+            supabase.from('attractions').select('*').eq('status', 'pending_deletion'),
+            supabase.from('foodShops').select('*').eq('status', 'pending_deletion')
         ]);
         let allRequests = [];
-        if (attractionsRes.error) console.error("Error fetching attraction deletion requests:", attractionsRes.error); else allRequests = allRequests.concat(attractionsRes.data || []);
-        if (foodShopsRes.error) console.error("Error fetching foodShop deletion requests:", foodShopsRes.error); else allRequests = allRequests.concat(foodShopsRes.data || []);
+        if (attractionsRes.error) console.error("Error fetching attraction deletion requests:", attractionsRes.error);
+        else allRequests = allRequests.concat(attractionsRes.data || []);
+        if (foodShopsRes.error) console.error("Error fetching foodShop deletion requests:", foodShopsRes.error);
+        else allRequests = allRequests.concat(foodShopsRes.data || []);
         res.json(allRequests.map(formatRowForFrontend));
-    } catch (err) { console.error("CRITICAL Error fetching deletion requests:", err); res.status(500).json({ error: 'เกิดข้อผิดพลาดร้ายแรงในการดึงคำขอลบ' }); }
+    } catch (err) {
+        console.error("CRITICAL Error fetching deletion requests:", err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดร้ายแรงในการดึงคำขอลบ' });
+    }
 });
+
+// POST deny a deletion request (Admin only) - set status back to 'approved'
 app.post('/api/locations/:id/deny-deletion', authenticateToken, requireAdmin, async (req, res) => {
     const { id } = req.params;
+    let updated = false;
     try {
-        let { data, error } = await supabase.from('attractions').update({ status: 'approved' }).eq('id', id).eq('status', 'pending_deletion').select('id').maybeSingle();
-        if (!data && (!error || error?.code === 'PGRST116')) { ({ data, error } = await supabase.from('foodShops').update({ status: 'approved' }).eq('id', id).eq('status', 'pending_deletion').select('id').maybeSingle()); }
-        if (error && error.code !== 'PGRST116') throw error;
-        if (!data) return res.status(404).json({ message: 'ไม่พบคำขอลบสำหรับสถานที่นี้ หรือสถานะไม่ใช่ pending_deletion' });
+        // Try updating in attractions
+        const { data: attrData, error: attrError } = await supabase.from('attractions').update({ status: 'approved' }).match({ id: id, status: 'pending_deletion' }).select('id').maybeSingle();
+        if (attrError && attrError.code !== 'PGRST116') throw attrError;
+        if (attrData) updated = true;
+
+        // If not updated in attractions, try foodShops
+        if (!updated) {
+             const { data: foodData, error: foodError } = await supabase.from('foodShops').update({ status: 'approved' }).match({ id: id, status: 'pending_deletion' }).select('id').maybeSingle();
+             if (foodError && foodError.code !== 'PGRST116') throw foodError;
+             if (foodData) updated = true;
+        }
+
+        if (!updated) return res.status(404).json({ message: 'ไม่พบคำขอลบสำหรับสถานที่นี้ หรือสถานะไม่ใช่ pending_deletion' });
+
         res.json({ message: 'ปฏิเสธการลบและคืนสถานะสถานที่เรียบร้อยแล้ว' });
-    } catch (err) { console.error(`Error denying deletion for ${id}:`, err); res.status(500).json({ error: 'เกิดข้อผิดพลาดในการปฏิเสธคำขอลบ' }); }
+    } catch (err) {
+        console.error(`Error denying deletion for ${id}:`, err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการปฏิเสธคำขอลบ' });
+    }
 });
+
+// GET all approved attractions
 app.get('/api/attractions', async (req, res) => {
     try {
         let query = supabase.from('attractions').select('*').eq('status', 'approved');
-        if (req.query.sortBy === 'rating') { query = query.order('rating', { ascending: false, nullsFirst: false }); }
-        else { query = query.order('name', { ascending: true }); }
+        // Optional sorting by rating
+        if (req.query.sortBy === 'rating') {
+            query = query.order('rating', { ascending: false, nullsFirst: false });
+        } else {
+            query = query.order('name', { ascending: true }); // Default sort by name
+        }
         const { data, error } = await query;
         if (error) throw error;
         res.json((data || []).map(formatRowForFrontend));
-    } catch (err) { console.error("Error fetching attractions:", err); res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลสถานที่ท่องเที่ยว' }); }
+    } catch (err) {
+        console.error("Error fetching attractions:", err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลสถานที่ท่องเที่ยว' });
+    }
 });
+
+// GET all approved foodShops
 app.get('/api/foodShops', async (req, res) => {
     try {
         let query = supabase.from('foodShops').select('*').eq('status', 'approved');
-        if (req.query.sortBy === 'rating') { query = query.order('rating', { ascending: false, nullsFirst: false }); }
-        else { query = query.order('name', { ascending: true }); }
+         // Optional sorting by rating
+        if (req.query.sortBy === 'rating') {
+            query = query.order('rating', { ascending: false, nullsFirst: false });
+        } else {
+            query = query.order('name', { ascending: true }); // Default sort by name
+        }
         const { data, error } = await query;
         if (error) throw error;
         res.json((data || []).map(formatRowForFrontend));
-    } catch (err) { console.error("Error fetching foodShops:", err); res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลร้านอาหาร' }); }
+    } catch (err) {
+        console.error("Error fetching foodShops:", err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลร้านอาหาร' });
+    }
 });
+
+// GET similar locations (same category, excluding self)
 app.get('/api/locations/same-category', async (req, res) => {
     const { category, excludeId } = req.query;
     if (!category) return res.status(400).json({ error: 'Category is required' });
     try {
         const [attractionsResult, foodShopsResult] = await Promise.all([
-             supabase.from('attractions').select('*').eq('category', category).neq('id', excludeId || '').eq('status', 'approved').limit(5),
-             supabase.from('foodShops').select('*').eq('category', category).neq('id', excludeId || '').eq('status', 'approved').limit(5)
+            supabase.from('attractions').select('*').eq('category', category).neq('id', excludeId || '').eq('status', 'approved').limit(5),
+            supabase.from('foodShops').select('*').eq('category', category).neq('id', excludeId || '').eq('status', 'approved').limit(5)
         ]);
         if (attractionsResult.error) console.error("Error fetching similar attractions:", attractionsResult.error);
         if (foodShopsResult.error) console.error("Error fetching similar foodShops:", foodShopsResult.error);
-        const attractions = attractionsResult.data || [];
-        const foodShops = foodShopsResult.data || [];
-        const combined = [...attractions, ...foodShops];
+        const combined = [...(attractionsResult.data || []), ...(foodShopsResult.data || [])];
+        // Shuffle and limit to 5
         const shuffled = combined.sort(() => 0.5 - Math.random());
         res.json(shuffled.slice(0, 5).map(formatRowForFrontend));
-    } catch (err) { console.error(`Error fetching locations in category ${category}:`, err); res.status(500).json({ error: 'เกิดข้อผิดพลาดในการค้นหาสถานที่ในหมวดหมู่เดียวกัน' }); }
+    } catch (err) {
+        console.error(`Error fetching locations in category ${category}:`, err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการค้นหาสถานที่ในหมวดหมู่เดียวกัน' });
+    }
 });
+
+// GET famous products associated with a specific location
 app.get('/api/locations/:locationId/famous-products', async (req, res) => {
     const { locationId } = req.params;
     try {
         const { data, error } = await supabase.from('famous_products').select('*').eq('location_id', locationId);
         if (error) throw error;
         res.json((data || []).map(formatRowForFrontend));
-    } catch (err) { console.error(`Error fetching famous products for location ${locationId}:`, err); res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลของขึ้นชื่อ' }); }
+    } catch (err) {
+        console.error(`Error fetching famous products for location ${locationId}:`, err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลของขึ้นชื่อ' });
+    }
 });
+
+// GET details for a specific location (checks both attractions and foodShops)
 app.get('/api/locations/:id', async (req, res) => {
     const { id } = req.params;
     try {
-        let { data: location, error } = await supabase.from('attractions').select('*').eq('id', id).maybeSingle();
-        if (!location && (!error || error?.code === 'PGRST116')) { ({ data: location, error } = await supabase.from('foodShops').select('*').eq('id', id).maybeSingle()); }
+        let location = null, error = null;
+        // Try attractions first
+        ({ data: location, error } = await supabase.from('attractions').select('*').eq('id', id).maybeSingle());
         if (error && error.code !== 'PGRST116') throw error;
+        // If not found in attractions, try foodShops
+        if (!location) {
+             ({ data: location, error } = await supabase.from('foodShops').select('*').eq('id', id).maybeSingle());
+             if (error && error.code !== 'PGRST116') throw error;
+        }
         if (location) res.json(formatRowForFrontend(location));
         else res.status(404).json({ error: 'ไม่พบสถานที่' });
-    } catch (err) { console.error(`Error fetching location ${id}:`, err); if (err.code !== 'PGRST116') { res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลสถานที่' }); } else { res.status(404).json({ error: 'ไม่พบสถานที่' }); } }
+    } catch (err) {
+        console.error(`Error fetching location ${id}:`, err);
+        if (err.code !== 'PGRST116') res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลสถานที่' });
+        else res.status(404).json({ error: 'ไม่พบสถานที่' });
+    }
 });
+
+// POST create a new location (requires authentication, uploads images)
 app.post('/api/locations', authenticateToken, upload.array('images', 10), async (req, res) => {
     const { name, category, description, googleMapUrl, hours, contact } = req.body;
-    const { userId } = req.user;
+    const { userId, displayName, username } = req.user; // Get creator info
     if (!name || !name.trim() || !category) return res.status(400).json({ error: 'กรุณากรอกชื่อและหมวดหมู่' });
     let uploadedImageUrls = [];
     try {
+        // Upload images concurrently
         const uploadPromises = (req.files || []).map(uploadToSupabase);
         uploadedImageUrls = await Promise.all(uploadPromises);
         const coords = extractCoordsFromUrl(googleMapUrl);
-        const newLocationData = { id: crypto.randomUUID(), name: name.trim(), category, description: description ? description.trim() : '', google_map_url: googleMapUrl || null, hours: hours || '', contact: contact || '', user_id: userId, status: 'approved', image_url: uploadedImageUrls.length > 0 ? uploadedImageUrls[0] : null, detail_images: uploadedImageUrls.length > 1 ? uploadedImageUrls.slice(1) : [], lat: coords.lat, lng: coords.lng };
+        const newLocationData = {
+            id: crypto.randomUUID(), name: name.trim(), category,
+            description: description ? description.trim() : '',
+            google_map_url: googleMapUrl || null, hours: hours || '', contact: contact || '',
+            user_id: userId, status: 'approved', // Default status
+            image_url: uploadedImageUrls.length > 0 ? uploadedImageUrls[0] : null, // First as main
+            detail_images: uploadedImageUrls.length > 1 ? uploadedImageUrls.slice(1) : [], // Rest as details
+            lat: coords.lat, lng: coords.lng // Add coordinates
+        };
+        // Determine table based on category
         const isFoodShop = ['ร้านอาหาร', 'คาเฟ่', 'ตลาด'].includes(category);
         const tableName = isFoodShop ? 'foodShops' : 'attractions';
+        // Insert into the correct table
         const { data: insertedLocation, error } = await supabase.from(tableName).insert(newLocationData).select().single();
         if (error) throw error;
-        // Trigger notification after successful creation
-        createAndSendNotification({ type: 'new_location', actorId: userId, actorName: req.user.displayName || req.user.username, actorProfileImageUrl: req.user.profileImageUrl, recipientId: null, payload: { location: formatRowForFrontend(insertedLocation) } });
+        // Send notification about the new location
+        createAndSendNotification({
+            type: 'new_location',
+            actorId: userId,
+            actorName: displayName || username,
+            actorProfileImageUrl: req.user.profileImageUrl, // Assuming profileImageUrl is in token payload
+            recipientId: null, // Broadcast
+            payload: { location: formatRowForFrontend(insertedLocation) }
+        });
         res.status(201).json(formatRowForFrontend(insertedLocation));
-    } catch (err) { console.error("Error creating location:", err); if (uploadedImageUrls.length > 0) await deleteFromSupabase(uploadedImageUrls); res.status(500).json({ error: 'เกิดข้อผิดพลาดในการบันทึกข้อมูล' }); }
+    } catch (err) {
+        console.error("Error creating location:", err);
+        if (uploadedImageUrls.length > 0) await deleteFromSupabase(uploadedImageUrls); // Cleanup
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการบันทึกข้อมูล' });
+    }
 });
+
+// PUT update an existing location (requires authentication, owner or admin)
 app.put('/api/locations/:id', authenticateToken, upload.array('images', 10), async (req, res) => {
     const { id } = req.params;
     const { userId, role } = req.user;
     const { name, category, description, googleMapUrl, hours, contact, existingImages } = req.body;
     let newlyUploadedUrls = [];
     try {
-        let location = null; let tableName = null; const { data: attractionData, error: attrError } = await supabase.from('attractions').select('*').eq('id', id).maybeSingle(); if (attrError && attrError.code !== 'PGRST116') throw attrError; if (attractionData) { location = attractionData; tableName = 'attractions'; } else { const { data: foodShopData, error: foodError } = await supabase.from('foodShops').select('*').eq('id', id).maybeSingle(); if (foodError && foodError.code !== 'PGRST116') throw foodError; if(foodShopData) { location = foodShopData; tableName = 'foodShops'; } }
-        if (!location) return res.status(404).json({ error: 'ไม่พบสถานที่ที่ต้องการแก้ไข' });
+        // Find the location and determine its table
+        let location = null, tableName = null, error = null;
+        ({ data: location, error } = await supabase.from('attractions').select('*').eq('id', id).maybeSingle());
+        if (error && error.code !== 'PGRST116') throw error;
+        if (location) tableName = 'attractions';
+        else {
+             ({ data: location, error } = await supabase.from('foodShops').select('*').eq('id', id).maybeSingle());
+             if (error && error.code !== 'PGRST116') throw error;
+             if (location) tableName = 'foodShops';
+             else return res.status(404).json({ error: 'ไม่พบสถานที่ที่ต้องการแก้ไข' });
+        }
+        // Authorization check
         if (role !== 'admin' && location.user_id !== userId) return res.status(403).json({ error: 'คุณไม่มีสิทธิ์แก้ไขข้อมูลนี้' });
+        // Image Handling
         const keptImageUrls = existingImages ? JSON.parse(existingImages) : [];
         const oldImageUrls = [location.image_url, ...(location.detail_images || [])].filter(Boolean);
         const imagesToDelete = oldImageUrls.filter(oldUrl => !keptImageUrls.includes(oldUrl));
         const uploadPromises = (req.files || []).map(uploadToSupabase);
         newlyUploadedUrls = await Promise.all(uploadPromises);
+        await deleteFromSupabase(imagesToDelete); // Delete removed images from storage
         const allFinalImageUrls = [...keptImageUrls, ...newlyUploadedUrls];
-        await deleteFromSupabase(imagesToDelete);
-        const coords = extractCoordsFromUrl(googleMapUrl);
+        // Prepare update data
         const updateData = {};
+        const coords = extractCoordsFromUrl(googleMapUrl); // Extract coords from potentially new URL
         if (name !== undefined) updateData.name = name.trim();
         if (category !== undefined) updateData.category = category;
         if (description !== undefined) updateData.description = description.trim();
-        if (googleMapUrl !== undefined) updateData.google_map_url = googleMapUrl;
+        if (googleMapUrl !== undefined) {
+             updateData.google_map_url = googleMapUrl;
+             updateData.lat = coords.lat; // Update coords if URL changed
+             updateData.lng = coords.lng;
+        }
         if (hours !== undefined) updateData.hours = hours.trim();
         if (contact !== undefined) updateData.contact = contact.trim();
-        if (googleMapUrl !== undefined) { updateData.lat = coords.lat; updateData.lng = coords.lng; }
+        // Always update image fields based on final list
         updateData.image_url = allFinalImageUrls.length > 0 ? allFinalImageUrls[0] : null;
         updateData.detail_images = allFinalImageUrls.length > 1 ? allFinalImageUrls.slice(1) : [];
+        // Perform update
         const { data: updatedLocation, error: updateError } = await supabase.from(tableName).update(updateData).eq('id', id).select().single();
         if (updateError) throw updateError;
         res.json(formatRowForFrontend(updatedLocation));
-    } catch (err) { console.error('Error updating location:', err); if(newlyUploadedUrls.length > 0) await deleteFromSupabase(newlyUploadedUrls); res.status(500).json({ error: 'เกิดข้อผิดพลาดในการอัปเดตข้อมูลสถานที่' }); }
+    } catch (err) {
+        console.error('Error updating location:', err);
+        if(newlyUploadedUrls.length > 0) await deleteFromSupabase(newlyUploadedUrls); // Cleanup
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการอัปเดตข้อมูลสถานที่' });
+    }
 });
+
+// POST request deletion for a location (owner or admin)
 app.post('/api/locations/:id/request-deletion', authenticateToken, async (req, res) => {
     const { id } = req.params;
     const { userId, role } = req.user;
     try {
-        let location = null; let tableName = null; const { data: attractionData, error: attrError } = await supabase.from('attractions').select('user_id, status').eq('id', id).maybeSingle(); if (attrError && attrError.code !== 'PGRST116') throw attrError; if (attractionData) { location = attractionData; tableName = 'attractions'; } else { const { data: foodShopData, error: foodError } = await supabase.from('foodShops').select('user_id, status').eq('id', id).maybeSingle(); if (foodError && foodError.code !== 'PGRST116') throw foodError; if(foodShopData) { location = foodShopData; tableName = 'foodShops'; } }
-        if (!location) return res.status(404).json({ error: 'Location not found.' });
+        // Find location and table
+        let location = null, tableName = null, error = null;
+        ({ data: location, error } = await supabase.from('attractions').select('user_id, status').eq('id', id).maybeSingle());
+        if (error && error.code !== 'PGRST116') throw error;
+        if (location) tableName = 'attractions';
+        else {
+             ({ data: location, error } = await supabase.from('foodShops').select('user_id, status').eq('id', id).maybeSingle());
+             if (error && error.code !== 'PGRST116') throw error;
+             if (location) tableName = 'foodShops';
+             else return res.status(404).json({ error: 'Location not found.' });
+        }
+        // Authorization check
         if (location.user_id !== userId && role !== 'admin') return res.status(403).json({ error: 'Not authorized.' });
+        // Prevent duplicate requests
         if (location.status === 'pending_deletion') return res.status(400).json({ error: 'คำขอลบได้ถูกส่งไปแล้ว' });
+        // Update status
         const { error: updateError } = await supabase.from(tableName).update({ status: 'pending_deletion' }).eq('id', id);
         if (updateError) throw updateError;
         res.json({ message: 'ส่งคำขอลบเรียบร้อยแล้ว' });
-    } catch (err) { console.error(`Error requesting deletion for ${id}:`, err); res.status(500).json({ error: 'เกิดข้อผิดพลาดในการส่งคำขอลบ' }); }
+    } catch (err) {
+        console.error(`Error requesting deletion for ${id}:`, err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการส่งคำขอลบ' });
+    }
 });
+
+// DELETE permanently delete a location (Admin only)
 app.delete('/api/locations/:id', authenticateToken, requireAdmin, async (req, res) => {
     const { id } = req.params;
     try {
-        let location = null; let tableName = null; const { data: attractionData, error: attrError } = await supabase.from('attractions').select('image_url, detail_images').eq('id', id).maybeSingle(); if (attrError && attrError.code !== 'PGRST116') throw attrError; if (attractionData) { location = attractionData; tableName = 'attractions'; } else { const { data: foodShopData, error: foodError } = await supabase.from('foodShops').select('image_url, detail_images').eq('id', id).maybeSingle(); if (foodError && foodError.code !== 'PGRST116') throw foodError; if(foodShopData) { location = foodShopData; tableName = 'foodShops'; } }
-        if (location) { const imagesToDelete = [location.image_url, ...(location.detail_images || [])].filter(Boolean); await deleteFromSupabase(imagesToDelete); }
-        const { data: reviewIdsData, error: reviewIdsError } = await supabase.from('reviews').select('id').eq('location_id', id); if (reviewIdsError) console.error("Error fetching review IDs for deletion:", reviewIdsError); const reviewIds = (reviewIdsData || []).map(r => r.id);
-        if (reviewIds.length > 0) { const { data: commentIdsData, error: commentIdsError } = await supabase.from('review_comments').select('id').in('review_id', reviewIds); if(commentIdsError) console.error("Error fetching comment IDs for deletion:", commentIdsError); const commentIds = (commentIdsData || []).map(c => c.id); if (commentIds.length > 0) { await supabase.from('comment_likes').delete().in('comment_id', commentIds); } await supabase.from('review_comments').delete().in('review_id', reviewIds); await supabase.from('review_likes').delete().in('review_id', reviewIds); }
-        await supabase.from('reviews').delete().eq('location_id', id);
-        await supabase.from('famous_products').delete().eq('location_id', id);
-        await supabase.from('favorites').delete().eq('location_id', id);
+        // Find location and table to get image URLs
+        let location = null, tableName = null, error = null;
+        ({ data: location, error } = await supabase.from('attractions').select('image_url, detail_images').eq('id', id).maybeSingle());
+        if (error && error.code !== 'PGRST116') throw error;
+        if (location) tableName = 'attractions';
+        else {
+            ({ data: location, error } = await supabase.from('foodShops').select('image_url, detail_images').eq('id', id).maybeSingle());
+            if (error && error.code !== 'PGRST116') throw error;
+            if (location) tableName = 'foodShops';
+            // If not found in either, still proceed to delete related data just in case
+        }
+        // Delete images from storage if found
+        if (location) {
+            const imagesToDelete = [location.image_url, ...(location.detail_images || [])].filter(Boolean);
+            await deleteFromSupabase(imagesToDelete);
+        }
+        // Delete related data (relying on CASCADE DELETE is preferable if set up)
+        // Manual deletion order: likes -> comments -> reviews -> famous_products -> favorites -> location
+        console.log(`Starting full deletion for location ${id}...`);
+        // Get review IDs for this location
+        const { data: reviewIdsData } = await supabase.from('reviews').select('id').eq('location_id', id);
+        const reviewIds = (reviewIdsData || []).map(r => r.id);
+        if (reviewIds.length > 0) {
+            // Get comment IDs for these reviews
+            const { data: commentIdsData } = await supabase.from('review_comments').select('id').in('review_id', reviewIds);
+            const commentIds = (commentIdsData || []).map(c => c.id);
+            if (commentIds.length > 0) {
+                await supabase.from('comment_likes').delete().in('comment_id', commentIds); // Delete comment likes
+                 console.log(`Deleted comment likes for location ${id}.`);
+            }
+            await supabase.from('review_comments').delete().in('review_id', reviewIds); // Delete comments
+             console.log(`Deleted comments for location ${id}.`);
+            await supabase.from('review_likes').delete().in('review_id', reviewIds); // Delete review likes
+             console.log(`Deleted review likes for location ${id}.`);
+        }
+        await supabase.from('reviews').delete().eq('location_id', id); // Delete reviews
+         console.log(`Deleted reviews for location ${id}.`);
+        await supabase.from('famous_products').delete().eq('location_id', id); // Delete famous products
+         console.log(`Deleted famous products for location ${id}.`);
+        await supabase.from('favorites').delete().eq('location_id', id); // Delete favorites
+         console.log(`Deleted favorites for location ${id}.`);
+        // Delete the location itself from both tables (one will succeed, one will do nothing)
         const { error: deleteAttrError } = await supabase.from('attractions').delete().eq('id', id);
         const { error: deleteFoodError } = await supabase.from('foodShops').delete().eq('id', id);
         if (deleteAttrError && deleteAttrError.code !== 'PGRST116') console.error(`Error deleting from attractions: ${id}`, deleteAttrError);
         if (deleteFoodError && deleteFoodError.code !== 'PGRST116') console.error(`Error deleting from foodShops: ${id}`, deleteFoodError);
-        res.status(204).send();
-    } catch (err) { console.error(`Error deleting location ${id}:`, err); res.status(500).json({ error: 'เกิดข้อผิดพลาดในการลบข้อมูลสถานที่' }); }
+        console.log(`Completed deletion attempts for location ${id}.`);
+        res.status(204).send(); // Success - No Content
+    } catch (err) {
+        console.error(`Error during full deletion of location ${id}:`, err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการลบข้อมูลสถานที่' });
+    }
 });
 
 
 // --- REVIEWS ---
-// (Endpoints for reviews: GET by location, POST, PUT, DELETE, POST toggle like)
+// GET reviews for a location (includes author profile image, like status if userId provided)
 app.get('/api/reviews/:locationId', async (req, res) => {
-    const { locationId } = req.params; const { userId } = req.query;
+    const { locationId } = req.params;
+    const { userId } = req.query; // Optional user ID for like status
     try {
-        const { data: reviewsData, error: reviewsError } = await supabase.from('reviews').select(`*, user_profile:user_id ( profile_image_url )`).eq('location_id', locationId).order('created_at', { ascending: false }); // Order by creation time
-        if (reviewsError) { console.error(`Supabase error fetching reviews for ${locationId}:`, reviewsError); throw reviewsError; }
-        if (!reviewsData || reviewsData.length === 0) return res.json([]);
+        // Fetch reviews and join with users table to get profile image URL
+        const { data: reviewsData, error: reviewsError } = await supabase
+            .from('reviews')
+            .select(`*, user_profile:user_id ( profile_image_url )`) // Join and alias
+            .eq('location_id', locationId)
+            .order('created_at', { ascending: false }); // Show newest reviews first
+
+        if (reviewsError) throw reviewsError;
+        if (!reviewsData || reviewsData.length === 0) return res.json([]); // Return empty if no reviews
+
         const reviewIds = reviewsData.map(review => review.id);
-        let commentCounts = {}; try { const { data: comments, error: countError } = await supabase.from('review_comments').select('review_id').in('review_id', reviewIds); if (countError) throw countError; commentCounts = (comments || []).reduce((acc, comment) => { acc[comment.review_id] = (acc[comment.review_id] || 0) + 1; return acc; }, {}); } catch (commentsError) { console.error(`Error fetching comment counts for reviews of ${locationId}:`, commentsError); }
-        let likedReviewIds = new Set(); if (userId) { try { const { data: likesData, error: likesError } = await supabase.from('review_likes').select('review_id').eq('user_id', userId).in('review_id', reviewIds); if (likesError) throw likesError; if (likesData) { likedReviewIds = new Set(likesData.map(like => like.review_id)); } } catch (likesFetchError) { console.error(`Error fetching likes for user ${userId} on reviews of ${locationId}:`, likesFetchError); } }
-        const formattedReviews = reviewsData.map(review => { const formatted = formatRowForFrontend(review); return { ...formatted, comments_count: commentCounts[review.id] || 0, user_has_liked: likedReviewIds.has(review.id) }; });
+        // Fetch comment counts for these reviews
+        let commentCounts = {};
+        try {
+            const { data: comments, error: countError } = await supabase.from('review_comments').select('review_id').in('review_id', reviewIds);
+            if (countError) throw countError;
+            commentCounts = (comments || []).reduce((acc, comment) => {
+                acc[comment.review_id] = (acc[comment.review_id] || 0) + 1;
+                return acc;
+            }, {});
+        } catch (commentsError) {
+            console.error(`Error fetching comment counts for reviews of ${locationId}:`, commentsError);
+        }
+        // Fetch likes by the requesting user (if userId provided)
+        let likedReviewIds = new Set();
+        if (userId) {
+            try {
+                const { data: likesData, error: likesError } = await supabase.from('review_likes').select('review_id').eq('user_id', userId).in('review_id', reviewIds);
+                if (likesError) throw likesError;
+                if (likesData) likedReviewIds = new Set(likesData.map(like => like.review_id));
+            } catch (likesFetchError) {
+                console.error(`Error fetching likes for user ${userId} on reviews of ${locationId}:`, likesFetchError);
+            }
+        }
+        // Format reviews, add comment count and like status
+        const formattedReviews = reviewsData.map(review => {
+            const formatted = formatRowForFrontend(review);
+            return { ...formatted, comments_count: commentCounts[review.id] || 0, user_has_liked: likedReviewIds.has(review.id) };
+        });
         res.json(formattedReviews);
-    } catch (err) { console.error(`Error processing reviews request for ${locationId}:`, err); res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลรีวิว' }); }
+    } catch (err) {
+        console.error(`Error processing reviews request for ${locationId}:`, err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลรีวิว' });
+    }
 });
+
+// POST create a new review (requires authentication, uploads images)
 app.post('/api/reviews/:locationId', authenticateToken, upload.array('reviewImages', 5), async (req, res) => {
-    const { locationId } = req.params; const { rating, comment } = req.body; const { userId, username, displayName, profileImageUrl } = req.user;
-    if (!rating || !comment || !comment.trim()) return res.status(400).json({ error: 'กรุณากรอกคะแนนและเนื้อหารีวิว' }); const numericRating = parseInt(rating, 10); if (isNaN(numericRating) || numericRating < 1 || numericRating > 5) return res.status(400).json({ error: 'คะแนนต้องอยู่ระหว่าง 1 ถึง 5' });
+    const { locationId } = req.params;
+    const { rating, comment } = req.body;
+    const { userId, username, displayName, profileImageUrl } = req.user; // Get user info from token
+    // Validation
+    const numericRating = parseInt(rating, 10);
+    if (!rating || !comment || !comment.trim() || isNaN(numericRating) || numericRating < 1 || numericRating > 5) {
+        return res.status(400).json({ error: 'กรุณากรอกคะแนน (1-5) และเนื้อหารีวิว' });
+    }
     let uploadedImageUrls = [];
     try {
-        const uploadPromises = (req.files || []).map(uploadToSupabase); uploadedImageUrls = await Promise.all(uploadPromises);
-        const newReview = { id: crypto.randomUUID(), location_id: locationId, user_id: userId, author: displayName || username, rating: numericRating, comment: comment.trim(), image_urls: uploadedImageUrls, likes_count: 0 };
-        const { data: insertedReview, error: insertError } = await supabase.from('reviews').insert(newReview).select().single(); if (insertError) throw insertError;
-        const { data: locationOwnerData } = await supabase.rpc('get_location_owner', { loc_id: locationId }).maybeSingle(); // Assumes get_location_owner function exists
-        // Recalculate average rating
+        const uploadPromises = (req.files || []).map(uploadToSupabase);
+        uploadedImageUrls = await Promise.all(uploadPromises);
+        const newReview = {
+            id: crypto.randomUUID(), location_id: locationId, user_id: userId,
+            author: displayName || username, // Use display name if available
+            rating: numericRating, comment: comment.trim(),
+            image_urls: uploadedImageUrls, likes_count: 0
+        };
+        const { data: insertedReview, error: insertError } = await supabase.from('reviews').insert(newReview).select().single();
+        if (insertError) throw insertError;
+        // Recalculate average rating for the location
         const { data: allReviews, error: ratingError } = await supabase.from('reviews').select('rating').eq('location_id', locationId);
-        if (ratingError) { console.error(`Error fetching ratings for recalculation on ${locationId}:`, ratingError); } else { const totalRating = (allReviews || []).reduce((sum, r) => sum + (r.rating || 0), 0); const averageRating = (allReviews && allReviews.length > 0) ? (totalRating / allReviews.length).toFixed(1) : 0; await Promise.allSettled([ supabase.from('attractions').update({ rating: averageRating }).eq('id', locationId), supabase.from('foodShops').update({ rating: averageRating }).eq('id', locationId) ]); }
-        // Send notification
-        if (locationOwnerData && locationOwnerData.user_id && locationOwnerData.user_id !== userId) { createAndSendNotification({ type: 'new_review', actorId: userId, actorName: displayName || username, actorProfileImageUrl: profileImageUrl, recipientId: locationOwnerData.user_id, payload: { location: { id: locationId, name: locationOwnerData.name }, reviewId: insertedReview.id } }); }
+        if (!ratingError && allReviews) {
+            const totalRating = allReviews.reduce((sum, r) => sum + (r.rating || 0), 0);
+            const averageRating = allReviews.length > 0 ? (totalRating / allReviews.length).toFixed(1) : 0;
+            // Update rating in both potential tables (ignore errors if one fails)
+            await Promise.allSettled([
+                 supabase.from('attractions').update({ rating: averageRating }).eq('id', locationId),
+                 supabase.from('foodShops').update({ rating: averageRating }).eq('id', locationId)
+            ]);
+        } else if (ratingError) {
+             console.error(`Error fetching ratings for recalculation on ${locationId}:`, ratingError);
+        }
+        // Send notification to location owner (implementation depends on how you link locations to owners)
+        // const { data: locationOwner } = await supabase.from('locations').select('user_id').eq('id', locationId).single();
+        // if (locationOwner && locationOwner.user_id !== userId) { createAndSendNotification({...}); }
+        // Format response, adding profile image from token data for immediate display
         const formattedReview = formatRowForFrontend({ ...insertedReview, user_profile: { profile_image_url: profileImageUrl } });
         res.status(201).json(formattedReview);
-    } catch (err) { console.error("Error creating review:", err); if (uploadedImageUrls.length > 0) await deleteFromSupabase(uploadedImageUrls); res.status(500).json({ error: 'เกิดข้อผิดพลาดในการบันทึกรีวิว' }); }
+    } catch (err) {
+        console.error("Error creating review:", err);
+        if (uploadedImageUrls.length > 0) await deleteFromSupabase(uploadedImageUrls); // Cleanup
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการบันทึกรีวิว' });
+    }
 });
+
+// PUT update an existing review (requires authentication, owner or admin)
 app.put('/api/reviews/:reviewId', authenticateToken, upload.array('reviewImages', 5), async (req, res) => {
-    const { reviewId } = req.params; const { rating, comment, existingImages } = req.body; const { userId, role, profileImageUrl } = req.user; let newlyUploadedUrls = [];
+    const { reviewId } = req.params;
+    const { rating, comment, existingImages, locationId } = req.body; // locationId needed if rating changes
+    const { userId, role, profileImageUrl } = req.user;
+    let newlyUploadedUrls = [];
     try {
-        const { data: review, error: fetchError } = await supabase.from('reviews').select('user_id, location_id, image_urls, rating').eq('id', reviewId).single(); if (fetchError && fetchError.code !== 'PGRST116') throw fetchError; if (!review) return res.status(404).json({ error: 'ไม่พบรีวิวที่ต้องการแก้ไข' });
+        const { data: review, error: fetchError } = await supabase.from('reviews').select('user_id, location_id, image_urls, rating').eq('id', reviewId).single();
+        if (fetchError && fetchError.code !== 'PGRST116') throw fetchError;
+        if (!review) return res.status(404).json({ error: 'ไม่พบรีวิวที่ต้องการแก้ไข' });
         if (review.user_id !== userId && role !== 'admin') return res.status(403).json({ error: 'คุณไม่มีสิทธิ์แก้ไขรีวิวนี้' });
-        const keptImages = existingImages ? JSON.parse(existingImages) : []; const imagesToDelete = (review.image_urls || []).filter(url => !keptImages.includes(url)); const uploadPromises = (req.files || []).map(uploadToSupabase); newlyUploadedUrls = await Promise.all(uploadPromises); const allFinalImageUrls = [...keptImages, ...newlyUploadedUrls];
+        // Image Handling
+        const keptImages = existingImages ? JSON.parse(existingImages) : [];
+        const imagesToDelete = (review.image_urls || []).filter(url => !keptImages.includes(url));
+        const uploadPromises = (req.files || []).map(uploadToSupabase);
+        newlyUploadedUrls = await Promise.all(uploadPromises);
         await deleteFromSupabase(imagesToDelete);
-        const updateData = {}; let ratingChanged = false; if (rating !== undefined) { const numericRating = parseInt(rating, 10); if (!isNaN(numericRating) && numericRating >= 1 && numericRating <= 5) { if (numericRating !== review.rating) ratingChanged = true; updateData.rating = numericRating; } else { console.warn(`Invalid rating value received during update: ${rating}`); } } if (comment !== undefined) updateData.comment = comment.trim(); updateData.image_urls = allFinalImageUrls;
-        let updatedReviewData = null; if (Object.keys(updateData).length > 0) { const { data, error: updateError } = await supabase.from('reviews').update(updateData).eq('id', reviewId).select(`*`).single(); if (updateError) throw updateError; updatedReviewData = data; } else { updatedReviewData = review; }
-        if (ratingChanged && review.location_id) { const { data: allReviews, error: ratingError } = await supabase.from('reviews').select('rating').eq('location_id', review.location_id); if (ratingError) { console.error(`Error fetching ratings for recalculation on ${review.location_id}:`, ratingError); } else { const totalRating = (allReviews || []).reduce((sum, r) => sum + (r.rating || 0), 0); const averageRating = (allReviews && allReviews.length > 0) ? (totalRating / allReviews.length).toFixed(1) : 0; await Promise.allSettled([ supabase.from('attractions').update({ rating: averageRating }).eq('id', review.location_id), supabase.from('foodShops').update({ rating: averageRating }).eq('id', review.location_id) ]); } }
+        const allFinalImageUrls = [...keptImages, ...newlyUploadedUrls];
+        // Prepare update data
+        const updateData = {};
+        let ratingChanged = false;
+        if (rating !== undefined) {
+             const numericRating = parseInt(rating, 10);
+              if (!isNaN(numericRating) && numericRating >= 1 && numericRating <= 5) {
+                   if (numericRating !== review.rating) ratingChanged = true;
+                   updateData.rating = numericRating;
+              } else console.warn(`Invalid rating value received during update: ${rating}`);
+        }
+        if (comment !== undefined) updateData.comment = comment.trim();
+        updateData.image_urls = allFinalImageUrls; // Always update image array
+        // Perform update
+        let updatedReviewData = null;
+        if (Object.keys(updateData).length > 0) {
+            const { data, error: updateError } = await supabase.from('reviews').update(updateData).eq('id', reviewId).select(`*`).single();
+            if (updateError) throw updateError;
+            updatedReviewData = data;
+        } else { updatedReviewData = review; } // Use original data if nothing changed
+        // Recalculate average rating if rating changed
+        if (ratingChanged) {
+            const effectiveLocationId = review.location_id || locationId;
+            if (effectiveLocationId) {
+                const { data: allReviews, error: ratingError } = await supabase.from('reviews').select('rating').eq('location_id', effectiveLocationId);
+                if (!ratingError && allReviews) {
+                    const totalRating = allReviews.reduce((sum, r) => sum + (r.rating || 0), 0);
+                    const averageRating = allReviews.length > 0 ? (totalRating / allReviews.length).toFixed(1) : 0;
+                    await Promise.allSettled([
+                         supabase.from('attractions').update({ rating: averageRating }).eq('id', effectiveLocationId),
+                         supabase.from('foodShops').update({ rating: averageRating }).eq('id', effectiveLocationId)
+                    ]);
+                } else if(ratingError) console.error(`Error fetching ratings for recalculation on ${effectiveLocationId}:`, ratingError);
+            } else console.warn(`Could not recalculate rating for updated review ${reviewId} - locationId unknown.`);
+        }
+        // Format response, including profile image from token
         const formattedReview = formatRowForFrontend({ ...updatedReviewData, user_profile: { profile_image_url: profileImageUrl } });
         res.json(formattedReview);
-    } catch (err) { console.error('Error updating review:', err); if(newlyUploadedUrls.length > 0) await deleteFromSupabase(newlyUploadedUrls); res.status(500).json({ error: 'เกิดข้อผิดพลาดในการอัปเดตรีวิว' }); }
+    } catch (err) {
+        console.error('Error updating review:', err);
+        if(newlyUploadedUrls.length > 0) await deleteFromSupabase(newlyUploadedUrls); // Cleanup
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการอัปเดตรีวิว' });
+    }
 });
+
+// DELETE a review (requires authentication, owner or admin)
 app.delete('/api/reviews/:reviewId', authenticateToken, async (req, res) => {
-    const { reviewId } = req.params; const { userId, role } = req.user;
+    const { reviewId } = req.params;
+    const { userId, role } = req.user;
+    const { locationId } = req.body; // Needed for rating recalc
     try {
-        const { data: review, error: fetchError } = await supabase.from('reviews').select('user_id, location_id, image_urls').eq('id', reviewId).single(); if (fetchError && fetchError.code !== 'PGRST116') throw fetchError; if (!review) return res.status(404).json({ error: 'ไม่พบรีวิวที่ต้องการลบ' });
+        const { data: review, error: fetchError } = await supabase.from('reviews').select('user_id, location_id, image_urls').eq('id', reviewId).single();
+        if (fetchError && fetchError.code !== 'PGRST116') throw fetchError;
+        if (!review) return res.status(404).json({ error: 'ไม่พบรีวิวที่ต้องการลบ' });
         if (review.user_id !== userId && role !== 'admin') return res.status(403).json({ error: 'คุณไม่มีสิทธิ์ลบรีวิวนี้' });
-        const effectiveLocationId = review.location_id;
-        await deleteFromSupabase(review.image_urls);
-        // Delete dependents first
-        const { data: commentIdsData } = await supabase.from('review_comments').select('id').eq('review_id', reviewId);
-        const commentIds = (commentIdsData || []).map(c => c.id);
-        if (commentIds.length > 0) await supabase.from('comment_likes').delete().in('comment_id', commentIds);
+        const effectiveLocationId = review.location_id || locationId;
+        await deleteFromSupabase(review.image_urls); // Delete images
+        // Delete related comments and likes (assuming CASCADE DELETE isn't set up)
         await supabase.from('review_comments').delete().eq('review_id', reviewId);
         await supabase.from('review_likes').delete().eq('review_id', reviewId);
         // Delete the review
-        const { error: deleteError } = await supabase.from('reviews').delete().eq('id', reviewId); if (deleteError) throw deleteError;
+        const { error: deleteError } = await supabase.from('reviews').delete().eq('id', reviewId);
+        if (deleteError) throw deleteError;
         // Recalculate average rating
-        if (effectiveLocationId) { const { data: allReviews, error: reviewsError } = await supabase.from('reviews').select('rating').eq('location_id', effectiveLocationId); if (reviewsError) { console.error(`Error fetching ratings for recalc after delete on ${effectiveLocationId}:`, reviewsError); } else { const totalRating = (allReviews || []).reduce((sum, r) => sum + (r.rating || 0), 0); const averageRating = (allReviews && allReviews.length > 0) ? (totalRating / allReviews.length).toFixed(1) : 0; await Promise.allSettled([ supabase.from('attractions').update({ rating: averageRating }).eq('id', effectiveLocationId), supabase.from('foodShops').update({ rating: averageRating }).eq('id', effectiveLocationId) ]); } }
-        res.status(204).send();
-    } catch (err) { console.error('Error deleting review:', err); res.status(500).json({ error: 'เกิดข้อผิดพลาดในการลบรีวิว' }); }
+        if (effectiveLocationId) {
+            const { data: allReviews, error: reviewsError } = await supabase.from('reviews').select('rating').eq('location_id', effectiveLocationId);
+             if (!reviewsError && allReviews) {
+                 const totalRating = allReviews.reduce((sum, r) => sum + (r.rating || 0), 0);
+                 const averageRating = allReviews.length > 0 ? (totalRating / allReviews.length).toFixed(1) : 0;
+                 await Promise.allSettled([
+                      supabase.from('attractions').update({ rating: averageRating }).eq('id', effectiveLocationId),
+                      supabase.from('foodShops').update({ rating: averageRating }).eq('id', effectiveLocationId)
+                 ]);
+             } else if(reviewsError) console.error(`Error fetching ratings for recalc after delete on ${effectiveLocationId}:`, reviewsError);
+        } else console.warn(`Could not recalculate rating for deleted review ${reviewId} - locationId unknown.`);
+        res.status(204).send(); // Success
+    } catch (err) {
+        console.error('Error deleting review:', err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการลบรีวิว' });
+    }
 });
+
+// POST toggle like on a review (requires authentication)
 app.post('/api/reviews/:reviewId/toggle-like', authenticateToken, async (req, res) => {
-    const { reviewId } = req.params; const { userId, username, displayName, profileImageUrl } = req.user;
+    const { reviewId } = req.params;
+    const { userId, username, displayName, profileImageUrl } = req.user;
     try {
-        const { data: existingLike, error: findError } = await supabase.from('review_likes').select('id').match({ user_id: userId, review_id: reviewId }).maybeSingle(); if (findError && findError.code !== 'PGRST116') throw findError;
-        const { data: review, error: reviewError } = await supabase.from('reviews').select('likes_count, user_id, location_id, comment').eq('id', reviewId).single(); if (reviewError || !review) return res.status(404).json({ error: 'Review not found' });
-        let currentLikes = Number(review.likes_count || 0); let status;
-        if (existingLike) { await supabase.from('review_likes').delete().match({ id: existingLike.id }); currentLikes = Math.max(0, currentLikes - 1); status = 'unliked'; }
-        else { await supabase.from('review_likes').insert({ user_id: userId, review_id: reviewId }); currentLikes += 1; status = 'liked'; if (review.user_id !== userId) { let { data: location } = await supabase.from('attractions').select('id, name, image_url').eq('id', review.location_id).maybeSingle(); if (!location) { ({ data: location } = await supabase.from('foodShops').select('id, name, image_url').eq('id', review.location_id).maybeSingle()); } if (location) { createAndSendNotification({ type: 'new_like', actorId: userId, actorName: displayName || username, actorProfileImageUrl: profileImageUrl, recipientId: review.user_id, payload: { location: {id: location.id, name: location.name, imageUrl: location.image_url}, commentSnippet: review.comment ? review.comment.substring(0, 50) : '', reviewId: reviewId } }); } else { console.warn(`Could not find location ${review.location_id} for like notification.`); } } }
-        const { data: updatedReview, error: updateError } = await supabase.from('reviews').update({ likes_count: currentLikes }).eq('id', reviewId).select('likes_count').single(); if (updateError) throw updateError;
+        const { data: existingLike, error: findError } = await supabase.from('review_likes').select('id').match({ user_id: userId, review_id: reviewId }).maybeSingle();
+        if (findError && findError.code !== 'PGRST116') throw findError;
+        const { data: review, error: reviewError } = await supabase.from('reviews').select('likes_count, user_id, location_id, comment').eq('id', reviewId).single();
+        if (reviewError || !review) return res.status(404).json({ error: 'Review not found' });
+        let currentLikes = Number(review.likes_count || 0);
+        let status;
+        if (existingLike) { // Unlike
+            await supabase.from('review_likes').delete().match({ id: existingLike.id });
+            currentLikes = Math.max(0, currentLikes - 1);
+            status = 'unliked';
+        } else { // Like
+            await supabase.from('review_likes').insert({ user_id: userId, review_id: reviewId });
+            currentLikes += 1;
+            status = 'liked';
+            // Send notification if liking someone else's review
+            if (review.user_id !== userId) {
+                let location = null, locError = null;
+                ({ data: location, error: locError } = await supabase.from('attractions').select('*').eq('id', review.location_id).maybeSingle());
+                 if (!location && (!locError || locError.code === 'PGRST116')) {
+                    ({ data: location, error: locError } = await supabase.from('foodShops').select('*').eq('id', review.location_id).maybeSingle());
+                 }
+                 if (location) {
+                    createAndSendNotification({
+                        type: 'new_like', actorId: userId, actorName: displayName || username, actorProfileImageUrl: profileImageUrl,
+                        recipientId: review.user_id,
+                        payload: { location: formatRowForFrontend(location), commentSnippet: review.comment?.substring(0, 50) || '', reviewId: reviewId }
+                    });
+                 } else console.warn(`Could not find location ${review.location_id} for like notification.`);
+            }
+        }
+        // Update likes_count on the review
+        const { data: updatedReview, error: updateError } = await supabase.from('reviews').update({ likes_count: currentLikes }).eq('id', reviewId).select('likes_count').single();
+        if (updateError) throw updateError;
         res.json({ status: status, likesCount: updatedReview.likes_count });
-    } catch (err) { console.error(`Error toggling like for review ${reviewId}:`, err); res.status(500).json({ error: 'เกิดข้อผิดพลาดในการกดไลค์รีวิว' }); }
+    } catch (err) {
+        console.error(`Error toggling like for review ${reviewId}:`, err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการกดไลค์รีวิว' });
+    }
 });
 
 
 // --- REVIEW COMMENTS ---
-// (Endpoints for comments: GET by review, POST, DELETE, POST toggle like)
+// GET comments for a specific review (includes author profile image)
 app.get('/api/reviews/:reviewId/comments', async (req, res) => {
     const { reviewId } = req.params;
     try {
-        const { data, error } = await supabase.from('review_comments').select(`*, user_profile:user_id ( profile_image_url )`).eq('review_id', reviewId).order('created_at', { ascending: true });
-        if (error) { console.error(`Supabase error fetching comments for review ${reviewId}:`, error); throw error; }
+        const { data, error } = await supabase
+            .from('review_comments')
+            .select(`*, user_profile:user_id ( profile_image_url )`) // Join for profile image
+            .eq('review_id', reviewId)
+            .order('created_at', { ascending: true }); // Show oldest comments first
+        if (error) throw error;
         const formattedComments = (data || []).map(comment => formatRowForFrontend(comment));
         res.json(formattedComments);
-    } catch (err) { console.error(`Error processing comments request for review ${reviewId}:`, err); res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลความคิดเห็น' }); }
+    } catch (err) {
+        console.error(`Error processing comments request for review ${reviewId}:`, err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลความคิดเห็น' });
+    }
 });
+
+// POST create a new comment on a review (requires authentication)
 app.post('/api/reviews/:reviewId/comments', authenticateToken, async (req, res) => {
-    const { reviewId } = req.params; const { comment } = req.body; const { userId, username, displayName, profileImageUrl } = req.user;
+    const { reviewId } = req.params;
+    const { comment } = req.body;
+    const { userId, username, displayName, profileImageUrl } = req.user;
     if (!comment || !comment.trim()) return res.status(400).json({ error: 'เนื้อหาคอมเมนต์ห้ามว่างเปล่า' });
     try {
-        const newComment = { id: crypto.randomUUID(), review_id: reviewId, user_id: userId, author: displayName || username, comment: comment.trim(), likes_count: 0 };
-        const { data: insertedComment, error } = await supabase.from('review_comments').insert(newComment).select().single(); if (error) throw error;
+        const newComment = {
+            id: crypto.randomUUID(), review_id: reviewId, user_id: userId,
+            author: displayName || username, comment: comment.trim(), likes_count: 0
+        };
+        const { data: insertedComment, error } = await supabase.from('review_comments').insert(newComment).select().single();
+        if (error) throw error;
+        // Send notification to review author (if different user)
         const { data: review } = await supabase.from('reviews').select('user_id, location_id').eq('id', reviewId).single();
-        if (review && review.user_id !== userId) { let { data: location } = await supabase.from('attractions').select('id, name, image_url').eq('id', review.location_id).maybeSingle(); if (!location) { ({ data: location } = await supabase.from('foodShops').select('id, name, image_url').eq('id', review.location_id).maybeSingle()); } if (location) { createAndSendNotification({ type: 'new_reply', actorId: userId, actorName: displayName || username, actorProfileImageUrl: profileImageUrl, recipientId: review.user_id, payload: { location: {id: location.id, name: location.name, imageUrl: location.image_url}, commentSnippet: comment.trim().substring(0, 50), reviewId: reviewId, commentId: insertedComment.id } }); } else { console.warn(`Could not find location ${review.location_id} for reply notification.`); } }
+        if (review && review.user_id !== userId) {
+            let location = null, locError = null;
+            ({ data: location, error: locError } = await supabase.from('attractions').select('*').eq('id', review.location_id).maybeSingle());
+             if (!location && (!locError || locError.code === 'PGRST116')) {
+                 ({ data: location, error: locError } = await supabase.from('foodShops').select('*').eq('id', review.location_id).maybeSingle());
+             }
+             if (location) {
+                createAndSendNotification({
+                    type: 'new_reply', actorId: userId, actorName: displayName || username, actorProfileImageUrl: profileImageUrl,
+                    recipientId: review.user_id,
+                    payload: { location: formatRowForFrontend(location), commentSnippet: comment.trim().substring(0, 50), reviewId: reviewId, commentId: insertedComment.id }
+                });
+             } else console.warn(`Could not find location ${review.location_id} for reply notification.`);
+        }
+        // Format response, including profile image from token
         const formattedComment = formatRowForFrontend({ ...insertedComment, user_profile: { profile_image_url: profileImageUrl } });
         res.status(201).json(formattedComment);
-    } catch (err) { console.error("Error creating comment:", err); res.status(500).json({ error: 'เกิดข้อผิดพลาดในการบันทึกคอมเมนต์' }); }
+    } catch (err) {
+        console.error("Error creating comment:", err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการบันทึกคอมเมนต์' });
+    }
 });
+
+// DELETE a comment (requires authentication, owner or admin)
 app.delete('/api/comments/:commentId', authenticateToken, async (req, res) => {
-    const { commentId } = req.params; const { userId, role } = req.user;
+    const { commentId } = req.params;
+    const { userId, role } = req.user;
     try {
-        const { data: comment, error: fetchError } = await supabase.from('review_comments').select('user_id').eq('id', commentId).single(); if (fetchError && fetchError.code !== 'PGRST116') throw fetchError; if (!comment) return res.status(404).json({ error: 'ไม่พบความคิดเห็นที่ต้องการลบ' });
+        const { data: comment, error: fetchError } = await supabase.from('review_comments').select('user_id').eq('id', commentId).single();
+        if (fetchError && fetchError.code !== 'PGRST116') throw fetchError;
+        if (!comment) return res.status(404).json({ error: 'ไม่พบความคิดเห็นที่ต้องการลบ' });
         if (comment.user_id !== userId && role !== 'admin') return res.status(403).json({ error: 'คุณไม่มีสิทธิ์ลบความคิดเห็นนี้' });
+        // Delete associated likes first
         await supabase.from('comment_likes').delete().eq('comment_id', commentId);
-        const { error: deleteError } = await supabase.from('review_comments').delete().eq('id', commentId); if (deleteError) throw deleteError;
-        res.status(204).send();
-    } catch (err) { console.error('Error deleting comment:', err); res.status(500).json({ error: 'เกิดข้อผิดพลาดในการลบความคิดเห็น' }); }
+        // Delete the comment
+        const { error: deleteError } = await supabase.from('review_comments').delete().eq('id', commentId);
+        if (deleteError) throw deleteError;
+        res.status(204).send(); // Success
+    } catch (err) {
+        console.error('Error deleting comment:', err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการลบความคิดเห็น' });
+    }
 });
+
+// POST toggle like on a comment (requires authentication)
 app.post('/api/comments/:commentId/toggle-like', authenticateToken, async (req, res) => {
-    const { commentId } = req.params; const { userId, username, displayName, profileImageUrl } = req.user;
+    const { commentId } = req.params;
+    const { userId, username, displayName, profileImageUrl } = req.user;
     try {
-        const { data: comment, error: commentError } = await supabase.from('review_comments').select('user_id, review_id, comment, likes_count').eq('id', commentId).single(); if (commentError || !comment) return res.status(404).json({ error: 'Comment not found.' });
-        const { data: existingLike, error: findError } = await supabase.from('comment_likes').select('id').match({ user_id: userId, comment_id: commentId }).maybeSingle(); if (findError && findError.code !== 'PGRST116') throw findError;
-        let currentLikes = Number(comment.likes_count || 0); let status;
-        if (existingLike) { await supabase.from('comment_likes').delete().match({ id: existingLike.id }); currentLikes = Math.max(0, currentLikes - 1); status = 'unliked'; }
-        else { await supabase.from('comment_likes').insert({ user_id: userId, comment_id: commentId }); currentLikes += 1; status = 'liked'; if (comment.user_id !== userId) { const { data: review } = await supabase.from('reviews').select('location_id').eq('id', comment.review_id).single(); if (review) { let { data: location } = await supabase.from('attractions').select('id, name, image_url').eq('id', review.location_id).maybeSingle(); if (!location) { ({ data: location } = await supabase.from('foodShops').select('id, name, image_url').eq('id', review.location_id).maybeSingle()); } if (location) { createAndSendNotification({ type: 'new_comment_like', actorId: userId, actorName: displayName || username, actorProfileImageUrl: profileImageUrl, recipientId: comment.user_id, payload: { location: {id: location.id, name: location.name, imageUrl: location.image_url}, commentSnippet: comment.comment ? comment.comment.substring(0, 50) : '', reviewId: comment.review_id, commentId: commentId } }); } else { console.warn(`Could not find location ${review.location_id} for comment like notification.`); } } } }
-        const { data: updatedComment, error: updateError } = await supabase.from('review_comments').update({ likes_count: currentLikes }).eq('id', commentId).select('likes_count').single(); if (updateError) throw updateError;
+        const { data: comment, error: commentError } = await supabase.from('review_comments').select('user_id, review_id, comment, likes_count').eq('id', commentId).single();
+        if (commentError || !comment) return res.status(404).json({ error: 'Comment not found.' });
+        const { data: existingLike, error: findError } = await supabase.from('comment_likes').select('id').match({ user_id: userId, comment_id: commentId }).maybeSingle();
+        if (findError && findError.code !== 'PGRST116') throw findError;
+        let currentLikes = Number(comment.likes_count || 0);
+        let status;
+        if (existingLike) { // Unlike
+            await supabase.from('comment_likes').delete().match({ id: existingLike.id });
+            currentLikes = Math.max(0, currentLikes - 1);
+            status = 'unliked';
+        } else { // Like
+            await supabase.from('comment_likes').insert({ user_id: userId, comment_id: commentId });
+            currentLikes += 1;
+            status = 'liked';
+            // Send notification if liking someone else's comment
+            if (comment.user_id !== userId) {
+                 const { data: review } = await supabase.from('reviews').select('location_id').eq('id', comment.review_id).single();
+                 if (review) {
+                    let location = null, locError = null;
+                    ({ data: location, error: locError } = await supabase.from('attractions').select('*').eq('id', review.location_id).maybeSingle());
+                     if (!location && (!locError || locError.code === 'PGRST116')) {
+                        ({ data: location, error: locError } = await supabase.from('foodShops').select('*').eq('id', review.location_id).maybeSingle());
+                     }
+                     if (location) {
+                        createAndSendNotification({
+                            type: 'new_comment_like', actorId: userId, actorName: displayName || username, actorProfileImageUrl: profileImageUrl,
+                            recipientId: comment.user_id, // Notify comment author
+                            payload: { location: formatRowForFrontend(location), commentSnippet: comment.comment?.substring(0, 50) || '', reviewId: comment.review_id, commentId: commentId }
+                        });
+                     } else console.warn(`Could not find location ${review.location_id} for comment like notification.`);
+                 }
+            }
+        }
+        // Update likes_count on comment
+        const { data: updatedComment, error: updateError } = await supabase.from('review_comments').update({ likes_count: currentLikes }).eq('id', commentId).select('likes_count').single();
+        if (updateError) throw updateError;
         res.json({ status, likesCount: updatedComment.likes_count });
-    } catch (err) { console.error(`Error toggling like for comment ${commentId}:`, err); res.status(500).json({ error: 'Failed to toggle like on comment.' }); }
+    } catch (err) {
+        console.error(`Error toggling like for comment ${commentId}:`, err);
+        res.status(500).json({ error: 'Failed to toggle like on comment.' });
+    }
 });
 
 
 // --- AUTHENTICATION ---
+// POST register a new user
 app.post('/api/register', async (req, res) => {
     const { username, password } = req.body;
+    // Basic validation
     if (!username || !username.trim() || !password) return res.status(400).json({ error: 'กรุณากรอกชื่อผู้ใช้และรหัสผ่าน' });
     if (password.length < 6) return res.status(400).json({ error: 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร' });
-    if (!/^[a-zA-Z0-9_]{3,20}$/.test(username.trim())) return res.status(400).json({ error: 'ชื่อผู้ใช้ต้องมี 3-20 ตัวอักษร (a-z, A-Z, 0-9, _)' });
+    const trimmedUsername = username.trim();
+    if (!/^[a-zA-Z0-9_]{3,20}$/.test(trimmedUsername)) return res.status(400).json({ error: 'ชื่อผู้ใช้ต้องมี 3-20 ตัวอักษร (a-z, A-Z, 0-9, _)' });
 
     try {
-        const { data: existingUser } = await supabase.from('users').select('id').eq('username', username.trim()).maybeSingle();
+        // Check if username already exists
+        const { data: existingUser } = await supabase.from('users').select('id').eq('username', trimmedUsername).maybeSingle();
         if (existingUser) return res.status(409).json({ error: 'ชื่อผู้ใช้นี้ถูกใช้งานแล้ว' });
-
+        // Hash password
         const hashedPassword = await bcrypt.hash(password, 10);
-        const newUser = { id: crypto.randomUUID(), username: username.trim(), display_name: username.trim(), password: hashedPassword, role: 'user' };
+        // Create new user object
+        const newUser = {
+            id: crypto.randomUUID(),
+            username: trimmedUsername,
+            display_name: trimmedUsername, // Default display name to username
+            password: hashedPassword,
+            role: 'user' // Default role
+        };
+        // Insert new user into database
         const { error } = await supabase.from('users').insert(newUser);
-        if (error) throw error;
+        if (error) throw error; // Handle DB errors
         res.status(201).json({ message: 'สมัครสมาชิกสำเร็จ!' });
-    } catch (err) { console.error("Error during registration:", err); res.status(500).json({ error: 'เกิดข้อผิดพลาดในการสมัครสมาชิก' }); }
+    } catch (err) {
+        console.error("Error during registration:", err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการสมัครสมาชิก' });
+    }
 });
 
+// POST login user
 app.post('/api/login', async (req, res) => {
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ error: 'กรุณากรอกชื่อผู้ใช้และรหัสผ่าน' });
-
     try {
+        // Find user by username
         const { data: user, error } = await supabase.from('users').select('*').eq('username', username).single();
-        if (error || !user) { console.log(`Login attempt failed for user: ${username}. Reason: User not found or DB error.`); return res.status(401).json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' }); }
+        // Handle user not found or DB error
+        if (error || !user) {
+            console.log(`Login attempt failed for user: ${username}. Reason: User not found or DB error.`);
+            return res.status(401).json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
+        }
+        // Compare provided password with hashed password from DB
         const isMatch = await bcrypt.compare(password, user.password);
         if (isMatch) {
+            // Passwords match - Generate JWT
             const formattedUser = formatRowForFrontend(user);
-            const token = jwt.sign({ userId: formattedUser.id, username: formattedUser.username, displayName: formattedUser.displayName, role: formattedUser.role, profileImageUrl: formattedUser.profileImageUrl }, process.env.JWT_SECRET, { expiresIn: '1d' });
+            const token = jwt.sign({
+                userId: formattedUser.id,
+                username: formattedUser.username,
+                displayName: formattedUser.displayName,
+                role: formattedUser.role,
+                profileImageUrl: formattedUser.profileImageUrl
+            }, process.env.JWT_SECRET, { expiresIn: '1d' }); // Token expires in 1 day
+            // Send success response with user data and token
             res.json({ message: 'เข้าสู่ระบบสำเร็จ!', user: formattedUser, token });
-        } else { console.log(`Login attempt failed for user: ${username}. Reason: Incorrect password.`); res.status(401).json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' }); }
-    } catch (err) { console.error("Error during login:", err); res.status(500).json({ error: 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ' }); }
+        } else {
+            // Passwords don't match
+            console.log(`Login attempt failed for user: ${username}. Reason: Incorrect password.`);
+            res.status(401).json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
+        }
+    } catch (err) {
+        console.error("Error during login:", err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการเข้าสู่ระบบ' });
+    }
 });
 
 
 // --- FAVORITES ---
-// (Endpoints for favorites: GET list of IDs, POST toggle)
+// GET list of favorite location IDs for the logged-in user
 app.get('/api/favorites', authenticateToken, async (req, res) => {
     const { userId } = req.user;
     try {
-        const { data, error } = await supabase.from('favorites').select('location_id').eq('user_id', userId);
+        const { data, error } = await supabase
+            .from('favorites')
+            .select('location_id')
+            .eq('user_id', userId);
         if (error) throw error;
         const favoriteIds = (data || []).map(fav => fav.location_id);
         res.json(favoriteIds);
-    } catch (err) { console.error(`Error fetching favorites for user ${userId}:`, err); res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลรายการโปรด' }); }
+    } catch (err) {
+        console.error(`Error fetching favorites for user ${userId}:`, err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการดึงข้อมูลรายการโปรด' });
+    }
 });
+
+// POST endpoint to add or remove a location from favorites
 app.post('/api/favorites/toggle', authenticateToken, async (req, res) => {
-    const { locationId } = req.body; const { userId } = req.user;
+    const { locationId } = req.body;
+    const { userId } = req.user;
     if (!locationId) return res.status(400).json({ error: 'ข้อมูลไม่ครบถ้วน (locationId is missing)' });
     try {
-        const { data: existing, error: findError } = await supabase.from('favorites').select('id').match({ user_id: userId, location_id: locationId }).maybeSingle();
-        if (findError && findError.code !== 'PGRST116') throw findError;
-        if (existing) { const { error: deleteError } = await supabase.from('favorites').delete().match({ id: existing.id }); if (deleteError) throw deleteError; res.json({ status: 'removed' }); }
-        else { const { error: insertError } = await supabase.from('favorites').insert({ user_id: userId, location_id: locationId }); if (insertError) throw insertError; res.json({ status: 'added' }); }
-    } catch (err) { console.error(`Error toggling favorite for user ${userId}, location ${locationId}:`, err); res.status(500).json({ error: 'เกิดข้อผิดพลาดในการบันทึกรายการโปรด' }); }
+        // Check if the favorite exists using user_id and location_id
+        const { count, error: findError } = await supabase
+            .from('favorites')
+            .select('*', { count: 'exact', head: true }) // Use count for efficiency
+            .match({ user_id: userId, location_id: locationId });
+
+        if (findError) throw findError;
+
+        const exists = count > 0;
+
+        if (exists) {
+            // Favorite exists, remove it using user_id and location_id
+            const { error: deleteError } = await supabase
+                .from('favorites')
+                .delete()
+                .match({ user_id: userId, location_id: locationId });
+            if (deleteError) throw deleteError;
+            console.log(`Favorite removed for user ${userId}, location ${locationId}`);
+            res.json({ status: 'removed' });
+        } else {
+            // Favorite does not exist, add it
+            const { error: insertError } = await supabase
+                .from('favorites')
+                .insert({ user_id: userId, location_id: locationId });
+            if (insertError) throw insertError;
+            console.log(`Favorite added for user ${userId}, location ${locationId}`);
+            res.json({ status: 'added' });
+        }
+    } catch (err) {
+        console.error(`Error toggling favorite for user ${userId}, location ${locationId}:`, err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการบันทึกรายการโปรด', details: err.message });
+    }
 });
 
 
 // --- START SERVER ---
 app.listen(port, () => {
-    // Log the actual port the server is listening on
-    console.log(`✅✅✅ SERVER (SUPABASE STORAGE + JOIN FIX 3 + OPTIONS FIX) IS RUNNING at http://localhost:${port}`);
+    // Log the actual port the server is listening on (important for Render)
+    console.log(`✅✅✅ SERVER (SUPABASE STORAGE + Favorites Fix + OPTIONS Fix) IS RUNNING at http://localhost:${port}`);
 });
 
