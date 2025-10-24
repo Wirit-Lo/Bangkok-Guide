@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-// --- FIX: Import AlertTriangle และ X สำหรับ Modal ---
+// --- ⭐⭐⭐ แก้ไข: เพิ่ม Loader เข้าไปใน import ⭐⭐⭐ ---
 import { CheckCircle, XCircle, Loader, AlertTriangle, X } from 'lucide-react';
+// --- ⭐⭐⭐ สิ้นสุดจุดแก้ไข ⭐⭐⭐ ---
 import { formatDistanceToNow } from 'date-fns';
 import { th } from 'date-fns/locale';
 
-// --- Import Components & Pages (ใช้ import จริงจากโปรเจกต์ของคุณ) ---
-// (หมายเหตุ: ตรวจสอบว่า path ของ components เหล่านี้ถูกต้อง)
-// --- FIX: เปลี่ยน path aliases '@/...' เป็น relative paths './...' ---
+// --- Import Components & Pages ---
 import Header from './components/Header.jsx';
 import Footer from './components/Footer.jsx';
 import Sidebar from './components/Sidebar.jsx';
@@ -21,16 +20,10 @@ import FavoritesPage from './components/FavoritesPage.jsx';
 import UserProfilePage from './components/UserProfilePage.jsx';
 import ManageProductsPage from './components/ManageProductsPage.jsx';
 import ApproveDeletionsPage from './components/ApproveDeletionsPage.jsx';
-// --- END FIX ---
 
 
 // --- Global API Configuration ---
-// ⭐⭐⭐ นี่คือจุดที่แก้ไขครับ! ⭐⭐⭐
-// เปลี่ยนจากการ hard-code 'http://localhost:5000'
-// เป็นการดึงค่าจาก Environment Variable (VITE_API_URL) ที่ตั้งค่าไว้บน Vercel
-// ถ้าหาไม่เจอ (เช่น รันในเครื่อง) ให้ใช้ 'http://localhost:5000' เป็นค่าสำรอง
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-// ⭐⭐⭐ สิ้นสุดจุดที่แก้ไข ⭐⭐⭐
 
 
 // --- Notification Formatter Function ---
@@ -143,7 +136,7 @@ const Notification = ({ notification, setNotification }) => {
   );
 };
 
-// --- FIX: เพิ่ม Reusable Confirmation Modal ---
+// --- Reusable Confirmation Modal ---
 const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message }) => {
     if (!isOpen) return null;
     return (
@@ -207,8 +200,8 @@ const App = () => {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // --- FIX: เพิ่ม State สำหรับ Modal การลบ ---
-  const [itemToDelete, setItemToDelete] = useState(null); // (null หรือ locationId)
+  // --- State for Deletion Confirmation Modal ---
+  const [itemToDelete, setItemToDelete] = useState(null); // (null or locationId)
 
   // --- Handlers & Callbacks ---
   const handleAuthError = useCallback(() => {
@@ -222,23 +215,30 @@ const App = () => {
 
   const fetchLocations = useCallback(async () => {
     setLoadingData(true);
-    // ⭐⭐⭐ เพิ่ม console.log ตรงนี้ ⭐⭐⭐
-    console.log('Fetching locations from:', API_BASE_URL);
-    // ⭐⭐⭐ สิ้นสุดจุดที่เพิ่ม ⭐⭐⭐
+    console.log('Fetching locations from:', API_BASE_URL); // Log the API URL being used
     try {
       const [attractionsResponse, foodShopsResponse] = await Promise.all([
         fetch(`${API_BASE_URL}/api/attractions`),
         fetch(`${API_BASE_URL}/api/foodShops`),
       ]);
 
-      // Check for 404 specifically maybe?
+      // Check for 404 specifically
       if (attractionsResponse.status === 404 || foodShopsResponse.status === 404) {
           console.error('Received 404 - Check if backend routes are correct and deployed.');
           throw new Error('Endpoint not found (404)');
       }
+      // Check for other non-ok responses
       if (!attractionsResponse.ok || !foodShopsResponse.ok) {
-          console.error('Fetch error:', attractionsResponse.status, foodShopsResponse.status);
-          throw new Error(`Failed to fetch locations (${attractionsResponse.status}/${foodShopsResponse.status})`);
+          console.error('Fetch error status:', attractionsResponse.status, foodShopsResponse.status);
+          // Try to get error text if available
+          let errorText = `Failed to fetch locations (${attractionsResponse.status}/${foodShopsResponse.status})`;
+          try {
+              const attrError = attractionsResponse.ok ? null : await attractionsResponse.text();
+              const foodError = foodShopsResponse.ok ? null : await foodShopsResponse.text();
+              if (attrError) console.error("Attractions fetch error:", attrError);
+              if (foodError) console.error("FoodShops fetch error:", foodError);
+          } catch (parseErr) { /* Ignore parsing errors */ }
+          throw new Error(errorText);
       }
 
       const attractionsData = await attractionsResponse.json();
@@ -247,151 +247,125 @@ const App = () => {
       setFoodShops(foodShopsData);
     } catch (error) {
       console.error('Error fetching data from backend:', error);
-      // Avoid showing generic error if it was 404
-      if (!error.message.includes('404')) {
-        setNotification({ message: 'ไม่สามารถโหลดข้อมูลจาก Backend ได้', type: 'error' });
-      } else {
+      // Display specific error for 404, generic for others
+      if (error.message.includes('404')) {
         setNotification({ message: 'ไม่พบ Endpoint ที่เรียก (404)', type: 'error'});
+      } else {
+        setNotification({ message: 'ไม่สามารถโหลดข้อมูลจาก Backend ได้', type: 'error' });
       }
     } finally {
       setLoadingData(false);
     }
-  }, [setNotification]); // Removed API_BASE_URL from dependencies as it's constant now
+  }, [setNotification]); // API_BASE_URL is constant, no need in deps
 
   const fetchFavorites = useCallback(async (userToken) => {
-    if (!userToken) return setFavorites([]);
+    if (!userToken) return setFavorites([]); // Don't fetch if not logged in
     try {
       const response = await fetch(`${API_BASE_URL}/api/favorites`, {
         headers: { Authorization: `Bearer ${userToken}` },
       });
-      if (response.status === 401 || response.status === 403) return handleAuthError();
+      if (response.status === 401 || response.status === 403) return handleAuthError(); // Handle expired/invalid token
       if (!response.ok) throw new Error(`Server responded with ${response.status}`);
       const data = await response.json();
-      setFavorites(Array.isArray(data) ? data : []);
+      setFavorites(Array.isArray(data) ? data : []); // Ensure favorites is always an array
     } catch (error) {
       console.error('Error fetching favorites:', error.message);
       setFavorites([]); // Clear favorites on error
     }
-  }, [handleAuthError]); // Removed API_BASE_URL
+  }, [handleAuthError]); // API_BASE_URL is constant
 
   const toggleSidebar = useCallback(() => {
     setIsSidebarOpen(prev => !prev);
   }, []);
 
   // --- Effects ---
+  // Initial app load effect
   useEffect(() => {
     const initializeApp = async () => {
-      // Fetch initial location data
-      await fetchLocations();
-
-      // Check for stored user session
+      await fetchLocations(); // Fetch locations first
       const storedToken = localStorage.getItem('token');
       const storedUser = localStorage.getItem('user');
-      if (storedToken && storedUser) {
+      if (storedToken && storedUser) { // Check if user session exists
         try {
           const parsedUser = JSON.parse(storedUser);
           setCurrentUser(parsedUser);
           setToken(storedToken);
-          // Fetch favorites only after setting the token
-          await fetchFavorites(storedToken);
+          await fetchFavorites(storedToken); // Fetch favorites for logged-in user
         } catch (e) {
           console.error('Failed to parse user from localStorage', e);
-          handleAuthError(); // Clear invalid session
+          handleAuthError(); // Clear invalid session data
         }
       }
     };
     initializeApp();
-  }, [fetchLocations, fetchFavorites, handleAuthError]); // Dependencies for initial app load
+    // Run only once on initial mount
+  }, [fetchLocations, fetchFavorites, handleAuthError]); // Include necessary functions
 
   // Effect for Server-Sent Events (Notifications)
   useEffect(() => {
     if (!token) {
-      setNotifications([]); // Clear notifications if no token
-      return; // Don't establish connection if not logged in
+      setNotifications([]); // Clear notifications if logged out
+      return; // Don't connect if not logged in
     }
 
-    // Establish SSE connection
     const eventSource = new EventSource(`${API_BASE_URL}/api/events?token=${token}`);
-
     eventSource.onopen = () => console.log('✅ SSE Connection established.');
-
     eventSource.onmessage = (event) => {
       try {
         const eventData = JSON.parse(event.data);
-
-        // Handle historic notifications received upon connection
         if (eventData.type === 'historic_notifications' && Array.isArray(eventData.data)) {
           const formattedData = eventData.data.map(formatNotification);
           setNotifications(formattedData);
-        }
-        // Handle real-time notifications
-        else if (eventData.type === 'notification' && eventData.data) {
+        } else if (eventData.type === 'notification' && eventData.data) {
           const newNotification = formatNotification(eventData.data);
-          // Add new notification to the beginning, limit array size
-          setNotifications((prev) => [newNotification, ...prev].slice(0, 20));
+          setNotifications((prev) => [newNotification, ...prev].slice(0, 20)); // Add new, limit size
 
-          // Optionally update local data based on notification type (e.g., new location added)
+          // Update local data for new locations received via SSE
           if (eventData.data.type === 'new_location' && eventData.data.payload?.location) {
-            const newLocation = formatRowForFrontend(eventData.data.payload.location); // Ensure formatting
-            if(newLocation) {
-                const isFoodShop = ['ร้านอาหาร', 'คาเฟ่', 'ตลาด'].includes(newLocation.category);
-                const setter = isFoodShop ? setFoodShops : setAttractions;
-                // Add the new location if it's not already present (prevent duplicates)
-                setter((prev) => prev.some(item => item.id === newLocation.id) ? prev : [newLocation, ...prev]);
-            }
+             const newLocation = formatRowForFrontend(eventData.data.payload.location);
+             if (newLocation) {
+                 const isFoodShop = ['ร้านอาหาร', 'คาเฟ่', 'ตลาด'].includes(newLocation.category);
+                 const setter = isFoodShop ? setFoodShops : setAttractions;
+                 setter((prev) => prev.some(item => item.id === newLocation.id) ? prev : [newLocation, ...prev]);
+             }
           }
         }
-      } catch (e) {
-          console.error("Error processing SSE message:", e, event.data);
-      }
+      } catch (e) { console.error("Error processing SSE message:", e, event.data); }
     };
+    eventSource.onerror = (err) => { console.error('❌ EventSource failed:', err); };
 
-    eventSource.onerror = (err) => {
-      console.error('❌ EventSource failed:', err);
-      // Don't automatically close on error, browser might retry
-      // eventSource.close();
-    };
+    // Cleanup: close connection on unmount or token change
+    return () => { console.log('Closing SSE Connection.'); eventSource.close(); };
+  }, [token]); // Reconnect if token changes
 
-    // Cleanup function: close SSE connection when component unmounts or token changes
-    return () => {
-      console.log('Closing SSE Connection.');
-      eventSource.close();
-    };
-  }, [token]); // Re-run effect if token changes (login/logout)
-
-  // Effect to update unread notification count whenever notifications change
+  // Update unread count when notifications change
   useEffect(() => {
     setUnreadCount(notifications.filter((n) => !n.is_read).length);
   }, [notifications]);
 
-  // Effect to apply theme (dark/light) to HTML element and save preference
+  // Apply theme class to HTML element and save preference
   useEffect(() => {
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    }
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    localStorage.setItem('theme', theme);
   }, [theme]);
 
   // --- More Handlers ---
-  // Navigate between pages with transition effect
+  // Page navigation handler with transition
   const handleSetCurrentPage = useCallback((page) => {
-    if (currentPage === page) return; // Prevent unnecessary transitions
+    if (currentPage === page) return;
     setIsTransitioning(true);
     setTimeout(() => {
       setCurrentPage(page);
       setIsTransitioning(false);
-      window.scrollTo(0, 0); // Scroll to top on page change
-    }, 200); // Duration matches transition-opacity
-    setIsSidebarOpen(false); // Close sidebar on page navigation
-  }, [currentPage, setIsSidebarOpen]); // Include isSidebarOpen setter
+      window.scrollTo(0, 0); // Scroll to top
+    }, 200); // Transition duration
+    setIsSidebarOpen(false); // Close sidebar
+  }, [currentPage, setIsSidebarOpen]);
 
-  // Mark notifications as read on the server
+  // Mark notifications as read handler
   const handleMarkNotificationsAsRead = useCallback(async () => {
     if (unreadCount === 0 || !token) return;
-    // Optimistically update UI
+    // Optimistic UI update
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
     setUnreadCount(0);
     try {
@@ -399,216 +373,135 @@ const App = () => {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!response.ok) {
-          // Revert UI changes if server update fails (optional)
-          console.error('Failed to mark notifications as read on server:', response.status);
-          // Could re-fetch notifications here to get the true state
-      }
-    } catch (error) {
-      console.error('Error marking notifications as read:', error);
-      // Revert UI changes or re-fetch
-    }
-  }, [unreadCount, token]); // Include API_BASE_URL? No, constant.
+      if (!response.ok) console.error('Failed to mark notifications as read on server:', response.status);
+    } catch (error) { console.error('Error marking notifications as read:', error); }
+  }, [unreadCount, token]);
 
-  // Handle clicking on a notification - navigate to the linked location detail
+  // Notification click handler -> navigate to detail page
   const handleNotificationClick = useCallback(async (notificationPayload) => {
     const locationId = notificationPayload.link;
-    if (!locationId) {
-      console.warn('Notification has no associated link.', notificationPayload);
-      return;
-    }
-
-    // Check if the location is already in the local state
+    if (!locationId) { console.warn('Notification has no link.', notificationPayload); return; }
     const allItems = [...attractions, ...foodShops];
     const location = allItems.find((item) => item.id === locationId);
-
-    if (location) {
+    if (location) { // Found in local state
       setSelectedItem(location);
       handleSetCurrentPage('detail');
-    } else {
-      // If not in state, attempt to fetch it directly as a fallback
-      console.warn(`Location ${locationId} not found in local state, fetching as fallback...`);
+    } else { // Not found locally, fetch as fallback
+      console.warn(`Location ${locationId} not in state, fetching...`);
       try {
           const response = await fetch(`${API_BASE_URL}/api/locations/${locationId}`);
-          if (!response.ok) {
-              if (response.status === 404) {
-                 setNotification({ message: 'ไม่พบข้อมูลสถานที่ที่เชื่อมโยงกับการแจ้งเตือนนี้', type: 'error' });
-              } else {
-                 throw new Error(`Failed to fetch location ${locationId}`);
-              }
-              return; // Stop if fetch fails or is 404
-          }
+          if (!response.ok) throw new Error(`Failed to fetch ${locationId} (${response.status})`);
           const itemData = await response.json();
-          if (itemData && itemData.id) {
-              setSelectedItem(itemData);
-              handleSetCurrentPage('detail');
-          } else {
-               setNotification({ message: 'ได้รับข้อมูลสถานที่ที่ไม่ถูกต้อง', type: 'error' });
-          }
+          if (itemData?.id) { setSelectedItem(itemData); handleSetCurrentPage('detail'); }
+          else setNotification({ message: 'ได้รับข้อมูลสถานที่ที่ไม่ถูกต้อง', type: 'error' });
       } catch(error) {
-          console.error("Error fetching location from notification link:", error);
-          setNotification({ message: 'ไม่สามารถโหลดข้อมูลสถานที่จากการแจ้งเตือนได้', type: 'error' });
+          console.error("Error fetching location from notification:", error);
+          setNotification({ message: 'ไม่สามารถโหลดข้อมูลสถานที่ได้', type: 'error' });
       }
     }
-    setIsSidebarOpen(false); // Close sidebar after clicking notification
-  }, [attractions, foodShops, setIsSidebarOpen, handleSetCurrentPage, setNotification]); // Include necessary dependencies
+    setIsSidebarOpen(false); // Close sidebar
+  }, [attractions, foodShops, setIsSidebarOpen, handleSetCurrentPage, setNotification]);
 
-  // Toggle favorite status for a location
+  // Toggle favorite status handler
   const handleToggleFavorite = useCallback(async (locationId) => {
     if (!currentUser) {
       setNotification({ message: 'กรุณาเข้าสู่ระบบเพื่อบันทึกรายการโปรด', type: 'error' });
-      return handleSetCurrentPage('login'); // Redirect to login
+      return handleSetCurrentPage('login');
     }
     const isCurrentlyFavorite = favorites.includes(locationId);
     // Optimistic UI update
     setFavorites((prev) => (isCurrentlyFavorite ? prev.filter((id) => id !== locationId) : [...prev, locationId]));
-
     try {
       const response = await fetch(`${API_BASE_URL}/api/favorites/toggle`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ locationId }),
       });
-      if (response.status === 401 || response.status === 403) return handleAuthError(); // Handle auth errors
-      if (!response.ok) throw new Error('Failed to toggle favorite on server'); // Throw for other errors
-
+      if (response.status === 401 || response.status === 403) return handleAuthError();
+      if (!response.ok) throw new Error('Failed to toggle favorite on server');
       const data = await response.json();
-      // Show success message based on server response
-      setNotification({
-        message: data.status === 'added' ? 'เพิ่มในรายการโปรดแล้ว' : 'ลบออกจากรายการโปรดแล้ว',
-        type: 'success',
-      });
-      // Optionally re-fetch favorites to ensure sync, though optimistic update might be enough
-      // await fetchFavorites(token);
+      setNotification({ message: data.status === 'added' ? 'เพิ่มในรายการโปรดแล้ว' : 'ลบออกจากรายการโปรดแล้ว', type: 'success' });
     } catch (error) {
       console.error('Error toggling favorite:', error);
       setNotification({ message: 'เกิดข้อผิดพลาดในการอัปเดตรายการโปรด', type: 'error' });
-      // Revert optimistic update or re-fetch favorites on error
-      await fetchFavorites(token);
+      await fetchFavorites(token); // Revert UI / Re-fetch on error
     }
-  }, [currentUser, favorites, token, handleAuthError, fetchFavorites, handleSetCurrentPage, setNotification]); // Dependencies for toggling favorite
+  }, [currentUser, favorites, token, handleAuthError, fetchFavorites, handleSetCurrentPage, setNotification]);
 
-  // Handle successful login
+  // Login handler
   const handleLogin = (userData, userToken) => {
     localStorage.setItem('user', JSON.stringify(userData));
     localStorage.setItem('token', userToken);
     setCurrentUser(userData);
     setToken(userToken);
-    fetchFavorites(userToken); // Fetch favorites for the newly logged-in user
-    handleSetCurrentPage('home'); // Navigate to home
+    fetchFavorites(userToken); // Fetch user's favorites
+    handleSetCurrentPage('home');
     setNotification({ message: `ยินดีต้อนรับ, ${userData.displayName || userData.username}!`, type: 'success' });
   };
 
-  // Handle logout
+  // Logout handler
   const handleLogout = () => {
     localStorage.removeItem('user');
     localStorage.removeItem('token');
     setCurrentUser(null);
     setToken(null);
-    setFavorites([]); // Clear favorites
-    setNotifications([]); // Clear notifications
+    setFavorites([]);
+    setNotifications([]);
     setUnreadCount(0);
     setNotification({ message: 'ออกจากระบบสำเร็จ', type: 'success' });
-    handleSetCurrentPage('home'); // Navigate to home
+    handleSetCurrentPage('home');
   };
 
-  // Handle profile update from UserProfilePage
+  // Profile update handler
   const handleProfileUpdate = (updatedUser, newToken) => {
     setCurrentUser(updatedUser);
-    // Update token only if it was actually refreshed (e.g., after password change)
-    if (newToken) {
-        setToken(newToken);
-        localStorage.setItem('token', newToken);
-    }
+    if (newToken) { setToken(newToken); localStorage.setItem('token', newToken); }
     localStorage.setItem('user', JSON.stringify(updatedUser));
     setNotification({ message: 'ข้อมูลโปรไฟล์อัปเดตแล้ว!', type: 'success' });
   };
 
-  // Callback to refresh location data (e.g., after adding/editing/deleting)
+  // Data refresh handler (after add/edit/delete)
   const handleDataRefresh = useCallback(async (updatedItemId) => {
     await fetchLocations(); // Re-fetch all locations
-    // If the currently viewed detail item was updated, refresh its data too
+    // If the viewed item was modified, refresh its details
     if (updatedItemId && selectedItem?.id === updatedItemId) {
       try {
         const response = await fetch(`${API_BASE_URL}/api/locations/${updatedItemId}`);
-        if (response.ok) {
-          const updatedItemData = await response.json();
-          setSelectedItem(updatedItemData); // Update the detail view
-        } else {
-            // Handle case where item might have been deleted
-             if (response.status === 404) {
-                 setSelectedItem(null); // Clear selection if deleted
-                 handleSetCurrentPage('home'); // Go back home
-                 setNotification({message: "สถานที่นี้อาจถูกลบไปแล้ว", type: 'error'});
-             }
+        if (response.ok) setSelectedItem(await response.json());
+        else if (response.status === 404) { // Handle deletion case
+            setSelectedItem(null); handleSetCurrentPage('home');
+            setNotification({message: "สถานที่นี้อาจถูกลบไปแล้ว", type: 'error'});
         }
-      } catch (error) {
-        console.error('Failed to refresh selected item:', error);
-      }
+      } catch (error) { console.error('Failed to refresh selected item:', error); }
     }
-  }, [fetchLocations, selectedItem, handleSetCurrentPage, setNotification]); // Include dependencies
+  }, [fetchLocations, selectedItem, handleSetCurrentPage, setNotification]);
 
-  // Handle item update from EditLocationModal
+  // Item update handler (from Edit Modal)
   const handleUpdateItem = (updatedItem) => {
-    // Update the item in the correct state array (attractions or foodShops)
-    const updateState = (setter) =>
-      setter((prev) => prev.map((item) => (item.id === updatedItem.id ? updatedItem : item)));
-
-    // Check which array the item belongs to (or assume based on category)
     const isFoodShop = ['ร้านอาหาร', 'คาเฟ่', 'ตลาด'].includes(updatedItem.category);
-    if (isFoodShop) {
-        updateState(setFoodShops);
-    } else {
-        updateState(setAttractions);
-    }
-
-    // If the edited item is the one currently selected for detail view, update that too
-    if (selectedItem?.id === updatedItem.id) {
-      setSelectedItem(updatedItem);
-    }
-    // Close the edit modal
-    setIsEditModalOpen(false);
-    setItemToEdit(null);
+    const setter = isFoodShop ? setFoodShops : setAttractions;
+    setter((prev) => prev.map((item) => (item.id === updatedItem.id ? updatedItem : item)));
+    if (selectedItem?.id === updatedItem.id) setSelectedItem(updatedItem); // Update detail view
+    setIsEditModalOpen(false); setItemToEdit(null); // Close modal
   };
 
-  // --- FIX: เพิ่มฟังก์ชันสำหรับยืนยันการลบ (Execute Delete) ---
-  // This function is called when user confirms deletion in the modal
+  // Delete execution handler (from Confirmation Modal)
   const executeDelete = async () => {
-      if (!itemToDelete) return; // Safety check: ensure an item ID is set
-      if (!token) return handleAuthError(); // Ensure user is authenticated
-
+      if (!itemToDelete || !token) return handleAuthError();
       const locationId = itemToDelete;
-      setItemToDelete(null); // Close the confirmation modal immediately
-
+      setItemToDelete(null); // Close modal
       try {
           const response = await fetch(`${API_BASE_URL}/api/locations/${locationId}`, {
-              method: 'DELETE',
-              headers: {
-                  'Authorization': `Bearer ${token}` // Send auth token
-              }
+              method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` }
           });
-
-          if (response.status === 401 || response.status === 403) {
-              return handleAuthError(); // Handle auth errors (e.g., token expired, not admin)
-          }
-
-          // Status 204 No Content indicates successful deletion
-          if (response.ok || response.status === 204) {
+          if (response.status === 401 || response.status === 403) return handleAuthError();
+          if (response.ok || response.status === 204) { // 204 is success
               setNotification({ message: 'ลบสถานที่สำเร็จ', type: 'success' });
-              // Refresh the list of locations after successful deletion
-              await fetchLocations();
-              // If the deleted item was the selected detail item, clear selection and go home
-              if (selectedItem?.id === locationId) {
-                  setSelectedItem(null);
-                  handleSetCurrentPage('home');
-              }
+              await fetchLocations(); // Refresh lists
+              if (selectedItem?.id === locationId) { setSelectedItem(null); handleSetCurrentPage('home'); } // Clear detail if deleted
           } else {
-              // Try to parse error message from backend response
               const errorData = await response.json().catch(() => ({ error: 'เกิดข้อผิดพลาดในการลบ' }));
-              throw new Error(errorData.error || `Server responded with status ${response.status}`);
+              throw new Error(errorData.error || `Server responded with ${response.status}`);
           }
       } catch (error) {
           console.error('Error deleting item:', error);
@@ -618,33 +511,29 @@ const App = () => {
 
 
   // --- Memoized Data ---
-  // Memoize filtered lists to avoid recalculation on every render unless dependencies change
+  // Memoize filtered lists based on selected category
   const filteredAttractions = useMemo(() => {
-    if (!Array.isArray(attractions)) return []; // Ensure attractions is an array
-    if (selectedCategory === 'ทั้งหมด') return attractions; // Return all if 'ทั้งหมด'
-    // Filter by category
-    return attractions.filter((item) => item.category === selectedCategory);
+    if (!Array.isArray(attractions)) return [];
+    return selectedCategory === 'ทั้งหมด' ? attractions : attractions.filter(item => item.category === selectedCategory);
   }, [attractions, selectedCategory]);
 
   const filteredFoodShops = useMemo(() => {
-    if (!Array.isArray(foodShops)) return []; // Ensure foodShops is an array
-    if (selectedCategory === 'ทั้งหมด') return foodShops; // Return all if 'ทั้งหมด'
-    // Filter by category
-    return foodShops.filter((item) => item.category === selectedCategory);
+    if (!Array.isArray(foodShops)) return [];
+    return selectedCategory === 'ทั้งหมด' ? foodShops : foodShops.filter(item => item.category === selectedCategory);
   }, [foodShops, selectedCategory]);
 
   // Memoize the list of favorite items
   const favoriteItems = useMemo(() => {
-    const allItems = [...attractions, ...foodShops]; // Combine both lists
-    if (!Array.isArray(favorites)) return []; // Ensure favorites is an array of IDs
-    // Filter combined list based on favorite IDs
-    return allItems.filter((item) => favorites.includes(item.id));
-  }, [attractions, foodShops, favorites]); // Dependencies: all item lists and the favorites list
+    const allItems = [...attractions, ...foodShops];
+    if (!Array.isArray(favorites)) return [];
+    return allItems.filter(item => favorites.includes(item.id));
+  }, [attractions, foodShops, favorites]);
 
   // --- Page Rendering Logic ---
   const renderPage = () => {
-    // Show loading indicator only on initial load or if user data isn't available yet
-    if (loadingData && (!attractions.length || !foodShops.length)) {
+    // Show loader only during initial data fetch
+    // Check if *both* arrays are empty, indicating initial load
+    if (loadingData && attractions.length === 0 && foodShops.length === 0) {
       return (
         <div className="flex flex-col justify-center items-center h-96 text-gray-500 dark:text-gray-400">
           <Loader className="animate-spin h-12 w-12" />
@@ -653,53 +542,30 @@ const App = () => {
       );
     }
 
-    // Props common to many page components
+    // Common props passed to page components
     const commonProps = {
-      handleItemClick: (item) => {
-        setSelectedItem(item);
-        handleSetCurrentPage('detail');
-      },
+      handleItemClick: (item) => { setSelectedItem(item); handleSetCurrentPage('detail'); },
       currentUser,
       favorites,
       handleToggleFavorite,
-      // Propagate functions for editing and deleting to child components
-      handleEditItem: (item) => {
-        setItemToEdit(item);
-        setIsEditModalOpen(true);
-      },
-      // --- FIX: handleDeleteItem now opens the confirmation modal ---
-      handleDeleteItem: (locationId) => {
-          setItemToDelete(locationId); // Set the ID of the item to be potentially deleted
-      },
+      handleEditItem: (item) => { setItemToEdit(item); setIsEditModalOpen(true); },
+      handleDeleteItem: (locationId) => { setItemToDelete(locationId); }, // Opens confirmation modal
     };
 
-    // Switch statement to render the correct page component based on `currentPage` state
+    // Render the appropriate page based on currentPage state
     switch (currentPage) {
-      case 'attractions':
-        return <AttractionsPage attractions={filteredAttractions} {...commonProps} selectedCategory={selectedCategory} />;
-      case 'foodshops':
-        return <FoodShopsPage foodShops={filteredFoodShops} {...commonProps} selectedCategory={selectedCategory} />;
-      case 'add-location':
-        return <AddLocationPage setCurrentPage={handleSetCurrentPage} onLocationAdded={handleDataRefresh} setNotification={setNotification} handleAuthError={handleAuthError} />;
-      case 'login':
-        return <LoginPage onAuthSuccess={handleLogin} setNotification={setNotification} />;
-      case 'favorites':
-        return <FavoritesPage favoriteItems={favoriteItems} {...commonProps} />;
-      case 'profile':
-        return <UserProfilePage currentUser={currentUser} onProfileUpdate={handleProfileUpdate} handleAuthError={handleAuthError} handleLogout={handleLogout} setNotification={setNotification} />;
-      // Admin-specific pages
-      case 'manage-products':
-        return <ManageProductsPage setNotification={setNotification} handleAuthError={handleAuthError} />;
-      case 'deletion-requests':
-        return <ApproveDeletionsPage setNotification={setNotification} handleAuthError={handleAuthError} handleItemClick={commonProps.handleItemClick} />;
+      case 'attractions': return <AttractionsPage attractions={filteredAttractions} {...commonProps} selectedCategory={selectedCategory} />;
+      case 'foodshops':   return <FoodShopsPage foodShops={filteredFoodShops} {...commonProps} selectedCategory={selectedCategory} />;
+      case 'add-location': return <AddLocationPage setCurrentPage={handleSetCurrentPage} onLocationAdded={handleDataRefresh} setNotification={setNotification} handleAuthError={handleAuthError} />;
+      case 'login':        return <LoginPage onAuthSuccess={handleLogin} setNotification={setNotification} API_BASE_URL={API_BASE_URL}/>; // Pass API_BASE_URL if needed locally
+      case 'favorites':    return <FavoritesPage favoriteItems={favoriteItems} {...commonProps} />;
+      case 'profile':      return <UserProfilePage currentUser={currentUser} onProfileUpdate={handleProfileUpdate} handleAuthError={handleAuthError} handleLogout={handleLogout} setNotification={setNotification} />;
+      case 'manage-products': return <ManageProductsPage setNotification={setNotification} handleAuthError={handleAuthError} API_BASE_URL={API_BASE_URL}/>; // Pass API_BASE_URL
+      case 'deletion-requests': return <ApproveDeletionsPage setNotification={setNotification} handleAuthError={handleAuthError} handleItemClick={commonProps.handleItemClick} API_BASE_URL={API_BASE_URL}/>; // Pass API_BASE_URL
       case 'detail':
-        if (selectedItem) {
-          return <DetailPage item={selectedItem} setCurrentPage={handleSetCurrentPage} onReviewSubmitted={() => handleDataRefresh(selectedItem.id)} {...commonProps} setNotification={setNotification} handleAuthError={handleAuthError} />;
-        }
-        // Fallback: If no item is selected, redirect to home
-        handleSetCurrentPage('home');
-        return null;
-      default: // 'home' or any other unknown page defaults to HomePage
+        if (selectedItem) { return <DetailPage item={selectedItem} setCurrentPage={handleSetCurrentPage} onReviewSubmitted={() => handleDataRefresh(selectedItem.id)} {...commonProps} setNotification={setNotification} handleAuthError={handleAuthError} API_BASE_URL={API_BASE_URL}/>; } // Pass API_BASE_URL
+        handleSetCurrentPage('home'); return null; // Redirect home if no item selected
+      default: // 'home'
         return <HomePage attractions={attractions} foodShops={foodShops} setCurrentPage={handleSetCurrentPage} {...commonProps} />;
     }
   };
@@ -707,18 +573,14 @@ const App = () => {
   // --- JSX Structure ---
   return (
     <div className="min-h-screen bg-slate-100 dark:bg-gray-900 font-sans antialiased flex flex-col">
-      {/* Global notification display */}
       <Notification notification={notification} setNotification={setNotification} />
-      {/* Inject Sarabun font and basic animation styles */}
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&display=swap'); body { font-family: 'Sarabun', sans-serif; } .animate-fade-in-up { animation: fadeInUp 0.5s ease-out forwards; } @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } } .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; } @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }`}</style>
-
-      {/* Main Header */}
       <Header
         setCurrentPage={handleSetCurrentPage}
         currentUser={currentUser}
         handleLogout={handleLogout}
         theme={theme}
-        toggleTheme={() => setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))}
+        toggleTheme={() => setTheme(prev => prev === 'light' ? 'dark' : 'light')}
         notifications={notifications}
         unreadCount={unreadCount}
         handleMarkNotificationsAsRead={handleMarkNotificationsAsRead}
@@ -726,12 +588,8 @@ const App = () => {
         isSidebarOpen={isSidebarOpen}
         toggleSidebar={toggleSidebar}
       />
-
-      {/* Main layout container (flex row) */}
       <div className="flex flex-1 p-4 gap-4">
-
-        {/* Sidebar container (relative for potential sticky positioning within) */}
-        <div className="relative">
+        <div className="relative"> {/* Sidebar Wrapper */}
           <Sidebar
             selectedCategory={selectedCategory}
             setSelectedCategory={setSelectedCategory}
@@ -742,28 +600,21 @@ const App = () => {
             toggleSidebar={toggleSidebar}
           />
         </div>
-
-        {/* Main Content Area (takes remaining space) */}
-        <main className={`flex-1 w-0 flex flex-col transition-all duration-300 ${isSidebarOpen ? 'filter brightness-50 md:filter-none' : ''}`}>
-          {/* Content wrapper with transition */}
+        <main className={`flex-1 w-0 flex flex-col transition-all duration-300 ${isSidebarOpen ? 'filter brightness-50 md:filter-none' : ''}`}> {/* Main Content */}
           <div className={`flex-1 container mx-auto transition-opacity duration-200 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}>
-              {renderPage()} {/* Render the active page component */}
+              {renderPage()}
           </div>
-          {/* Footer */}
           <Footer />
         </main>
       </div>
-
-      {/* Confirmation Modal for Deletion */}
+      {/* Modals */}
       <ConfirmationModal
-          isOpen={!!itemToDelete} // Open if itemToDelete has an ID
-          onClose={() => setItemToDelete(null)} // Close by clearing the ID
-          onConfirm={executeDelete} // Call the delete execution function on confirm
+          isOpen={!!itemToDelete}
+          onClose={() => setItemToDelete(null)}
+          onConfirm={executeDelete}
           title="ยืนยันการลบ"
           message="คุณแน่ใจหรือไม่ว่าต้องการลบสถานที่นี้? การกระทำนี้ไม่สามารถย้อนกลับได้ และจะลบรีวิว, ของขึ้นชื่อ, และรายการโปรดทั้งหมดที่เกี่ยวข้องกับสถานที่นี้ด้วย"
       />
-
-      {/* Edit Location Modal */}
       {isEditModalOpen && (
         <EditLocationModal
           item={itemToEdit}
@@ -771,6 +622,7 @@ const App = () => {
           onItemUpdated={handleUpdateItem}
           setNotification={setNotification}
           handleAuthError={handleAuthError}
+          API_BASE_URL={API_BASE_URL} // Pass API_BASE_URL to Edit Modal
         />
       )}
     </div>
