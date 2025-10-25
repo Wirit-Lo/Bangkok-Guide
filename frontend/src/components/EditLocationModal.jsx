@@ -217,12 +217,11 @@ const EditLocationModal = ({ item, onClose, onItemUpdated, setNotification, hand
             formData.append('images', file); // API expects 'images'
         });
         
-        // --- FIX: Replaced import.meta.env to resolve ES2015 compilation warning ---
-        // The build environment seems to not support 'import.meta.env'.
-        // Using the fallback URL directly. You may need to change this back
-        // to 'import.meta.env.VITE_API_URL' if your Vite build process handles it.
-        const API_BASE_URL = 'http://localhost:5000';
-        // const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'; // Original problematic code
+        // --- FIX: Using Production URL directly to resolve compiler warning ---
+        // This avoids the 'import.meta.env' warning in this environment.
+        // For production, using environment variables (VITE_API_URL) is still the best practice.
+        const API_BASE_URL = 'https://bangkok-guide.onrender.com';
+        // const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'; // Original code
 
         try {
             const response = await fetch(`${API_BASE_URL}/api/locations/${item.id}`, {
@@ -380,4 +379,6 @@ const EditLocationModal = ({ item, onClose, onItemUpdated, setNotification, hand
 };
 
 export default EditLocationModal;
+
+
 
