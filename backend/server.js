@@ -9,7 +9,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import 'dotenv/config';
 
-console.log('--- SERVER WITH SUPABASE STORAGE (v21.3 - Favorites Fix + OPTIONS Fix) LOADING ---'); // Updated version note
+console.log('--- SERVER WITH SUPABASE STORAGE (v21.3 - Migration Fix) LOADING ---'); // Updated version note
 
 // --- Supabase Client Setup ---
 if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY || !process.env.JWT_SECRET) {
@@ -206,7 +206,7 @@ const formatRowForFrontend = (row) => {
             potentialUrl = data.user_profile.profile_image_url;
         // Check if the property already exists (e.g., if data is already partially formatted)
         } else if (data?.authorProfileImageUrl) {
-             potentialUrl = data.authorProfileImageUrl;
+            potentialUrl = data.authorProfileImageUrl;
         }
 
         let url = null;
@@ -257,10 +257,10 @@ const formatRowForFrontend = (row) => {
         authorProfileImageUrl: getProfileImageUrl(row.users || row.user_profile || row)
     };
 
-     // Explicitly set 'profileImageUrl' for user objects (when formatting a user directly)
-     if (typeof row.display_name === 'string' && typeof row.username === 'string') {
-         formattedRow.profileImageUrl = getProfileImageUrl(row); // Use the helper on the row itself
-     }
+    // Explicitly set 'profileImageUrl' for user objects (when formatting a user directly)
+    if (typeof row.display_name === 'string' && typeof row.username === 'string') {
+        formattedRow.profileImageUrl = getProfileImageUrl(row); // Use the helper on the row itself
+    }
 
     return formattedRow;
 };
@@ -286,6 +286,21 @@ const extractCoordsFromUrl = (url) => {
     // console.warn(`Could not extract coordinates from Google Maps URL: ${url}`); // Maybe too noisy
     return { lat: null, lng: null };
 };
+
+// --- HELPER: Determine table based on category ---
+// *** NEW HELPER FUNCTION ADDED HERE ***
+const foodShopCategories = ['ร้านอาหาร', 'คาเฟ่', 'ตลาด'];
+/**
+ * Determines the correct Supabase table name based on the location category.
+ * @param {string} category - The category of the location (e.g., 'วัด', 'ร้านอาหาร').
+ * @returns {string} The name of the table ('attractions' or 'foodShops').
+ */
+const getLocationTableByCategory = (category) => {
+    // ถ้า category อยู่ใน list ของ foodShopCategories, ให้ใช้ตาราง 'foodShops'
+    // นอกนั้นให้ใช้ 'attractions' ทั้งหมด
+    return foodShopCategories.includes(category) ? 'foodShops' : 'attractions';
+};
+// *** END OF NEW HELPER FUNCTION ***
 
 
 // --- NOTIFICATION HANDLING ---
@@ -831,9 +846,9 @@ app.put('/api/famous-products/:id', authenticateToken, upload.single('image'), a
             res.json(formatRowForFrontend(updatedProduct));
         } else {
             // If nothing to update, return current data (fetch again to be sure)
-             const { data: currentProduct, error: currentError } = await supabase.from('famous_products').select('*').eq('id', id).single();
-             if(currentError) throw currentError;
-             res.json(formatRowForFrontend(currentProduct));
+            const { data: currentProduct, error: currentError } = await supabase.from('famous_products').select('*').eq('id', id).single();
+            if(currentError) throw currentError;
+            res.json(formatRowForFrontend(currentProduct));
         }
     } catch (err) {
         console.error(`Error updating product ${id}:`, err);
@@ -894,9 +909,9 @@ app.post('/api/locations/:id/deny-deletion', authenticateToken, requireAdmin, as
 
         // If not updated in attractions, try foodShops
         if (!updated) {
-             const { data: foodData, error: foodError } = await supabase.from('foodShops').update({ status: 'approved' }).match({ id: id, status: 'pending_deletion' }).select('id').maybeSingle();
-             if (foodError && foodError.code !== 'PGRST116') throw foodError;
-             if (foodData) updated = true;
+            const { data: foodData, error: foodError } = await supabase.from('foodShops').update({ status: 'approved' }).match({ id: id, status: 'pending_deletion' }).select('id').maybeSingle();
+            if (foodError && foodError.code !== 'PGRST116') throw foodError;
+            if (foodData) updated = true;
         }
 
         if (!updated) return res.status(404).json({ message: 'ไม่พบคำขอลบสำหรับสถานที่นี้ หรือสถานะไม่ใช่ pending_deletion' });
@@ -931,7 +946,7 @@ app.get('/api/attractions', async (req, res) => {
 app.get('/api/foodShops', async (req, res) => {
     try {
         let query = supabase.from('foodShops').select('*').eq('status', 'approved');
-         // Optional sorting by rating
+        // Optional sorting by rating
         if (req.query.sortBy === 'rating') {
             query = query.order('rating', { ascending: false, nullsFirst: false });
         } else {
@@ -990,8 +1005,8 @@ app.get('/api/locations/:id', async (req, res) => {
         if (error && error.code !== 'PGRST116') throw error;
         // If not found in attractions, try foodShops
         if (!location) {
-             ({ data: location, error } = await supabase.from('foodShops').select('*').eq('id', id).maybeSingle());
-             if (error && error.code !== 'PGRST116') throw error;
+            ({ data: location, error } = await supabase.from('foodShops').select('*').eq('id', id).maybeSingle());
+            if (error && error.code !== 'PGRST116') throw error;
         }
         if (location) res.json(formatRowForFrontend(location));
         else res.status(404).json({ error: 'ไม่พบสถานที่' });
@@ -1022,9 +1037,12 @@ app.post('/api/locations', authenticateToken, upload.array('images', 10), async 
             detail_images: uploadedImageUrls.length > 1 ? uploadedImageUrls.slice(1) : [], // Rest as details
             lat: coords.lat, lng: coords.lng // Add coordinates
         };
-        // Determine table based on category
-        const isFoodShop = ['ร้านอาหาร', 'คาเฟ่', 'ตลาด'].includes(category);
-        const tableName = isFoodShop ? 'foodShops' : 'attractions';
+        
+        // *** UPDATED TO USE HELPER FUNCTION ***
+        // Determine table based on category using the helper
+        const tableName = getLocationTableByCategory(category);
+        // *** END OF UPDATE ***
+
         // Insert into the correct table
         const { data: insertedLocation, error } = await supabase.from(tableName).insert(newLocationData).select().single();
         if (error) throw error;
@@ -1045,60 +1063,144 @@ app.post('/api/locations', authenticateToken, upload.array('images', 10), async 
     }
 });
 
+// *** THIS ENTIRE ENDPOINT IS REPLACED WITH NEW LOGIC ***
 // PUT update an existing location (requires authentication, owner or admin)
 app.put('/api/locations/:id', authenticateToken, upload.array('images', 10), async (req, res) => {
     const { id } = req.params;
     const { userId, role } = req.user;
-    const { name, category, description, googleMapUrl, hours, contact, existingImages } = req.body;
+    // ดึง category มาในชื่อ newCategory เพื่อความชัดเจน
+    const { name, category: newCategory, description, googleMapUrl, hours, contact, existingImages } = req.body;
+    
     let newlyUploadedUrls = [];
+    let finalUpdatedLocation; // ตัวแปรสำหรับเก็บผลลัพธ์สุดท้าย (ไม่ว่าจะ update หรือ move)
+
     try {
-        // Find the location and determine its table
-        let location = null, tableName = null, error = null;
-        ({ data: location, error } = await supabase.from('attractions').select('*').eq('id', id).maybeSingle());
-        if (error && error.code !== 'PGRST116') throw error;
-        if (location) tableName = 'attractions';
-        else {
-             ({ data: location, error } = await supabase.from('foodShops').select('*').eq('id', id).maybeSingle());
-             if (error && error.code !== 'PGRST116') throw error;
-             if (location) tableName = 'foodShops';
-             else return res.status(404).json({ error: 'ไม่พบสถานที่ที่ต้องการแก้ไข' });
+        // 1. ค้นหาสถานที่ปัจจุบัน และตารางปัจจุบัน
+        let currentLocation = null, currentTableName = null, error = null;
+        
+        // ลองหาใน 'attractions' ก่อน
+        ({ data: currentLocation, error } = await supabase.from('attractions').select('*').eq('id', id).maybeSingle());
+        if (error && error.code !== 'PGRST116') throw error; // ถ้า Error จริง ให้โยน
+        
+        if (currentLocation) {
+            currentTableName = 'attractions';
+        } else {
+            // ถ้าไม่เจอ ลองหาใน 'foodShops'
+            ({ data: currentLocation, error } = await supabase.from('foodShops').select('*').eq('id', id).maybeSingle());
+            if (error && error.code !== 'PGRST116') throw error;
+
+            if (currentLocation) {
+                currentTableName = 'foodShops';
+            } else {
+                // ถ้าไม่เจอทั้งสองตาราง = 404
+                return res.status(404).json({ error: 'ไม่พบสถานที่ที่ต้องการแก้ไข' });
+            }
         }
-        // Authorization check
-        if (role !== 'admin' && location.user_id !== userId) return res.status(403).json({ error: 'คุณไม่มีสิทธิ์แก้ไขข้อมูลนี้' });
-        // Image Handling
+
+        // 2. ตรวจสอบสิทธิ์ (Authorization)
+        if (role !== 'admin' && currentLocation.user_id !== userId) {
+            return res.status(403).json({ error: 'คุณไม่มีสิทธิ์แก้ไขข้อมูลนี้' });
+        }
+
+        // 3. จัดการรูปภาพ (ลบรูปเก่า, อัปโหลดรูปใหม่)
         const keptImageUrls = existingImages ? JSON.parse(existingImages) : [];
-        const oldImageUrls = [location.image_url, ...(location.detail_images || [])].filter(Boolean);
+        const oldImageUrls = [currentLocation.image_url, ...(currentLocation.detail_images || [])].filter(Boolean);
         const imagesToDelete = oldImageUrls.filter(oldUrl => !keptImageUrls.includes(oldUrl));
+        
         const uploadPromises = (req.files || []).map(uploadToSupabase);
         newlyUploadedUrls = await Promise.all(uploadPromises);
-        await deleteFromSupabase(imagesToDelete); // Delete removed images from storage
+        
+        await deleteFromSupabase(imagesToDelete); // ลบรูปที่ถูกเอาออกจาก storage
         const allFinalImageUrls = [...keptImageUrls, ...newlyUploadedUrls];
-        // Prepare update data
+
+        // 4. เตรียมข้อมูลที่จะอัปเดต (updateData)
         const updateData = {};
-        const coords = extractCoordsFromUrl(googleMapUrl); // Extract coords from potentially new URL
+        const coords = extractCoordsFromUrl(googleMapUrl);
+        
+        // เพิ่มเฉพาะ field ที่มีการส่งค่ามา (undefined จะถูกข้ามไป)
         if (name !== undefined) updateData.name = name.trim();
-        if (category !== undefined) updateData.category = category;
+        if (newCategory !== undefined) updateData.category = newCategory;
         if (description !== undefined) updateData.description = description.trim();
         if (googleMapUrl !== undefined) {
-             updateData.google_map_url = googleMapUrl;
-             updateData.lat = coords.lat; // Update coords if URL changed
-             updateData.lng = coords.lng;
+            updateData.google_map_url = googleMapUrl;
+            updateData.lat = coords.lat; // อัปเดต coords ถ้า URL เปลี่ยน
+            updateData.lng = coords.lng;
         }
         if (hours !== undefined) updateData.hours = hours.trim();
         if (contact !== undefined) updateData.contact = contact.trim();
-        // Always update image fields based on final list
+        
+        // อัปเดต field รูปภาพเสมอ (แม้จะเป็น array ว่าง)
         updateData.image_url = allFinalImageUrls.length > 0 ? allFinalImageUrls[0] : null;
         updateData.detail_images = allFinalImageUrls.length > 1 ? allFinalImageUrls.slice(1) : [];
-        // Perform update
-        const { data: updatedLocation, error: updateError } = await supabase.from(tableName).update(updateData).eq('id', id).select().single();
-        if (updateError) throw updateError;
-        res.json(formatRowForFrontend(updatedLocation));
+
+        // 5. --- โลจิกการย้ายตาราง (Migration Logic) ---
+        
+        // หาว่าตาราง "ใหม่" ที่ควรจะอยู่คือตารางไหน
+        // ถ้ามีการส่ง category ใหม่มา ก็ใช้ค่านั้น, ถ้าไม่ ก็ใช้ค่าเดิมจาก currentLocation
+        const effectiveCategory = updateData.category || currentLocation.category;
+        const newTableName = getLocationTableByCategory(effectiveCategory);
+
+        if (currentTableName === newTableName) {
+            // --- กรณีที่ 1: ตารางไม่เปลี่ยน ---
+            // อัปเดตข้อมูลในตารางเดิม (in-place update)
+            console.log(`Updating location ${id} in same table: ${currentTableName}`);
+            const { data, error: updateError } = await supabase
+                .from(currentTableName)
+                .update(updateData)
+                .eq('id', id)
+                .select()
+                .single();
+            if (updateError) throw updateError;
+            finalUpdatedLocation = data; // เก็บผลลัพธ์
+
+        } else {
+            // --- กรณีที่ 2: ตารางเปลี่ยน! (ย้ายตาราง) ---
+            // ต้อง INSERT (ในตารางใหม่) แล้ว DELETE (จากตารางเก่า)
+            console.log(`Moving location ${id} from ${currentTableName} to ${newTableName}`);
+            
+            // 1. สร้างข้อมูล record ใหม่ทั้งหมด โดยเอาข้อมูลเก่า (currentLocation) มารวมกับข้อมูลที่อัปเดต (updateData)
+            const migratedRecord = { ...currentLocation, ...updateData };
+
+            // 2. INSERT ข้อมูลใหม่ลงในตารางใหม่
+            const { data: insertedLocation, error: insertError } = await supabase
+                .from(newTableName)
+                .insert(migratedRecord)
+                .select()
+                .single();
+            
+            if (insertError) {
+                console.error(`Failed to INSERT location ${id} into ${newTableName}:`, insertError);
+                // ถ้า Insert ล้มเหลว ให้โยน Error เลย (จะได้ไม่ไปลบของเก่า)
+                throw new Error('Failed to move location (insert step).');
+            }
+
+            // 3. (ถ้า Insert สำเร็จ) DELETE ข้อมูลเก่าออกจากตารางเดิม
+            const { error: deleteError } = await supabase
+                .from(currentTableName)
+                .delete()
+                .eq('id', id);
+            
+            if (deleteError) {
+                // นี่คือเคสที่อันตราย: เราสร้างของใหม่สำเร็จ แต่ลบของเก่าไม่สำเร็จ (ข้อมูลซ้ำซ้อน)
+                // ต้องแจ้งเตือนใน log แต่ไม่ควรโยน Error ให้ user เพราะการย้ายสำเร็จไปแล้ว
+                console.error(`CRITICAL: Failed to DELETE location ${id} from ${currentTableName} after moving. Manual cleanup required!`, deleteError);
+            }
+
+            finalUpdatedLocation = insertedLocation; // เก็บผลลัพธ์
+        }
+        
+        // 6. ส่งข้อมูลที่อัปเดต/ย้าย สำเร็จ กลับไป
+        res.json(formatRowForFrontend(finalUpdatedLocation));
+
     } catch (err) {
         console.error('Error updating location:', err);
+        // ถ้าเกิด Error ระหว่างทาง และมีการอัปโหลดรูปใหม่ไปแล้ว ให้พยายามลบออก
         if(newlyUploadedUrls.length > 0) await deleteFromSupabase(newlyUploadedUrls); // Cleanup
         res.status(500).json({ error: 'เกิดข้อผิดพลาดในการอัปเดตข้อมูลสถานที่' });
     }
 });
+// *** END OF REPLACED ENDPOINT ***
+
 
 // POST request deletion for a location (owner or admin)
 app.post('/api/locations/:id/request-deletion', authenticateToken, async (req, res) => {
@@ -1111,10 +1213,10 @@ app.post('/api/locations/:id/request-deletion', authenticateToken, async (req, r
         if (error && error.code !== 'PGRST116') throw error;
         if (location) tableName = 'attractions';
         else {
-             ({ data: location, error } = await supabase.from('foodShops').select('user_id, status').eq('id', id).maybeSingle());
-             if (error && error.code !== 'PGRST116') throw error;
-             if (location) tableName = 'foodShops';
-             else return res.status(404).json({ error: 'Location not found.' });
+            ({ data: location, error } = await supabase.from('foodShops').select('user_id, status').eq('id', id).maybeSingle());
+            if (error && error.code !== 'PGRST116') throw error;
+            if (location) tableName = 'foodShops';
+            else return res.status(404).json({ error: 'Location not found.' });
         }
         // Authorization check
         if (location.user_id !== userId && role !== 'admin') return res.status(403).json({ error: 'Not authorized.' });
@@ -1162,19 +1264,19 @@ app.delete('/api/locations/:id', authenticateToken, requireAdmin, async (req, re
             const commentIds = (commentIdsData || []).map(c => c.id);
             if (commentIds.length > 0) {
                 await supabase.from('comment_likes').delete().in('comment_id', commentIds); // Delete comment likes
-                 console.log(`Deleted comment likes for location ${id}.`);
+                console.log(`Deleted comment likes for location ${id}.`);
             }
             await supabase.from('review_comments').delete().in('review_id', reviewIds); // Delete comments
-             console.log(`Deleted comments for location ${id}.`);
+            console.log(`Deleted comments for location ${id}.`);
             await supabase.from('review_likes').delete().in('review_id', reviewIds); // Delete review likes
-             console.log(`Deleted review likes for location ${id}.`);
+            console.log(`Deleted review likes for location ${id}.`);
         }
         await supabase.from('reviews').delete().eq('location_id', id); // Delete reviews
-         console.log(`Deleted reviews for location ${id}.`);
+        console.log(`Deleted reviews for location ${id}.`);
         await supabase.from('famous_products').delete().eq('location_id', id); // Delete famous products
-         console.log(`Deleted famous products for location ${id}.`);
+        console.log(`Deleted famous products for location ${id}.`);
         await supabase.from('favorites').delete().eq('location_id', id); // Delete favorites
-         console.log(`Deleted favorites for location ${id}.`);
+        console.log(`Deleted favorites for location ${id}.`);
         // Delete the location itself from both tables (one will succeed, one will do nothing)
         const { error: deleteAttrError } = await supabase.from('attractions').delete().eq('id', id);
         const { error: deleteFoodError } = await supabase.from('foodShops').delete().eq('id', id);
@@ -1270,11 +1372,11 @@ app.post('/api/reviews/:locationId', authenticateToken, upload.array('reviewImag
             const averageRating = allReviews.length > 0 ? (totalRating / allReviews.length).toFixed(1) : 0;
             // Update rating in both potential tables (ignore errors if one fails)
             await Promise.allSettled([
-                 supabase.from('attractions').update({ rating: averageRating }).eq('id', locationId),
-                 supabase.from('foodShops').update({ rating: averageRating }).eq('id', locationId)
+                supabase.from('attractions').update({ rating: averageRating }).eq('id', locationId),
+                supabase.from('foodShops').update({ rating: averageRating }).eq('id', locationId)
             ]);
         } else if (ratingError) {
-             console.error(`Error fetching ratings for recalculation on ${locationId}:`, ratingError);
+            console.error(`Error fetching ratings for recalculation on ${locationId}:`, ratingError);
         }
         // Send notification to location owner (implementation depends on how you link locations to owners)
         // const { data: locationOwner } = await supabase.from('locations').select('user_id').eq('id', locationId).single();
@@ -1311,11 +1413,11 @@ app.put('/api/reviews/:reviewId', authenticateToken, upload.array('reviewImages'
         const updateData = {};
         let ratingChanged = false;
         if (rating !== undefined) {
-             const numericRating = parseInt(rating, 10);
-              if (!isNaN(numericRating) && numericRating >= 1 && numericRating <= 5) {
-                   if (numericRating !== review.rating) ratingChanged = true;
-                   updateData.rating = numericRating;
-              } else console.warn(`Invalid rating value received during update: ${rating}`);
+            const numericRating = parseInt(rating, 10);
+            if (!isNaN(numericRating) && numericRating >= 1 && numericRating <= 5) {
+                if (numericRating !== review.rating) ratingChanged = true;
+                updateData.rating = numericRating;
+            } else console.warn(`Invalid rating value received during update: ${rating}`);
         }
         if (comment !== undefined) updateData.comment = comment.trim();
         updateData.image_urls = allFinalImageUrls; // Always update image array
@@ -1335,8 +1437,8 @@ app.put('/api/reviews/:reviewId', authenticateToken, upload.array('reviewImages'
                     const totalRating = allReviews.reduce((sum, r) => sum + (r.rating || 0), 0);
                     const averageRating = allReviews.length > 0 ? (totalRating / allReviews.length).toFixed(1) : 0;
                     await Promise.allSettled([
-                         supabase.from('attractions').update({ rating: averageRating }).eq('id', effectiveLocationId),
-                         supabase.from('foodShops').update({ rating: averageRating }).eq('id', effectiveLocationId)
+                        supabase.from('attractions').update({ rating: averageRating }).eq('id', effectiveLocationId),
+                        supabase.from('foodShops').update({ rating: averageRating }).eq('id', effectiveLocationId)
                     ]);
                 } else if(ratingError) console.error(`Error fetching ratings for recalculation on ${effectiveLocationId}:`, ratingError);
             } else console.warn(`Could not recalculate rating for updated review ${reviewId} - locationId unknown.`);
@@ -1372,14 +1474,14 @@ app.delete('/api/reviews/:reviewId', authenticateToken, async (req, res) => {
         // Recalculate average rating
         if (effectiveLocationId) {
             const { data: allReviews, error: reviewsError } = await supabase.from('reviews').select('rating').eq('location_id', effectiveLocationId);
-             if (!reviewsError && allReviews) {
-                 const totalRating = allReviews.reduce((sum, r) => sum + (r.rating || 0), 0);
-                 const averageRating = allReviews.length > 0 ? (totalRating / allReviews.length).toFixed(1) : 0;
-                 await Promise.allSettled([
-                      supabase.from('attractions').update({ rating: averageRating }).eq('id', effectiveLocationId),
-                      supabase.from('foodShops').update({ rating: averageRating }).eq('id', effectiveLocationId)
-                 ]);
-             } else if(reviewsError) console.error(`Error fetching ratings for recalc after delete on ${effectiveLocationId}:`, reviewsError);
+            if (!reviewsError && allReviews) {
+                const totalRating = allReviews.reduce((sum, r) => sum + (r.rating || 0), 0);
+                const averageRating = allReviews.length > 0 ? (totalRating / allReviews.length).toFixed(1) : 0;
+                await Promise.allSettled([
+                    supabase.from('attractions').update({ rating: averageRating }).eq('id', effectiveLocationId),
+                    supabase.from('foodShops').update({ rating: averageRating }).eq('id', effectiveLocationId)
+                ]);
+            } else if(reviewsError) console.error(`Error fetching ratings for recalc after delete on ${effectiveLocationId}:`, reviewsError);
         } else console.warn(`Could not recalculate rating for deleted review ${reviewId} - locationId unknown.`);
         res.status(204).send(); // Success
     } catch (err) {
@@ -1411,16 +1513,16 @@ app.post('/api/reviews/:reviewId/toggle-like', authenticateToken, async (req, re
             if (review.user_id !== userId) {
                 let location = null, locError = null;
                 ({ data: location, error: locError } = await supabase.from('attractions').select('*').eq('id', review.location_id).maybeSingle());
-                 if (!location && (!locError || locError.code === 'PGRST116')) {
+                if (!location && (!locError || locError.code === 'PGRST116')) {
                     ({ data: location, error: locError } = await supabase.from('foodShops').select('*').eq('id', review.location_id).maybeSingle());
-                 }
-                 if (location) {
+                }
+                if (location) {
                     createAndSendNotification({
                         type: 'new_like', actorId: userId, actorName: displayName || username, actorProfileImageUrl: profileImageUrl,
                         recipientId: review.user_id,
                         payload: { location: formatRowForFrontend(location), commentSnippet: review.comment?.substring(0, 50) || '', reviewId: reviewId }
                     });
-                 } else console.warn(`Could not find location ${review.location_id} for like notification.`);
+                } else console.warn(`Could not find location ${review.location_id} for like notification.`);
             }
         }
         // Update likes_count on the review
@@ -1471,16 +1573,16 @@ app.post('/api/reviews/:reviewId/comments', authenticateToken, async (req, res) 
         if (review && review.user_id !== userId) {
             let location = null, locError = null;
             ({ data: location, error: locError } = await supabase.from('attractions').select('*').eq('id', review.location_id).maybeSingle());
-             if (!location && (!locError || locError.code === 'PGRST116')) {
-                 ({ data: location, error: locError } = await supabase.from('foodShops').select('*').eq('id', review.location_id).maybeSingle());
-             }
-             if (location) {
+            if (!location && (!locError || locError.code === 'PGRST116')) {
+                ({ data: location, error: locError } = await supabase.from('foodShops').select('*').eq('id', review.location_id).maybeSingle());
+            }
+            if (location) {
                 createAndSendNotification({
                     type: 'new_reply', actorId: userId, actorName: displayName || username, actorProfileImageUrl: profileImageUrl,
                     recipientId: review.user_id,
                     payload: { location: formatRowForFrontend(location), commentSnippet: comment.trim().substring(0, 50), reviewId: reviewId, commentId: insertedComment.id }
                 });
-             } else console.warn(`Could not find location ${review.location_id} for reply notification.`);
+            } else console.warn(`Could not find location ${review.location_id} for reply notification.`);
         }
         // Format response, including profile image from token
         const formattedComment = formatRowForFrontend({ ...insertedComment, user_profile: { profile_image_url: profileImageUrl } });
@@ -1533,21 +1635,21 @@ app.post('/api/comments/:commentId/toggle-like', authenticateToken, async (req, 
             status = 'liked';
             // Send notification if liking someone else's comment
             if (comment.user_id !== userId) {
-                 const { data: review } = await supabase.from('reviews').select('location_id').eq('id', comment.review_id).single();
-                 if (review) {
+                const { data: review } = await supabase.from('reviews').select('location_id').eq('id', comment.review_id).single();
+                if (review) {
                     let location = null, locError = null;
                     ({ data: location, error: locError } = await supabase.from('attractions').select('*').eq('id', review.location_id).maybeSingle());
-                     if (!location && (!locError || locError.code === 'PGRST116')) {
+                    if (!location && (!locError || locError.code === 'PGRST116')) {
                         ({ data: location, error: locError } = await supabase.from('foodShops').select('*').eq('id', review.location_id).maybeSingle());
-                     }
-                     if (location) {
+                    }
+                    if (location) {
                         createAndSendNotification({
                             type: 'new_comment_like', actorId: userId, actorName: displayName || username, actorProfileImageUrl: profileImageUrl,
                             recipientId: comment.user_id, // Notify comment author
                             payload: { location: formatRowForFrontend(location), commentSnippet: comment.comment?.substring(0, 50) || '', reviewId: comment.review_id, commentId: commentId }
                         });
-                     } else console.warn(`Could not find location ${review.location_id} for comment like notification.`);
-                 }
+                    } else console.warn(`Could not find location ${review.location_id} for comment like notification.`);
+                }
             }
         }
         // Update likes_count on comment
@@ -1695,6 +1797,6 @@ app.post('/api/favorites/toggle', authenticateToken, async (req, res) => {
 // --- START SERVER ---
 app.listen(port, () => {
     // Log the actual port the server is listening on (important for Render)
-    console.log(`✅✅✅ SERVER (SUPABASE STORAGE + Favorites Fix + OPTIONS Fix) IS RUNNING at http://localhost:${port}`);
+    console.log(`✅✅✅ SERVER (SUPABASE STORAGE + Migration Fix) IS RUNNING at http://localhost:${port}`);
 });
 
