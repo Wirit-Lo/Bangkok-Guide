@@ -20,13 +20,10 @@ const InputGroup = ({ icon, label, id, ...props }) => (
 // Updated categories with new icons and colors (consistent with Edit Modal)
 const categories = [
     { name: 'วัด', icon: <Landmark size={18} />, color: 'text-amber-500' },
-    { name: 'พิพิธภัณฑ์', icon: <Landmark size={18} />, color: 'text-orange-400' }, // Added museum
-    { name: 'สวนสาธารณะ', icon: <MapPin size={18} />, color: 'text-lime-500' },     // Added park
     { name: 'ร้านอาหาร', icon: <Utensils size={18} />, color: 'text-emerald-500' },
     { name: 'คาเฟ่', icon: <Coffee size={18} />, color: 'text-orange-500' },
     { name: 'ตลาด', icon: <Store size={18} />, color: 'text-violet-500' },
     { name: 'ห้างสรรพสินค้า', icon: <ShoppingBag size={18} />, color: 'text-rose-500' },
-    { name: 'สถานที่ทางประวัติศาสตร์', icon: <Landmark size={18} />, color: 'text-yellow-600' }, // Added historical
     { name: 'อื่นๆ', icon: <Menu size={18} />, color: 'text-slate-500' },
 ];
 
@@ -121,6 +118,7 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
         images: [],
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [isFormValid, setIsFormValid] = useState(false); // --- NEW: State for form validity ---
 
     // --- CLEANUP: Use functional updates for safety ---
     const handleInputChange = (e) => {
@@ -146,6 +144,27 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
     };
     // --- END CLEANUP ---
 
+    // --- NEW: Validate form on every data change ---
+    useEffect(() => {
+        const { name, googleMapUrl, description, images, startTime, endTime } = formData;
+
+        // 1. Check required text fields
+        const requiredFieldsFilled =
+            name.trim() !== '' &&
+            googleMapUrl.trim() !== '' && // Require Google Maps
+            description.trim() !== '';     // Require description
+
+        // 2. Check for at least one image
+        const hasImage = images.length > 0; // Require at least one image
+
+        // 3. Check time validation (both must be filled, or both must be empty)
+        const timeIsValid = (startTime && endTime) || (!startTime && !endTime);
+
+        setIsFormValid(requiredFieldsFilled && hasImage && timeIsValid);
+
+    }, [formData]); // Re-run this check whenever formData changes
+    // --- END NEW ---
+
 
     const handleImageChange = (e) => {
         if (e.target.files) {
@@ -170,10 +189,24 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
     const handleSubmit = async (e) => {
         e.preventDefault();
 
+        // --- UPDATED: Check all required fields ---
         if (!formData.name.trim()) {
             setNotification({ message: 'กรุณากรอกชื่อสถานที่', type: 'error' });
             return;
         }
+        if (!formData.googleMapUrl.trim()) { // Added check
+            setNotification({ message: 'กรุณากรอกลิงก์ Google Maps', type: 'error' });
+            return;
+        }
+        if (formData.images.length === 0) { // Added check
+            setNotification({ message: 'กรุณาอัปโหลดอย่างน้อย 1 รูป', type: 'error' });
+            return;
+        }
+        if (!formData.description.trim()) { // Added check
+            setNotification({ message: 'กรุณากรอกรายละเอียด', type: 'error' });
+            return;
+        }
+        // --- END UPDATED ---
         
         if (formData.googleMapUrl && !formData.googleMapUrl.startsWith('https://www.google.com/maps') && !formData.googleMapUrl.startsWith('https://maps.app.goo.gl')) {
             setNotification({ message: 'รูปแบบลิงก์ Google Maps ไม่ถูกต้อง', type: 'error' });
@@ -316,7 +349,7 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
                         <ImageUploader images={formData.images} onImageChange={handleImageChange} onRemove={handleRemoveImage} />
                         
                         <div className="pt-2">
-                            <button type="submit" disabled={isSubmitting} className="w-full flex justify-center items-center bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:shadow-lg hover:shadow-blue-500/50 transition-all shadow-md disabled:from-gray-400 disabled:to-gray-500 disabled:shadow-none disabled:cursor-not-allowed">
+                            <button type="submit" disabled={isSubmitting || !isFormValid} className="w-full flex justify-center items-center bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:shadow-lg hover:shadow-blue-500/50 transition-all shadow-md disabled:from-gray-400 disabled:to-gray-500 disabled:shadow-none disabled:cursor-not-allowed disabled:opacity-50"> {/* UPDATED disabled state and added opacity */}
                                 {isSubmitting ? <Loader size={18} className="animate-spin mr-2"/> : <Send size={18} className="mr-2" />}
                                 {isSubmitting ? 'กำลังบันทึก...' : 'บันทึกข้อมูล'}
                             </button>
@@ -330,3 +363,4 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
 
 // Ensure export default is present
 export default AddLocationPage;
+
