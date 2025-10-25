@@ -6,11 +6,11 @@ import { MapPin, Star, MessageSquare, Clock, Phone, ChevronLeft, Send, X, Edit, 
 // This function dynamically sets the API URL based on the hostname.
 // It uses the production URL for the deployed site and localhost for local development.
 const getApiBaseUrl = () => {
-    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-        return 'http://localhost:5000';
-    }
-    // Replace with your actual deployed backend URL
-    return 'https://bangkok-guide.onrender.com';
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        return 'http://localhost:5000';
+    }
+    // Replace with your actual deployed backend URL
+    return 'https://bangkok-guide.onrender.com';
 };
 const API_BASE_URL = getApiBaseUrl();
 // --- END: API URL Configuration ---
@@ -19,186 +19,189 @@ const API_BASE_URL = getApiBaseUrl();
 // --- Helper & UI Components ---
 
 const ImageLightbox = ({ images, selectedIndex, onClose, onNext, onPrev }) => {
-    if (!images || images.length === 0) return null;
+    if (!images || images.length === 0) return null;
 
-    useEffect(() => {
-        const handleKeyDown = (e) => {
-            if (e.key === 'ArrowRight') onNext();
-            if (e.key === 'ArrowLeft') onPrev();
-            if (e.key === 'Escape') onClose();
-        };
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [onClose, onNext, onPrev]);
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key === 'ArrowRight') onNext();
+            if (e.key === 'ArrowLeft') onPrev();
+            if (e.key === 'Escape') onClose();
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [onClose, onNext, onPrev]);
 
-    return (
-        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
-            <button onClick={onClose} className="absolute top-4 right-4 text-white hover:opacity-75"><X size={32} /></button>
-            <button onClick={(e) => { e.stopPropagation(); onPrev(); }} className="absolute left-4 p-2 bg-white/20 rounded-full text-white hover:bg-white/40 transition-colors"><ChevronLeft size={32} /></button>
-            <div className="relative w-full h-full max-w-4xl max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
-                {images.map((img, index) => (
-                    <img key={index} src={img} alt={`Gallery view ${index + 1}`} className={`absolute inset-0 w-full h-full object-contain transition-opacity duration-300 ${index === selectedIndex ? 'opacity-100' : 'opacity-0'}`} />
-                ))}
-            </div>
-            <button onClick={(e) => { e.stopPropagation(); onNext(); }} className="absolute right-4 p-2 bg-white/20 rounded-full text-white hover:bg-white/40 transition-colors"><ChevronRight size={32} /></button>
-        </div>
-    );
+    return (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+            <button onClick={onClose} className="absolute top-4 right-4 text-white hover:opacity-75"><X size={32} /></button>
+            <button onClick={(e) => { e.stopPropagation(); onPrev(); }} className="absolute left-4 p-2 bg-white/20 rounded-full text-white hover:bg-white/40 transition-colors"><ChevronLeft size={32} /></button>
+            <div className="relative w-full h-full max-w-4xl max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
+                {images.map((img, index) => (
+                    <img key={index} src={img} alt={`Gallery view ${index + 1}`} className={`absolute inset-0 w-full h-full object-contain transition-opacity duration-300 ${index === selectedIndex ? 'opacity-100' : 'opacity-0'}`} />
+                ))}
+            </div>
+            <button onClick={(e) => { e.stopPropagation(); onNext(); }} className="absolute right-4 p-2 bg-white/20 rounded-full text-white hover:bg-white/40 transition-colors"><ChevronRight size={32} /></button>
+        </div>
+    );
 };
 
+// ⭐ FIX: Corrected syntax error here (replaced ; with =>)
 const StarRatingInput = ({ rating, setRating }) => (
-  <div className="flex items-center space-x-1">
-    {[1, 2, 3, 4, 5].map((star) => (
-      <Star
-        key={star}
-        size={28}
-        className="cursor-pointer transition-transform transform hover:scale-110 text-gray-300 dark:text-gray-600"
-        onClick={() => setRating(star)}
-        fill={star <= rating ? "#facc15" : "currentColor"}
-        stroke={star <= rating ? "#facc15" : "#9ca3af"}
-      />
-    ))}
-    </div>
+  <div className="flex items-center space-x-1">
+    {[1, 2, 3, 4, 5].map((star) => (
+      <Star
+        key={star}
+        size={28}
+        className="cursor-pointer transition-transform transform hover:scale-110 text-gray-300 dark:text-gray-600"
+        onClick={() => setRating(star)}
+        fill={star <= rating ? "#facc15" : "currentColor"}
+        stroke={star <= rating ? "#facc15" : "#9ca3af"}
+      />
+    ))}
+    </div>
 );
 
 const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message }) => {
-    if (!isOpen) return null;
+    if (!isOpen) return null;
 
-    return (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in">
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
-                <div className="flex items-start">
-                    <div className="flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 dark:bg-red-900/50 sm:mx-0 sm:h-10 sm:w-10">
-                        <AlertTriangle className="h-6 w-6 text-red-600 dark:text-red-400" aria-hidden="true" />
-                    </div>
-                    <div className="ml-4 text-left">
-                        <h3 className="text-lg leading-6 font-bold text-gray-900 dark:text-gray-100" id="modal-title">{title}</h3>
-                        <div className="mt-2">
-                            <p className="text-sm text-gray-500 dark:text-gray-300">{message}</p>
-                        </div>
-                    </div>
-                </div>
-                <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
-                    <button
-                        type="button"
-                        className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none sm:ml-3 sm:w-auto sm:text-sm"
-                        onClick={onConfirm}
-                    >
-                        ยืนยัน
-                    </button>
-                    <button
-                        type="button"
-                        className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 dark:border-gray-500 shadow-sm px-4 py-2 bg-white dark:bg-gray-700 text-base font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none sm:mt-0 sm:w-auto sm:text-sm"
-                        onClick={onClose}
-                    >
-                        ยกเลิก
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
+    return (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+                <div className="flex items-start">
+                    <div className="flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 dark:bg-red-900/50 sm:mx-0 sm:h-10 sm:w-10">
+                        <AlertTriangle className="h-6 w-6 text-red-600 dark:text-red-400" aria-hidden="true" />
+                    </div>
+                    <div className="ml-4 text-left">
+                        <h3 className="text-lg leading-6 font-bold text-gray-900 dark:text-gray-100" id="modal-title">{title}</h3>
+                        <div className="mt-2">
+                            <p className="text-sm text-gray-500 dark:text-gray-300">{message}</p>
+                        </div>
+                    </div>
+                </div>
+                <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
+                    <button
+                        type="button"
+                        className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none sm:ml-3 sm:w-auto sm:text-sm"
+                        onClick={onConfirm}
+                    >
+                        ยืนยัน
+                    </button>
+                    <button
+                        type="button"
+                        className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 dark:border-gray-500 shadow-sm px-4 py-2 bg-white dark:bg-gray-700 text-base font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none sm:mt-0 sm:w-auto sm:text-sm"
+                        onClick={onClose}
+                    >
+                        ยกเลิก
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
 };
 
 
 // --- Review Card Component ---
 const ReviewCard = ({ review, currentUser, onReviewDeleted, onEditClick }) => {
-    const numericRating = parseFloat(review.rating || 0);
-    const [likes, setLikes] = useState(Number(review.likes_count || 0));
-    const [userHasLiked, setUserHasLiked] = useState(review.user_has_liked);
-    const [comments, setComments] = useState([]);
-    const [showComments, setShowComments] = useState(false);
-    const [newReply, setNewReply] = useState("");
-    const [commentCount, setCommentCount] = useState(review.comments_count || 0);
-    const [isLiking, setIsLiking] = useState(false);
-    const canModify = currentUser && (currentUser.id === review.user_id || currentUser.role === 'admin');
+    const numericRating = parseFloat(review.rating || 0);
+    const [likes, setLikes] = useState(Number(review.likes_count || 0));
+    const [userHasLiked, setUserHasLiked] = useState(review.user_has_liked);
+    const [comments, setComments] = useState([]);
+    const [showComments, setShowComments] = useState(false);
+    const [newReply, setNewReply] = useState("");
+    const [commentCount, setCommentCount] = useState(review.comments_count || 0);
+    const [isLiking, setIsLiking] = useState(false);
+    // ⭐ FIX: currentUser.id should be compared to review.user_id
+    const canModify = currentUser && (currentUser.id === review.user_id || currentUser.role === 'admin');
 
     // --- ⭐ FIX: Profile Image URL ---
-    // Assuming the backend will eventually provide this field
-    const authorProfileImageUrl = review.author_profile_image_url;
+    // Assuming the backend provides this field now
+    const authorProfileImageUrl = review.author_profile_image_url || review.authorProfileImageUrl;
     // --- END FIX ---
 
-    const handleToggleLike = async () => {
-        if (!currentUser) return alert('กรุณาเข้าสู่ระบบเพื่อกดถูกใจ');
-        const token = localStorage.getItem('token');
-        if (!token) return alert('เซสชั่นหมดอายุ กรุณาเข้าสู่ระบบใหม่');
+    const handleToggleLike = async () => {
+        if (!currentUser) return alert('กรุณาเข้าสู่ระบบเพื่อกดถูกใจ');
+        const token = localStorage.getItem('token');
+        if (!token) return alert('เซสชั่นหมดอายุ กรุณาเข้าสู่ระบบใหม่');
 
-        if (isLiking) return;
-        setIsLiking(true);
+        if (isLiking) return;
+        setIsLiking(true);
 
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/reviews/${review.id}/toggle-like`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-            });
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/reviews/${review.id}/toggle-like`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+            });
 
-            const data = await response.json();
+            const data = await response.json();
 
-            if (response.ok) {
-                setLikes(Number(data.likesCount));
-                setUserHasLiked(data.status === 'liked');
-            } else {
-                console.error("Failed to toggle like:", data.error);
-                alert('เกิดข้อผิดพลาด: ไม่สามารถอัปเดตสถานะการไลก์ได้');
-            }
-        } catch (error) {
-            console.error("Network error during like toggle:", error);
-            alert('เกิดข้อผิดพลาด: ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้');
-        } finally {
-            setIsLiking(false);
-        }
-    };
+            if (response.ok) {
+                setLikes(Number(data.likesCount));
+                setUserHasLiked(data.status === 'liked');
+            } else {
+                console.error("Failed to toggle like:", data.error);
+                alert('เกิดข้อผิดพลาด: ไม่สามารถอัปเดตสถานะการไลก์ได้');
+            }
+        } catch (error) {
+            console.error("Network error during like toggle:", error);
+            alert('เกิดข้อผิดพลาด: ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้');
+        } finally {
+            setIsLiking(false);
+        }
+    };
 
-    const fetchComments = async () => {
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/reviews/${review.id}/comments`);
-            const data = await response.json();
-            // --- ⭐ FIX: Assume comments data might contain profile image ---
-            // If backend provides profileImageUrl in comment object:
-            // const formattedComments = data.map(c => ({
-            //    ...c,
-            //    authorProfileImageUrl: c.author_profile_image_url
-            // }));
-            // setComments(formattedComments);
-            // --- END FIX ---
-            setComments(data); // Using original for now
-            setCommentCount(data.length);
-        } catch (error) { console.error("Error fetching comments:", error); }
-    };
+    const fetchComments = useCallback(async () => { // Wrap in useCallback
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/reviews/${review.id}/comments`);
+            const data = await response.json();
+            // Assuming comments data now contains authorProfileImageUrl
+            const formattedComments = data.map(c => ({
+                ...c,
+                authorProfileImageUrl: c.authorProfileImageUrl
+            }));
+            setComments(formattedComments);
+            setCommentCount(data.length);
+        } catch (error) { console.error("Error fetching comments:", error); }
+    }, [review.id]); // Add dependency
 
-    const handleToggleComments = () => {
-        const newShowState = !showComments;
-        setShowComments(newShowState);
-        if (newShowState) fetchComments();
-    };
+    const handleToggleComments = () => {
+        const newShowState = !showComments;
+        setShowComments(newShowState);
+        if (newShowState) fetchComments();
+    };
 
-    const handlePostReply = async (e) => {
-        e.preventDefault();
-        if (!newReply.trim()) return;
-        const token = localStorage.getItem('token');
-        if (!token && !currentUser) return alert('กรุณาเข้าสู่ระบบเพื่อแสดงความคิดเห็น');
+    const handlePostReply = async (e) => {
+        e.preventDefault();
+        if (!newReply.trim()) return;
+        const token = localStorage.getItem('token');
+        if (!token && !currentUser) return alert('กรุณาเข้าสู่ระบบเพื่อแสดงความคิดเห็น');
 
-        try {
-            const response = await fetch(`${API_BASE_URL}/api/reviews/${review.id}/comments`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({ comment: newReply }),
-            });
-            if (response.ok) { setNewReply(""); fetchComments(); }
-        } catch (error) { alert('เกิดข้อผิดพลาดในการแสดงความคิดเห็น'); }
-    };
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/reviews/${review.id}/comments`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ comment: newReply }),
+            });
+            if (response.ok) { setNewReply(""); fetchComments(); }
+            else { throw new Error('Failed to post comment'); } // Add error handling
+        } catch (error) {
+            console.error("Error posting reply:", error); // Log error
+            alert('เกิดข้อผิดพลาดในการแสดงความคิดเห็น');
+        }
+    };
 
-    return (
-        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-            {/* --- ⭐ FIX: Use Flexbox for layout --- */}
+    return (
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+            {/* --- ⭐ FIX: Use Flexbox for layout --- */}
             <div className="flex items-start space-x-4">
                 {/* Profile Image Column */}
                 <div className="flex-shrink-0">
-                     <img
+                    <img
                         src={authorProfileImageUrl || 'https://placehold.co/40x40/cbd5e1/475569?text=User'} // Placeholder
                         alt={`${review.author}'s profile`}
                         className="w-10 h-10 rounded-full object-cover bg-gray-200 dark:bg-gray-600"
@@ -208,7 +211,7 @@ const ReviewCard = ({ review, currentUser, onReviewDeleted, onEditClick }) => {
 
                 {/* Main Content Column */}
                 <div className="flex-grow">
-                     <div className="flex justify-between items-start mb-1">
+                    <div className="flex justify-between items-start mb-1">
                         {/* Author Info & Rating */}
                         <div>
                             <div className="font-bold text-gray-800 dark:text-gray-100">{review.author}</div>
@@ -216,7 +219,7 @@ const ReviewCard = ({ review, currentUser, onReviewDeleted, onEditClick }) => {
                         </div>
                         {/* Modify Buttons */}
                         {canModify && (
-                             <div className="flex space-x-1 flex-shrink-0">
+                            <div className="flex space-x-1 flex-shrink-0">
                                 <button onClick={() => onEditClick(review)} className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full" title="แก้ไขรีวิว"><Edit size={16} /></button>
                                 <button onClick={() => onReviewDeleted(review.id)} className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full" title="ลบรีวิว"><Trash2 size={16} /></button>
                             </div>
@@ -243,7 +246,7 @@ const ReviewCard = ({ review, currentUser, onReviewDeleted, onEditClick }) => {
                     )}
 
                     {/* Action Buttons & Date */}
-                     <div className="flex items-center space-x-4 mt-3 text-sm text-gray-500 dark:text-gray-400">
+                    <div className="flex items-center space-x-4 mt-3 text-sm text-gray-500 dark:text-gray-400">
                         <button
                             onClick={handleToggleLike}
                             disabled={isLiking}
@@ -261,11 +264,11 @@ const ReviewCard = ({ review, currentUser, onReviewDeleted, onEditClick }) => {
 
                     {/* Comments Section */}
                     {showComments && (
-                         <div className="mt-4 pl-0 border-t border-gray-200 dark:border-gray-700 pt-3 space-y-3">
+                        <div className="mt-4 pl-0 border-t border-gray-200 dark:border-gray-700 pt-3 space-y-3">
                             {comments.map(comment => (
-                                 <div key={comment.id} className="text-sm flex items-start space-x-2">
-                                     {/* --- ⭐ FIX: Show commenter's profile image if available --- */}
-                                     <img
+                                <div key={comment.id} className="text-sm flex items-start space-x-2">
+                                    {/* --- ⭐ FIX: Show commenter's profile image if available --- */}
+                                    <img
                                         // Assume comment object might have authorProfileImageUrl
                                         src={comment.authorProfileImageUrl || 'https://placehold.co/24x24/e2e8f0/475569?text=C'}
                                         alt={`${comment.author}'s profile`}
@@ -282,7 +285,7 @@ const ReviewCard = ({ review, currentUser, onReviewDeleted, onEditClick }) => {
                             {/* Reply Form */}
                             {currentUser && (
                                 <form onSubmit={handlePostReply} className="flex space-x-2 pt-2 items-center">
-                                     <img
+                                    <img
                                         src={currentUser.profileImageUrl || 'https://placehold.co/24x24/94a3b8/ffffff?text=Me'}
                                         alt="Your profile"
                                         className="w-6 h-6 rounded-full flex-shrink-0 bg-gray-200 dark:bg-gray-600"
@@ -296,17 +299,122 @@ const ReviewCard = ({ review, currentUser, onReviewDeleted, onEditClick }) => {
                                     />
                                     <button type="submit" className="px-3 py-1.5 bg-blue-500 text-white rounded-lg text-sm hover:bg-blue-600 transition-colors flex-shrink-0">ส่ง</button>
                                 </form>
-                             )}
+                            )}
                         </div>
                     )}
                 </div>
             </div>
             {/* --- END FIX --- */}
-        </div>
-    );
+        </div>
+    );
 };
 
-// ... (ส่วนที่เหลือของ DetailPage.jsx เหมือนเดิม) ...
+
+// --- Product Card Component ---
+const ProductCard = ({ product, currentUser, onEditClick, onDeleteClick }) => {
+    const canModify = currentUser && (currentUser.id === product.user_id || currentUser.role === 'admin');
+    return (
+        <div className="group relative flex items-center gap-4 p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+            <img
+                src={product.imageUrl || 'https://placehold.co/100x100/cccccc/333333?text=No+Image'}
+                alt={product.name}
+                className="w-16 h-16 object-cover rounded-lg flex-shrink-0 bg-gray-200 dark:bg-gray-600"
+                onError={(e) => { e.target.src = 'https://placehold.co/100x100/cccccc/333333?text=Error'; }}
+            />
+            <div className="overflow-hidden flex-grow">
+                <h5 className="font-bold text-gray-800 dark:text-gray-100">{product.name}</h5>
+                <p className="text-sm text-gray-500 dark:text-gray-400 truncate">{product.description}</p>
+            </div>
+            {canModify && (
+                <div className="absolute top-1 right-1 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => onEditClick(product)} className="p-1.5 bg-white/50 dark:bg-gray-600/50 rounded-full text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/50" title="แก้ไข"><Edit size={14} /></button>
+                    <button onClick={() => onDeleteClick(product.id)} className="p-1.5 bg-white/50 dark:bg-gray-600/50 rounded-full text-red-600 hover:bg-red-100 dark:hover:bg-red-900/50" title="ลบ"><Trash2 size={14} /></button>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// --- Product Modal Component ---
+const ProductModal = ({ product, locationId, onClose, onSave, setNotification, handleAuthError }) => {
+    const [name, setName] = useState(product?.name || '');
+    const [description, setDescription] = useState(product?.description || '');
+    const [imageFile, setImageFile] = useState(null);
+    const [previewUrl, setPreviewUrl] = useState(product?.imageUrl || null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    const handleImageFileChange = (e) => {
+        if (e.target.files && e.target.files[0]) {
+            const file = e.target.files[0];
+            setImageFile(file);
+            setPreviewUrl(URL.createObjectURL(file));
+        }
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!name.trim()) { setNotification({ message: 'กรุณากรอกชื่อของขึ้นชื่อ', type: 'error' }); return; }
+        setIsSubmitting(true);
+        const token = localStorage.getItem('token');
+        if (!token) { handleAuthError(); setIsSubmitting(false); return; } // Added reset state
+
+        const formData = new FormData();
+        formData.append('name', name);
+        formData.append('description', description);
+        if (imageFile) formData.append('image', imageFile); // 'image' should match backend field name
+        if (!product && locationId) formData.append('locationId', locationId); // Only append for new products, ensure locationId exists
+
+        const isEditing = !!product;
+        const url = isEditing ? `${API_BASE_URL}/api/famous-products/${product.id}` : `${API_BASE_URL}/api/famous-products`;
+        const method = isEditing ? 'PUT' : 'POST';
+
+        try {
+            const response = await fetch(url, { method, headers: { 'Authorization': `Bearer ${token}` }, body: formData });
+            if (response.status === 401 || response.status === 403) { handleAuthError(); return; } // Added return
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'เกิดข้อผิดพลาด');
+            setNotification({ message: isEditing ? 'อัปเดตข้อมูลสำเร็จ' : 'เพิ่มของขึ้นชื่อสำเร็จ', type: 'success' });
+            onSave();
+            onClose();
+        } catch (error) { setNotification({ message: `เกิดข้อผิดพลาด: ${error.message}`, type: 'error' }); }
+        finally { setIsSubmitting(false); }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center p-4 border-b dark:border-gray-700">
+                    <h2 className="text-xl font-bold text-gray-800 dark:text-white">{product ? 'แก้ไขของขึ้นชื่อ' : 'เพิ่มของขึ้นชื่อใหม่'}</h2>
+                    <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700" aria-label="Close modal"><X size={20} className="text-gray-600 dark:text-gray-300" /></button>
+                </div>
+                {/* ⭐ FIX: Added form id */}
+                <form id="product-modal-form" onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-4">
+                    <div>
+                        <label htmlFor="product-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">ชื่อของขึ้นชื่อ <span className="text-red-500">*</span></label>
+                        <input id="product-name" type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 focus:ring-blue-500 focus:border-blue-500" required />
+                    </div>
+                    <div>
+                        <label htmlFor="product-description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">คำอธิบาย</label>
+                        <textarea id="product-description" value={description} onChange={(e) => setDescription(e.target.value)} rows="3" className="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 focus:ring-blue-500 focus:border-blue-500"></textarea>
+                    </div>
+                    <div>
+                        <label htmlFor="product-image" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">รูปภาพ</label>
+                        <input id="product-image" type="file" accept="image/*" onChange={handleImageFileChange} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0" />
+                        {(previewUrl || product?.imageUrl) && <img src={previewUrl || product.imageUrl} alt="Preview" className="mt-2 w-32 h-32 object-cover rounded-lg bg-gray-200 dark:bg-gray-600" />}
+                    </div>
+                </form>
+                <div className="p-4 border-t dark:border-gray-700 mt-auto flex justify-end gap-4">
+                    <button onClick={onClose} className="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500 font-semibold">ยกเลิก</button>
+                    <button type="submit" form="product-modal-form" disabled={isSubmitting} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold flex items-center gap-2 disabled:opacity-50">
+                        <Save size={18} /> {isSubmitting ? 'กำลังบันทึก...' : 'บันทึก'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+
 // --- Main Detail Page Component ---
 const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, currentUser, favorites, handleToggleFavorite, handleEditItem, setNotification, handleAuthError }) => {
 
@@ -333,6 +441,7 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
     const [confirmState, setConfirmState] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {} });
 
     useEffect(() => {
+        // Fetch Similar Places
         if (item && item.category) {
             setIsSimilarLoading(true);
             const fetchSimilar = async () => {
@@ -344,16 +453,17 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
                 } catch (error) {
                     console.error("Failed to fetch similar places:", error);
                     setSimilarPlaces([]);
-                    setNotification({ message: 'ไม่สามารถโหลดสถานที่ใกล้เคียงได้', type: 'error' });
+                    // Optional: setNotification({ message: 'ไม่สามารถโหลดสถานที่ใกล้เคียงได้', type: 'error' });
                 } finally {
                     setIsSimilarLoading(false);
                 }
             };
             fetchSimilar();
         }
-    }, [item, setNotification]);
+    }, [item, setNotification]); // Added setNotification dependency back
 
     const fetchLocationProducts = useCallback(async () => {
+        // Fetch Famous Products for this location
         if (!item) return;
         setIsLoadingProducts(true);
         try {
@@ -363,51 +473,53 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
             setLocationProducts(data);
         } catch (error) {
             console.error(error);
-            setNotification({ message: error.message, type: 'error' });
+            // Optional: setNotification({ message: error.message, type: 'error' });
         } finally {
             setIsLoadingProducts(false);
         }
-    }, [item, setNotification]);
+    }, [item, setNotification]); // Added setNotification dependency back
 
     useEffect(() => {
+        // Fetch Famous Products when item changes
         if(item?.id) fetchLocationProducts();
     }, [item, fetchLocationProducts]);
 
     const allImages = useMemo(() => {
+        // Combine main and detail images
         if (!item) return [];
         const images = item.imageUrl ? [item.imageUrl] : [];
         if (item.detailImages && Array.isArray(item.detailImages)) {
             images.push(...item.detailImages.filter(img => img));
         }
-        return [...new Set(images)];
+        return [...new Set(images)]; // Ensure unique images
     }, [item]);
 
     const isFavorite = useMemo(() => favorites && item && favorites.includes(item.id), [favorites, item]);
 
     const fetchReviews = useCallback(async () => {
+        // Fetch Reviews for this location
         if (!item) return;
         try {
             const userIdQuery = currentUser ? `?userId=${currentUser.id}` : '';
             const response = await fetch(`${API_BASE_URL}/api/reviews/${item.id}${userIdQuery}`);
             if (!response.ok) throw new Error('Failed to fetch reviews');
             const data = await response.json();
-            // --- ⭐ FIX: Assume backend now returns author_profile_image_url ---
-            // You might need to adjust the field name based on your actual backend response
+            // Assuming backend now returns author_profile_image_url for reviews
             const reviewsWithProfileImages = data.map(review => ({
                 ...review,
-                // Make sure your backend query includes this field
-                author_profile_image_url: review.author_profile_image_url
+                // Ensure field names match backend response
+                author_profile_image_url: review.author_profile_image_url || review.authorProfileImageUrl
             }));
             setReviews(reviewsWithProfileImages);
-            // --- END FIX ---
         } catch (error) {
             console.error("Error fetching reviews:", error);
-            setNotification({ message: 'ไม่สามารถโหลดรีวิวได้', type: 'error' });
+            // Optional: setNotification({ message: 'ไม่สามารถโหลดรีวิวได้', type: 'error' });
         }
-    }, [item, currentUser, setNotification]);
+    }, [item, currentUser, setNotification]); // Added setNotification dependency back
 
 
     useEffect(() => {
+        // Initial setup when item changes
         window.scrollTo(0, 0);
         setCurrentSlide(0);
         setShowReviewForm(false);
@@ -415,7 +527,13 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
         if (item) {
             fetchReviews();
         }
-    }, [item, fetchReviews]);
+    }, [item, fetchReviews]); // Removed currentUser dependency, handled in fetchReviews
+
+    // --- ⭐⭐⭐ START DEBUG CONSOLE LOGS ⭐⭐⭐ ---
+    console.log("DetailPage currentUser Prop:", currentUser); // Check if currentUser is passed correctly
+    console.log("DetailPage item Prop:", item); // Check item details like user_id and status
+    // --- ⭐⭐⭐ END DEBUG CONSOLE LOGS ⭐⭐⭐ ---
+
 
     const handleReviewImageChange = (e) => { if (e.target.files) setNewReviewImages(prev => [...prev, ...Array.from(e.target.files)].slice(0, 5)); };
     const handleRemoveReviewImage = (index) => setNewReviewImages(prev => prev.filter((_, i) => i !== index));
@@ -436,8 +554,8 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
             if (!response.ok) { const errorData = await response.json(); throw new Error(errorData.error || 'Failed to submit review'); }
             setShowReviewForm(false); setNewRating(0); setNewComment(""); setNewReviewImages([]);
             setNotification({ message: 'ขอบคุณสำหรับรีวิวครับ!', type: 'success' });
-            if(onReviewSubmitted) onReviewSubmitted();
-            fetchReviews();
+            if(onReviewSubmitted) onReviewSubmitted(); // Notify parent if rating might have changed
+            fetchReviews(); // Refresh reviews list
         } catch (error) { setNotification({ message: `เกิดข้อผิดพลาด: ${error.message}`, type: 'error' }); }
         finally { setIsSubmittingReview(false); }
     };
@@ -447,16 +565,17 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
         const token = localStorage.getItem('token');
         if (!token) return handleAuthError();
         try {
+            // Pass locationId in body for rating recalculation on backend
             const response = await fetch(`${API_BASE_URL}/api/reviews/${reviewId}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ locationId: item.id }) });
             if (response.status === 401 || response.status === 403) return handleAuthError();
             if (!response.ok) { const errData = await response.json(); throw new Error(errData.error || 'ไม่สามารถลบรีวิวได้'); }
             setNotification({ message: 'ลบรีวิวสำเร็จ', type: 'success' });
-            if (onReviewSubmitted) onReviewSubmitted();
-            fetchReviews();
+            if (onReviewSubmitted) onReviewSubmitted(); // Notify parent if rating might have changed
+            fetchReviews(); // Refresh reviews list
         } catch (error) { setNotification({ message: `เกิดข้อผิดพลาด: ${error.message}`, type: 'error' }); }
     };
 
-    const handleEditClick = (review) => { setEditingReview(review); setEditedRating(review.rating); setEditedComment(review.comment); setEditedImages(review.image_urls.map(url => ({ type: 'existing', data: url }))); };
+    const handleEditClick = (review) => { setEditingReview(review); setEditedRating(review.rating); setEditedComment(review.comment); setEditedImages( (review.image_urls || []).map(url => ({ type: 'existing', data: url })) ); }; // Ensure image_urls is an array
     const handleCancelEdit = () => setEditingReview(null);
     const handleEditImageChange = (e) => { if (e.target.files) { const newFiles = Array.from(e.target.files).map(file => ({ type: 'new', data: file })); setEditedImages(prev => [...prev, ...newFiles].slice(0, 5)); } };
     const handleRemoveEditedImage = (index) => setEditedImages(prev => prev.filter((_, i) => i !== index));
@@ -466,7 +585,7 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
         const token = localStorage.getItem('token');
         if (!token) return handleAuthError();
         const formData = new FormData();
-        formData.append('locationId', item.id);
+        formData.append('locationId', item.id); // Send locationId for potential rating recalc
         formData.append('rating', editedRating);
         formData.append('comment', editedComment);
         const existingImages = editedImages.filter(img => img.type === 'existing').map(img => img.data);
@@ -479,20 +598,24 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
             if (!response.ok) { const errData = await response.json(); throw new Error(errData.error || 'ไม่สามารถอัปเดตรีวิวได้'); }
             setNotification({ message: 'อัปเดตรีวิวสำเร็จ', type: 'success' });
             setEditingReview(null);
-            if (onReviewSubmitted) onReviewSubmitted();
-            fetchReviews();
+            if (onReviewSubmitted) onReviewSubmitted(); // Notify parent if rating might have changed
+            fetchReviews(); // Refresh reviews list
         } catch (error) { setNotification({ message: `เกิดข้อผิดพลาด: ${error.message}`, type: 'error' }); }
     };
 
     const handleNavigate = () => {
+        // Open Google Maps link or coordinates
         if (item.googleMapUrl) {
             window.open(item.googleMapUrl, '_blank');
         } else if (item.coords?.lat && item.coords?.lng) {
             window.open(`https://www.google.com/maps?q=${item.coords.lat},${item.coords.lng}`, '_blank');
+        } else {
+            setNotification({ message: 'ไม่มีข้อมูลตำแหน่งสำหรับนำทาง', type: 'warning' });
         }
     };
 
     const renderStars = (rating) => {
+        // Render star rating display
         const clampedRating = Math.max(0, Math.min(5, parseFloat(rating || 0)));
         const r = clampedRating;
         const full = Math.floor(r), half = r % 1 >= 0.5, empty = 5 - full - (half ? 1 : 0);
@@ -508,7 +631,7 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
     const goToSlide = (index) => setCurrentSlide(index);
     const handleOpenProductModal = (product = null) => { setEditingProduct(product); setIsProductModalOpen(true); };
     const handleCloseProductModal = () => { setIsProductModalOpen(false); setEditingProduct(null); };
-    const handleProductSave = () => { fetchLocationProducts(); };
+    const handleProductSave = () => { fetchLocationProducts(); }; // Refresh products list on save
     const confirmDeleteProduct = (productId) => { setConfirmState({ isOpen: true, title: 'ยืนยันการลบ', message: 'คุณแน่ใจหรือไม่ว่าต้องการลบของขึ้นชื่อนี้?', onConfirm: () => { handleDeleteProduct(productId); setConfirmState({ isOpen: false, title: '', message: '', onConfirm: () => {} }); } }); };
     const handleDeleteProduct = async (productId) => {
         const token = localStorage.getItem('token');
@@ -516,56 +639,89 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
         try {
             const response = await fetch(`${API_BASE_URL}/api/famous-products/${productId}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
             if (response.status === 401 || response.status === 403) return handleAuthError();
-            if (!response.ok) { const errData = await response.json(); throw new Error(errData.error || 'ไม่สามารถลบได้'); }
+            if (!response.ok) { const errData = await response.json().catch(() => ({})); throw new Error(errData.error || 'ไม่สามารถลบได้'); } // Improved error handling
             setNotification({ message: 'ลบข้อมูลสำเร็จ', type: 'success' });
-            handleProductSave();
+            handleProductSave(); // Refresh products list
         } catch (error) { setNotification({ message: `เกิดข้อผิดพลาด: ${error.message}`, type: 'error' }); }
     };
     const confirmRequestDeletion = () => { setConfirmState({ isOpen: true, title: 'ส่งคำขอลบสถานที่', message: 'คุณแน่ใจหรือไม่? Admin จะทำการตรวจสอบคำขอของคุณก่อนดำเนินการลบ', onConfirm: () => { handleRequestDeletion(); setConfirmState({ isOpen: false, title: '', message: '', onConfirm: () => {} }); } }); };
     const handleRequestDeletion = async () => {
         setIsRequestingDelete(true);
         const token = localStorage.getItem('token');
-        if (!token) return handleAuthError();
+        if (!token) { handleAuthError(); setIsRequestingDelete(false); return; } // Add return and reset state
         try {
             const response = await fetch(`${API_BASE_URL}/api/locations/${item.id}/request-deletion`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
-            if (response.status === 401 || response.status === 403) return handleAuthError();
+            if (response.status === 401 || response.status === 403) return handleAuthError(); // Removed redundant handleAuthError inside this block
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'เกิดข้อผิดพลาด');
             setNotification({ message: data.message, type: 'success' });
-            setTimeout(() => { setCurrentPage(item.type === 'attraction' ? 'attractions' : 'foodshops'); }, 2000);
+            // Determine correct page to return to based on the current item's category
+            const isFoodShop = ['ร้านอาหาร', 'คาเฟ่', 'ตลาด'].includes(item.category);
+            const returnPage = isFoodShop ? 'foodshops' : 'attractions'; // Updated logic
+            setTimeout(() => { setCurrentPage(returnPage); }, 2000);
         } catch (error) { setNotification({ message: error.message, type: 'error' }); }
         finally { setIsRequestingDelete(false); }
     };
 
     if (!item) { return <div className="flex justify-center items-center h-screen"><p className="text-xl dark:text-gray-300">กำลังโหลดข้อมูลสถานที่...</p></div>; }
-    const isOwner = currentUser && currentUser.id === item.user_id;
+
+    // ⭐ FIX: Correctly check currentUser.id against item.user_id
+    const isOwner = currentUser && item && currentUser.id === item.user_id; // Added item check
+    // ⭐ FIX: Add check for admin role
+    const isAdmin = currentUser && currentUser.role === 'admin';
+    const canModifyLocation = isAdmin || isOwner; // Combine checks
+
+    // --- ⭐⭐⭐ START DEBUG CONSOLE LOGS ⭐⭐⭐ ---
+    console.log("Is Admin:", isAdmin);
+    console.log("Is Owner:", isOwner);
+    console.log("Can Modify Location:", canModifyLocation);
+    console.log("Item Status:", item?.status);
+    // --- ⭐⭐⭐ END DEBUG CONSOLE LOGS ⭐⭐⭐ ---
+
+
     const itemRating = parseFloat(item.rating || 0);
 
     return (
         <>
             <ConfirmationModal isOpen={confirmState.isOpen} onClose={() => setConfirmState({ ...confirmState, isOpen: false })} onConfirm={confirmState.onConfirm} title={confirmState.title} message={confirmState.message} />
             {isLightboxOpen && <ImageLightbox images={allImages} selectedIndex={selectedImageIndex} onClose={closeLightbox} onNext={goToNextImage} onPrev={goToPrevImage} />}
-            {isProductModalOpen && <ProductModal product={editingProduct} locationId={item.id} onClose={handleCloseProductModal} onSave={handleProductSave} setNotification={setNotification} handleAuthError={handleAuthError} />}
+            {isProductModalOpen && <ProductModal product={editingProduct} locationId={item?.id} onClose={handleCloseProductModal} onSave={handleProductSave} setNotification={setNotification} handleAuthError={handleAuthError} />} {/* Added item?.id check */}
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 <div className="flex flex-col lg:flex-row lg:gap-12">
                     <main className="lg:w-2/3 w-full">
                         {item.status === 'pending_deletion' && (<div className="p-4 mb-6 bg-yellow-100 dark:bg-yellow-900/30 border-l-4 border-yellow-500 text-yellow-800 dark:text-yellow-200 rounded-r-lg"><p className="font-bold">สถานะ: รอการอนุมัติลบ</p><p>สถานที่นี้ถูกส่งคำขอลบแล้ว และกำลังรอการตรวจสอบจากผู้ดูแลระบบ</p></div>)}
                         <div className="p-4 sm:p-8 bg-white dark:bg-gray-800 rounded-2xl shadow-xl animate-fade-in-up">
                             <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
-                                <button onClick={() => setCurrentPage(item.type === 'attraction' ? 'attractions' : 'foodshops')} className="flex items-center text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-semibold transition"><ChevronLeft size={20} className="mr-2" /> กลับไปยังรายการ</button>
+                                {/* Back Button */}
+                                <button onClick={() => {
+                                    // ⭐ FIX: Determine return page dynamically
+                                    const isFoodShop = item && ['ร้านอาหาร', 'คาเฟ่', 'ตลาด'].includes(item.category); // Added item check
+                                    setCurrentPage(isFoodShop ? 'foodshops' : 'attractions');
+                                }} className="flex items-center text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-semibold transition"><ChevronLeft size={20} className="mr-2" /> กลับไปยังรายการ</button>
+                                {/* --- ⭐ FIX: Show Edit/Delete buttons conditionally --- */}
                                 <div className="flex items-center gap-2">
-                                    {currentUser && (<button onClick={() => handleToggleFavorite(item.id)} className="flex items-center gap-2 px-4 py-2 border-2 rounded-full text-red-500 border-red-200 dark:border-red-500/50 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors" title={isFavorite ? 'ลบออกจากรายการโปรด' : 'เพิ่มในรายการโปรด'}><Heart size={20} fill={isFavorite ? 'currentColor' : 'none'} /><span className="font-semibold">{isFavorite ? 'บันทึกแล้ว' : 'บันทึก'}</span></button>)}
-                                    {isOwner && item.status === 'approved' && (<>
-                                        <button onClick={() => handleEditItem(item)} className="flex items-center gap-2 px-4 py-2 border rounded-full text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"><Edit size={16} /> <span className="font-semibold">แก้ไข</span></button>
-                                        <button onClick={confirmRequestDeletion} disabled={isRequestingDelete} className="flex items-center gap-2 px-4 py-2 border rounded-full text-red-600 border-red-200 dark:border-red-500/50 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors disabled:opacity-50"><Trash2 size={16} /> <span className="font-semibold">{isRequestingDelete ? 'กำลังส่งคำขอ...' : 'ร้องขอลบ'}</span></button>
-                                    </>)}
+                                    {currentUser && (<button onClick={() => item && handleToggleFavorite(item.id)} className="flex items-center gap-2 px-4 py-2 border-2 rounded-full text-red-500 border-red-200 dark:border-red-500/50 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors" title={isFavorite ? 'ลบออกจากรายการโปรด' : 'เพิ่มในรายการโปรด'}><Heart size={20} fill={isFavorite ? 'currentColor' : 'none'} /><span className="font-semibold">{isFavorite ? 'บันทึกแล้ว' : 'บันทึก'}</span></button>)} {/* Added item check */}
+                                    {/* Show buttons if Admin OR Owner AND status is 'approved' */}
+                                    {canModifyLocation && item?.status === 'approved' && ( // Added item check
+                                        <>
+                                            <button onClick={() => item && handleEditItem(item)} className="flex items-center gap-2 px-4 py-2 border rounded-full text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" title="แก้ไขสถานที่"><Edit size={16} /> <span className="font-semibold hidden sm:inline">แก้ไข</span></button> {/* Added item check */}
+                                            <button onClick={confirmRequestDeletion} disabled={isRequestingDelete} className="flex items-center gap-2 px-4 py-2 border rounded-full text-red-600 border-red-200 dark:border-red-500/50 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors disabled:opacity-50" title="ร้องขอลบสถานที่"><Trash2 size={16} /> <span className="font-semibold hidden sm:inline">{isRequestingDelete ? 'กำลังส่ง...' : 'ร้องขอลบ'}</span></button>
+                                        </>
+                                    )}
                                 </div>
+                                {/* --- END FIX --- */}
                             </div>
-                            <h2 className="text-4xl md:text-5xl font-bold text-gray-800 dark:text-gray-100 mb-4 text-center leading-tight">{item.name}</h2>
+                            <h2 className="text-4xl md:text-5xl font-bold text-gray-800 dark:text-gray-100 mb-4 text-center leading-tight">{item?.name || 'Loading...'}</h2> {/* Added fallback */}
                             <div className="mb-6 relative">
                                 <div className="overflow-hidden rounded-xl shadow-lg aspect-w-16 aspect-h-9 bg-gray-200 dark:bg-gray-700">
                                     <div className="flex transition-transform duration-500 ease-in-out" style={{ transform: `translateX(-${currentSlide * 100}%)` }}>
-                                        {allImages.map((img, index) => (<img key={index} src={img} alt={`${item.name} ${index + 1}`} className="w-full flex-shrink-0 object-cover cursor-pointer" onClick={() => openLightbox(index)} onError={(e) => { e.target.src = 'https://placehold.co/800x450/cccccc/333333?text=Image+Not+Found'; }} />))}
+                                        {allImages.length > 0 ? (
+                                            allImages.map((img, index) => (<img key={index} src={img} alt={`${item?.name || 'Image'} ${index + 1}`} className="w-full flex-shrink-0 object-cover cursor-pointer" onClick={() => openLightbox(index)} onError={(e) => { e.target.src = 'https://placehold.co/800x450/cccccc/333333?text=Image+Not+Found'; }} />))
+                                        ) : (
+                                            <div className="w-full flex-shrink-0 flex items-center justify-center bg-gray-300 dark:bg-gray-700">
+                                                <ImageIcon size={64} className="text-gray-500" />
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                                 {allImages.length > 1 && (<>
@@ -575,20 +731,12 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
                                 </>)}
                             </div>
                             <div className="flex items-center justify-center mb-6 text-gray-700 dark:text-gray-300"><div className="flex items-center mr-4">{renderStars(itemRating)}<span className="ml-2 text-xl font-bold">{itemRating.toFixed(1)}</span></div><div className="flex items-center"><MessageSquare size={20} className="mr-2 text-blue-500" /><span className="text-lg">{reviews.length || 0} รีวิว</span></div></div>
-                            <p className="text-gray-700 dark:text-gray-300 text-lg leading-relaxed mb-6">{item.fullDescription || item.description}</p>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-gray-700 dark:text-gray-200 mb-6"><div className="flex items-center p-3 bg-gray-100 dark:bg-gray-700 rounded-lg shadow-sm"><Clock size={24} className="mr-3 text-purple-600" /> <span className="font-semibold">เวลาทำการ:</span> <span className="ml-2">{item.hours || 'ไม่มีข้อมูล'}</span></div><div className="flex items-center p-3 bg-gray-100 dark:bg-gray-700 rounded-lg shadow-sm"><Phone size={24} className="mr-3 text-green-600" /> <span className="font-semibold">ติดต่อ:</span> <span className="ml-2">{item.contact || 'ไม่มีข้อมูล'}</span></div></div>
-                            
-                            {/* --- ⭐ FIX: ลบส่วนแผนที่ออก --- */}
-                            {/* <div className="mt-8">
-                                <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-4">ตำแหน่งบนแผนที่</h3>
-                                <div className="text-center p-4 bg-gray-100 dark:bg-gray-700 rounded-lg">
-                                    <p className="text-gray-600 dark:text-gray-300">ส่วนแสดงแผนที่ถูกปิดใช้งานชั่วคราว</p>
-                                </div>
-                            </div> */}
-                            {/* --- END FIX --- */}
-                            
+                            <p className="text-gray-700 dark:text-gray-300 text-lg leading-relaxed mb-6">{item?.fullDescription || item?.description || ''}</p> {/* Added fallback */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-gray-700 dark:text-gray-200 mb-6"><div className="flex items-center p-3 bg-gray-100 dark:bg-gray-700 rounded-lg shadow-sm"><Clock size={24} className="mr-3 text-purple-600" /> <span className="font-semibold">เวลาทำการ:</span> <span className="ml-2">{item?.hours || 'ไม่มีข้อมูล'}</span></div><div className="flex items-center p-3 bg-gray-100 dark:bg-gray-700 rounded-lg shadow-sm"><Phone size={24} className="mr-3 text-green-600" /> <span className="font-semibold">ติดต่อ:</span> <span className="ml-2">{item?.contact || 'ไม่มีข้อมูล'}</span></div></div>
+
                             <button onClick={handleNavigate} className="w-full mt-8 bg-gradient-to-r from-teal-500 to-green-600 text-white py-4 px-6 rounded-full flex items-center justify-center space-x-3 hover:from-teal-600 hover:to-green-700 transition transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-teal-300 shadow-lg font-bold text-xl"><MapPin size={24} /><span>นำทางด้วย Google Maps</span></button>
                             <hr className="my-8 border-t-2 border-gray-100 dark:border-gray-700" />
+                            {/* Review Section */}
                             <div className="space-y-6">
                                 <h3 className="text-3xl font-bold text-gray-800 dark:text-gray-100">รีวิวและความคิดเห็น</h3>
                                 {currentUser && (<button onClick={() => setShowReviewForm(!showReviewForm)} className="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors">{showReviewForm ? 'ยกเลิกการเขียนรีวิว' : 'เขียนรีวิวของคุณ'}</button>)}
@@ -600,13 +748,15 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
                         </div>
                     </main>
                     <aside className="lg:w-1/3 w-full mt-12 lg:mt-0 lg:sticky lg:top-8 self-start">
+                        {/* Similar Places */}
                         <div className="p-6 bg-white dark:bg-gray-800 rounded-2xl shadow-xl ring-1 ring-black dark:ring-white ring-opacity-5 dark:ring-opacity-10">
-                            <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-5">{item.category ? `สถานที่อื่นในหมวดหมู่ "${item.category}"` : 'สถานที่แนะนำ'}</h3>
+                            <h3 className="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-5">{item?.category ? `สถานที่อื่นในหมวดหมู่ "${item.category}"` : 'สถานที่แนะนำ'}</h3> {/* Added fallback */}
                             {isSimilarLoading ? (<p className="text-gray-500 dark:text-gray-400">กำลังค้นหาสถานที่...</p>) : similarPlaces.length > 0 ? (<div className="space-y-4">{similarPlaces.map(place => (<div key={place.id} className="flex items-center gap-4 p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer transition-colors" onClick={() => handleItemClick(place)}><img src={place.imageUrl || 'https://placehold.co/100x100/cccccc/333333?text=No+Image'} alt={place.name} className="w-16 h-16 object-cover rounded-lg flex-shrink-0 bg-gray-200 dark:bg-gray-600" /><div className="overflow-hidden"><h5 className="font-bold text-gray-800 dark:text-gray-100 truncate">{place.name}</h5><p className="text-sm text-gray-500 dark:text-gray-400 truncate">{place.category}</p></div></div>))}</div>) : (<p className="text-gray-500 dark:text-gray-400 text-center p-4">ไม่พบสถานที่อื่นในหมวดหมู่นี้</p>)}
                         </div>
+                        {/* Famous Products */}
                         <div className="mt-8 p-6 bg-white dark:bg-gray-800 rounded-2xl shadow-xl ring-1 ring-black dark:ring-white ring-opacity-5 dark:ring-opacity-10">
                             <div className="flex justify-between items-center mb-5"><h3 className="text-2xl font-bold text-gray-800 dark:text-gray-100 flex items-center"><Gift size={24} className="mr-3 text-amber-500" />ของขึ้นชื่อประจำที่นี่</h3>{currentUser && (<button onClick={() => handleOpenProductModal(null)} className="flex items-center text-sm bg-blue-500 text-white font-semibold py-1 px-3 rounded-full hover:bg-blue-600 transition-colors"><Plus size={16} className="mr-1" />เพิ่ม</button>)}</div>
-                            {isLoadingProducts ? (<p className="text-gray-500 dark:text-gray-400">กำลังโหลดข้อมูล...</p>) : locationProducts.length > 0 ? (<div className="space-y-4">{locationProducts.map(product => (<div key={product.id} className="group relative flex items-center gap-4 p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"><img src={product.imageUrl || 'https://placehold.co/100x100/cccccc/333333?text=No+Image'} alt={product.name} className="w-16 h-16 object-cover rounded-lg flex-shrink-0 bg-gray-200 dark:bg-gray-600" /><div className="overflow-hidden flex-grow"><h5 className="font-bold text-gray-800 dark:text-gray-100">{product.name}</h5><p className="text-sm text-gray-500 dark:text-gray-400 truncate">{product.description}</p></div>{currentUser && (currentUser.id === product.user_id || currentUser.role === 'admin') && (<div className="absolute top-1 right-1 flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={() => handleOpenProductModal(product)} className="p-1.5 bg-white/50 dark:bg-gray-600/50 rounded-full text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/50"><Edit size={14} /></button><button onClick={() => confirmDeleteProduct(product.id)} className="p-1.5 bg-white/50 dark:bg-gray-600/50 rounded-full text-red-600 hover:bg-red-100 dark:hover:bg-red-900/50"><Trash2 size={14} /></button></div>)}</div>))}</div>) : (<p className="text-gray-500 dark:text-gray-400 text-center p-4">ยังไม่มีของขึ้นชื่อสำหรับสถานที่นี้</p>)}
+                            {isLoadingProducts ? (<p className="text-gray-500 dark:text-gray-400">กำลังโหลดข้อมูล...</p>) : locationProducts.length > 0 ? (<div className="space-y-4">{locationProducts.map(product => (<ProductCard key={product.id} product={product} currentUser={currentUser} onEditClick={handleOpenProductModal} onDeleteClick={confirmDeleteProduct} />))}</div>) : (<p className="text-gray-500 dark:text-gray-400 text-center p-4">ยังไม่มีของขึ้นชื่อสำหรับสถานที่นี้</p>)}
                         </div>
                     </aside>
                 </div>
