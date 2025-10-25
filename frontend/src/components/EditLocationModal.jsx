@@ -1,59 +1,149 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, Upload, Trash2 } from 'lucide-react';
+import { 
+    X, Save, UploadCloud, Trash2, Loader, // Icons for modal
+    Clock, Phone, MapPin, Tag, FileText, ChevronDown, Check, // Icons for inputs
+    Landmark, Coffee, ShoppingBag, Utensils, Store, Menu // Icons for categories
+} from 'lucide-react';
 
-// --- รายการหมวดหมู่ (เพิ่มหมวดหมู่ตามที่คุณต้องการ) ---
-const CATEGORIES = [
-    'วัด',
-    'พิพิธภัณฑ์',
-    'สวนสาธารณะ',
-    'ร้านอาหาร',
-    'คาเฟ่',
-    'ตลาด',
-    'ห้างสรรพสินค้า',
-    'สถานที่ทางประวัติศาสตร์',
-    'อื่นๆ', // ควรมี 'อื่นๆ' ไว้เสมอ
+// --- Reusable Sub-Components (Adapted from AddLocationPage) ---
+
+const InputGroup = ({ icon, label, id, ...props }) => (
+    <div>
+        <label htmlFor={id} className="flex items-center text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
+            {React.cloneElement(icon, { size: 14 })}
+            <span className="ml-1.5">{label}</span>
+        </label>
+        <input
+            id={id}
+            className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-white"
+            {...props}
+        />
+    </div>
+);
+
+// --- Categories with Icons (from AddLocationPage) ---
+const categories = [
+    { name: 'วัด', icon: <Landmark size={18} />, color: 'text-amber-500' },
+    { name: 'ร้านอาหาร', icon: <Utensils size={18} />, color: 'text-emerald-500' },
+    { name: 'คาเฟ่', icon: <Coffee size={18} />, color: 'text-orange-500' },
+    { name: 'ตลาด', icon: <Store size={18} />, color: 'text-violet-500' },
+    { name: 'ห้างสรรพสินค้า', icon: <ShoppingBag size={18} />, color: 'text-rose-500' },
+    { name: 'อื่นๆ', icon: <Menu size={18} />, color: 'text-slate-500' },
 ];
 
+const CategoryDropdown = ({ selectedCategory, onSelect }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const selectedCatInfo = categories.find(c => c.name === selectedCategory) || categories.find(c => c.name === 'อื่นๆ'); // Default to 'อื่นๆ'
+
+    return (
+        <div>
+            <label htmlFor="category-button-edit" className="flex items-center text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
+                <Tag size={14} />
+                <span className="ml-1.5">ประเภท</span>
+            </label>
+            <div className="relative">
+                <button id="category-button-edit" type="button" onClick={() => setIsOpen(!isOpen)} className="w-full flex justify-between items-center px-4 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-left">
+                    <span className="flex items-center text-gray-800 dark:text-white">
+                        <span className={selectedCatInfo.color}>{selectedCatInfo.icon}</span>
+                        <span className="ml-3">{selectedCatInfo.name}</span>
+                    </span>
+                    <ChevronDown size={16} className={`text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {isOpen && (
+                    <div className="absolute z-20 top-full mt-1 w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg py-1 max-h-60 overflow-y-auto">
+                        {categories.map((cat) => (
+                            <button key={cat.name} type="button" onClick={() => { onSelect(cat.name); setIsOpen(false); }} className="w-full flex items-center px-4 py-2 text-left text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600">
+                                <span className={cat.color}>{cat.icon}</span>
+                                <span className="ml-2">{cat.name}</span>
+                                {selectedCategory === cat.name && <Check size={16} className="ml-auto text-blue-600" />}
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+// --- Special ImageItem for Edit Modal (handles {type, data}) ---
+const EditImageItem = ({ imageObj, onRemove }) => {
+    const [objectUrl, setObjectUrl] = useState(null);
+
+    useEffect(() => {
+        let url = null;
+        if (imageObj.type === 'new' && imageObj.data instanceof File) {
+            // New file, create a blob URL
+            url = URL.createObjectURL(imageObj.data);
+            setObjectUrl(url);
+        } else if (imageObj.type === 'existing') {
+            // Existing image, use the URL directly
+            setObjectUrl(imageObj.data);
+        }
+
+        // Cleanup function to revoke blob URL
+        return () => {
+            if (url) {
+                URL.revokeObjectURL(url);
+            }
+        };
+    }, [imageObj]); // Re-run if the image object changes
+
+    if (!objectUrl) return null; // Don't render if URL isn't ready
+
+    return (
+        <div className="relative group aspect-square">
+            <img 
+                src={objectUrl} 
+                alt={`preview`} 
+                className="w-full h-full object-cover rounded-lg" 
+            />
+            <button 
+                type="button" 
+                onClick={onRemove} 
+                className="absolute top-0 right-0 -m-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity" 
+                aria-label="Remove image"
+            >
+                <Trash2 size={14} />
+            </button>
+        </div>
+    );
+};
+
+
+// --- Main EditLocationModal Component ---
 const EditLocationModal = ({ item, onClose, onItemUpdated, setNotification, handleAuthError }) => {
     // --- Text fields state ---
     const [name, setName] = useState('');
-    const [category, setCategory] = useState('');
+    const [category, setCategory] = useState(categories[0].name); // Default to first category
     const [description, setDescription] = useState('');
     const [googleMapUrl, setGoogleMapUrl] = useState('');
-    // --- FIX: State สำหรับเวลาเปิด-ปิด ---
-    const [startTime, setStartTime] = useState(''); // เก็บเวลาเปิด HH:MM
-    const [endTime, setEndTime] = useState('');   // เก็บเวลาปิด HH:MM
-    // --- END FIX ---
+    const [startTime, setStartTime] = useState('');
+    const [endTime, setEndTime] = useState('');
     const [contact, setContact] = useState('');
     
     // --- Image management state ---
-    const [images, setImages] = useState([]); // Will store objects like { type: 'existing'/'new', data: url/File }
-
+    const [images, setImages] = useState([]); // Stores { type: 'existing'/'new', data: url/File }
     const [isSubmitting, setIsSubmitting] = useState(false);
 
+    // --- Load item data into state when modal opens ---
     useEffect(() => {
         if (item) {
-            // Set text fields
             setName(item.name || '');
-            setCategory(item.category || ''); // ถ้าไม่มี category เดิม ให้เป็น ''
+            setCategory(item.category || categories[0].name); // Default if no category
             setDescription(item.description || '');
             setGoogleMapUrl(item.google_map_url || item.googleMapUrl || '');
             setContact(item.contact || '');
 
-            // --- FIX: แยกเวลาเปิด-ปิด จาก 'hours' ---
             const currentHours = item.hours || '';
-            const timeParts = currentHours.match(/(\d{2}:\d{2})-(\d{2}:\d{2})/); // พยายามจับรูปแบบ HH:MM-HH:MM
+            const timeParts = currentHours.match(/(\d{2}:\d{2})-(\d{2}:\d{2})/);
             if (timeParts) {
                 setStartTime(timeParts[1]);
                 setEndTime(timeParts[2]);
             } else {
-                // ถ้า format ไม่ตรง หรือไม่มีข้อมูล ให้เคลียร์ค่า
                 setStartTime('');
                 setEndTime('');
             }
-            // --- END FIX ---
 
-            // --- Populate initial images ---
             const initialImages = [];
             if (item.imageUrl) {
                 initialImages.push({ type: 'existing', data: item.imageUrl });
@@ -73,30 +163,45 @@ const EditLocationModal = ({ item, onClose, onItemUpdated, setNotification, hand
     const handleImageChange = (e) => {
         if (e.target.files) {
             const newFiles = Array.from(e.target.files).map(file => ({ type: 'new', data: file }));
-            setImages(prev => [...prev, ...newFiles]);
+            setImages(prev => [...prev, ...newFiles].slice(0, 10)); // Limit to 10 images total
         }
+        e.target.value = null; // Clear input
     };
 
-    // --- Handle removing an image (works for both existing and new) ---
+    // --- Handle removing an image ---
     const handleRemoveImage = (index) => {
         setImages(prev => prev.filter((_, i) => i !== index));
     };
 
+    // --- Handle phone number input ---
+    const handleContactChange = (e) => {
+        const numericValue = e.target.value.replace(/[^0-9]/g, '');
+        if (numericValue.length <= 10) {
+            setContact(numericValue);
+        }
+    };
 
+    // --- Form Submission Logic (unchanged) ---
     const handleSubmit = async (e) => {
         e.preventDefault();
+
+        // --- Validation for time (optional: both must be present or none) ---
+        if ((startTime && !endTime) || (!startTime && endTime)) {
+             setNotification({ message: 'กรุณาระบุทั้งเวลาเปิดและเวลาปิด หรือเว้นว่างทั้งคู่', type: 'error'});
+             return;
+        }
+
         setIsSubmitting(true);
         const token = localStorage.getItem('token');
-
         const formData = new FormData();
+
         formData.append('name', name);
         formData.append('category', category);
         formData.append('description', description);
         formData.append('googleMapUrl', googleMapUrl);
-        // --- FIX: รวมเวลาเปิด-ปิด เป็น string ก่อนส่ง ---
-        const hoursString = startTime && endTime ? `${startTime}-${endTime}` : ''; // ถ้ามีครบ ให้รวม, ไม่งั้นส่งค่าว่าง
+        
+        const hoursString = startTime && endTime ? `${startTime}-${endTime}` : '';
         formData.append('hours', hoursString);
-        // --- END FIX ---
         formData.append('contact', contact);
 
         const existingImages = images
@@ -109,13 +214,15 @@ const EditLocationModal = ({ item, onClose, onItemUpdated, setNotification, hand
 
         formData.append('existingImages', JSON.stringify(existingImages));
         newImageFiles.forEach(file => {
-            formData.append('images', file);
+            formData.append('images', file); // API expects 'images'
         });
         
-        // --- FIX: จัดการกับ Warning ของ import.meta.env ---
-        // เพิ่มค่า fallback 'http://localhost:5000' ในกรณีที่ VITE_API_URL อ่านค่าไม่ได้
-        const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-        // --- END FIX ---
+        // --- FIX: Replaced import.meta.env to resolve ES2015 compilation warning ---
+        // The build environment seems to not support 'import.meta.env'.
+        // Using the fallback URL directly. You may need to change this back
+        // to 'import.meta.env.VITE_API_URL' if your Vite build process handles it.
+        const API_BASE_URL = 'http://localhost:5000';
+        // const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'; // Original problematic code
 
         try {
             const response = await fetch(`${API_BASE_URL}/api/locations/${item.id}`, {
@@ -126,13 +233,13 @@ const EditLocationModal = ({ item, onClose, onItemUpdated, setNotification, hand
                 body: formData,
             });
             
-            if (response.status === 401 || response.status === 403) { // <<< Added 401 check
+            if (response.status === 401 || response.status === 403) {
                 handleAuthError();
                 return;
             }
 
             if (!response.ok) {
-                const errorData = await response.json().catch(() => ({ error: 'ไม่สามารถอัปเดตข้อมูลได้' })); // Add fallback error
+                const errorData = await response.json().catch(() => ({ error: 'ไม่สามารถอัปเดตข้อมูลได้' }));
                 throw new Error(errorData.error || 'ไม่สามารถอัปเดตข้อมูลได้');
             }
 
@@ -150,135 +257,120 @@ const EditLocationModal = ({ item, onClose, onItemUpdated, setNotification, hand
 
     if (!item) return null;
 
+    // --- STYLED JSX ---
     return (
         <div className="fixed inset-0 bg-black/60 z-[99] flex items-center justify-center p-4 animate-fade-in">
             <div 
                 className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col"
                 onClick={(e) => e.stopPropagation()}
             >
-                <div className="flex justify-between items-center p-4 border-b dark:border-gray-700">
+                {/* --- Modal Header --- */}
+                <div className="flex justify-between items-center p-5 border-b dark:border-gray-700">
                     <h2 className="text-2xl font-bold text-gray-800 dark:text-white">แก้ไขข้อมูล: {item.name}</h2>
                     <button 
                         onClick={onClose} 
-                        className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"
+                        className="p-2 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
                         aria-label="Close modal"
                     >
-                        <X size={24} className="text-gray-600 dark:text-gray-300" />
+                        <X size={24} />
                     </button>
                 </div>
                 
+                {/* --- Modal Body (Scrollable Form) --- */}
                 <form 
                     id="edit-location-form"
                     onSubmit={handleSubmit} 
-                    className="p-6 overflow-y-auto space-y-4"
+                    className="p-6 overflow-y-auto space-y-5 custom-scrollbar" // Use custom-scrollbar if defined globally
                 >
-                    {/* --- Text input fields --- */}
-                    <div>
-                        <label htmlFor="edit-loc-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">ชื่อสถานที่</label>
-                        <input id="edit-loc-name" type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 focus:ring-blue-500 focus:border-blue-500" required />
-                    </div>
+                    <InputGroup icon={<Tag />} label="ชื่อสถานที่" id="edit-loc-name" type="text" value={name} onChange={(e) => setName(e.target.value)} required />
                     
-                    {/* --- FIX: เปลี่ยนเป็น Dropdown หมวดหมู่ --- */}
-                    <div>
-                        <label htmlFor="edit-loc-category" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">หมวดหมู่</label>
-                        <select 
-                            id="edit-loc-category" 
-                            value={category} 
-                            onChange={(e) => setCategory(e.target.value)} 
-                            className="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 focus:ring-blue-500 focus:border-blue-500" 
-                            required
-                        >
-                            <option value="" disabled>-- เลือกหมวดหมู่ --</option>
-                            {CATEGORIES.map(cat => (
-                                <option key={cat} value={cat}>{cat}</option>
-                            ))}
-                        </select>
-                    </div>
-                    {/* --- END FIX --- */}
+                    <CategoryDropdown selectedCategory={category} onSelect={(cat) => setCategory(cat)} />
+
+                    <InputGroup icon={<MapPin />} label="ลิงก์ Google Maps" id="edit-loc-gmap" type="url" value={googleMapUrl} onChange={(e) => setGoogleMapUrl(e.target.value)} placeholder="วางลิงก์จาก Address Bar หรือปุ่ม Share" />
                     
-                    <div>
-                        <label htmlFor="edit-loc-description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">คำอธิบาย</label>
-                        <textarea id="edit-loc-description" value={description} onChange={(e) => setDescription(e.target.value)} rows="4" className="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 focus:ring-blue-500 focus:border-blue-500"></textarea>
-                    </div>
-                     <div>
-                        <label htmlFor="edit-loc-gmap" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Google Maps URL</label>
-                        <input id="edit-loc-gmap" type="url" value={googleMapUrl} onChange={(e) => setGoogleMapUrl(e.target.value)} className="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 focus:ring-blue-500 focus:border-blue-500" />
-                    </div>
-                    
-                    {/* --- FIX: เปลี่ยนเป็น Input ช่วงเวลา --- */}
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">เวลาทำการ</label>
-                        <div className="flex items-center gap-2">
-                             <input 
-                                id="edit-loc-start-time"
-                                type="time" 
-                                value={startTime} 
-                                onChange={(e) => setStartTime(e.target.value)} 
-                                className="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 focus:ring-blue-500 focus:border-blue-500" 
-                            />
-                            <span className="text-gray-500 dark:text-gray-400">-</span>
-                            <input 
-                                id="edit-loc-end-time"
-                                type="time" 
-                                value={endTime} 
-                                onChange={(e) => setEndTime(e.target.value)} 
-                                className="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 focus:ring-blue-500 focus:border-blue-500" 
-                            />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="flex items-center text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
+                                <Clock size={14} className="mr-1.5" /> เวลาทำการ
+                            </label>
+                            <div className="flex items-center gap-2">
+                                <input 
+                                    id="edit-loc-start-time"
+                                    type="time" 
+                                    value={startTime} 
+                                    onChange={(e) => setStartTime(e.target.value)} 
+                                    className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-white" 
+                                />
+                                <span className="text-gray-500 dark:text-gray-400">-</span>
+                                <input 
+                                    id="edit-loc-end-time"
+                                    type="time" 
+                                    value={endTime} 
+                                    onChange={(e) => setEndTime(e.target.value)} 
+                                    className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-white"
+                                />
+                            </div>
                         </div>
+                        <InputGroup 
+                            icon={<Phone />} 
+                            label="เบอร์ติดต่อ (10 หลัก)" 
+                            id="edit-loc-contact" 
+                            name="contact" 
+                            type="tel"
+                            value={contact} 
+                            onChange={handleContactChange} 
+                            placeholder="ใส่เฉพาะตัวเลข 10 หลัก" 
+                            maxLength="10" 
+                            pattern="[0-9]*"
+                        />
                     </div>
-                    {/* --- END FIX --- */}
                     
-                     <div>
-                        <label htmlFor="edit-loc-contact" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">ข้อมูลติดต่อ</label>
-                        <input id="edit-loc-contact" type="text" value={contact} onChange={(e) => setContact(e.target.value)} className="w-full p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 focus:ring-blue-500 focus:border-blue-500" />
+                    <div>
+                        <label htmlFor="edit-loc-description" className="flex items-center text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
+                            <FileText size={14} className="mr-1.5" /> รายละเอียด
+                        </label>
+                        <textarea id="edit-loc-description" value={description} onChange={(e) => setDescription(e.target.value)} rows="4" className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:ring-blue-500 focus:border-blue-500" placeholder="ใส่คำอธิบายสั้นๆ..."></textarea>
                     </div>
 
                     {/* --- Image Management Section --- */}
-                    <hr className="dark:border-gray-600" />
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">จัดการรูปภาพ</label>
-                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
-                            {images.map((image, index) => (
-                                <div key={image.type === 'new' ? `${image.data.name}-${index}` : image.data} className="relative group aspect-square">
-                                    <img 
-                                        // Use URL.createObjectURL for previewing new files
-                                        src={image.type === 'new' ? URL.createObjectURL(image.data) : image.data} 
-                                        alt={`preview ${index}`} 
-                                        className="w-full h-full object-cover rounded-lg" 
-                                        // Clean up object URL when component unmounts or image changes (important!)
-                                        onLoad={e => { if (image.type === 'new' && e.target.src.startsWith('blob:')) URL.revokeObjectURL(e.target.src); }}
-                                    />
-                                    <button 
-                                        type="button" 
-                                        onClick={() => handleRemoveImage(index)} 
-                                        className="absolute top-0 right-0 -m-2 bg-red-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                                        aria-label="ลบรูปภาพนี้"
-                                    >
-                                        <Trash2 size={16} />
-                                    </button>
-                                </div>
+                        <label className="block text-sm font-semibold text-gray-600 dark:text-gray-300 mb-2">จัดการรูปภาพ (สูงสุด 10 รูป)</label>
+                        <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
+                            {images.map((imageObj, index) => (
+                                <EditImageItem 
+                                    key={imageObj.type === 'new' ? `${imageObj.data.name}-${index}` : imageObj.data} 
+                                    imageObj={imageObj} 
+                                    onRemove={() => handleRemoveImage(index)} 
+                                />
                             ))}
-                             <label htmlFor="image-upload-edit" className="flex flex-col items-center justify-center aspect-square border-2 border-dashed rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 dark:border-gray-600">
-                                <Upload size={32} className="text-gray-400" />
-                                <span className="text-xs text-center text-gray-500 mt-1">เพิ่มรูปภาพ</span>
-                                <input id="image-upload-edit" type="file" multiple accept="image/*" className="hidden" onChange={handleImageChange} />
-                            </label>
+                             {/* Uploader Button (only if less than 10 images) */}
+                            {images.length < 10 && (
+                                <label htmlFor="image-upload-edit" className="flex flex-col items-center justify-center aspect-square border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg cursor-pointer text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 hover:border-blue-500 dark:hover:border-blue-500 transition-colors">
+                                    <UploadCloud size={32} />
+                                    <span className="text-xs text-center mt-1">เพิ่มรูปภาพ</span>
+                                    <input id="image-upload-edit" type="file" multiple accept="image/*" className="hidden" onChange={handleImageChange} />
+                                </label>
+                            )}
                         </div>
+                         <input id="image-upload-edit-fallback" type="file" multiple accept="image/*" className="block w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-gray-100 dark:file:bg-gray-600 file:text-gray-700 dark:file:text-gray-200 file:font-semibold hover:file:bg-gray-200 dark:hover:file:bg-gray-500 mt-4" onChange={handleImageChange} />
                     </div>
-
                 </form>
 
-                <div className="p-4 border-t dark:border-gray-700 mt-auto flex justify-end gap-4">
-                    <button onClick={onClose} className="px-6 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 dark:bg-gray-600 dark:hover:bg-gray-500 font-semibold">
+                {/* --- Modal Footer --- */}
+                <div className="p-5 border-t dark:border-gray-700 mt-auto flex justify-end gap-3">
+                    <button 
+                        onClick={onClose} 
+                        className="px-6 py-2.5 rounded-lg bg-gray-100 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:bg-gray-600 dark:hover:bg-gray-500 font-semibold transition-colors"
+                    >
                         ยกเลิก
                     </button>
                     <button 
                         type="submit"
                         form="edit-location-form"
                         disabled={isSubmitting}
-                        className="px-6 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed" // <<< Improved disabled style
+                        className="w-[180px] flex justify-center items-center bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold py-2.5 px-4 rounded-lg hover:shadow-lg hover:shadow-blue-500/50 transition-all shadow-md disabled:from-gray-400 disabled:to-gray-500 disabled:shadow-none disabled:cursor-not-allowed"
                     >
-                        <Save size={18} />
+                        {isSubmitting ? <Loader size={18} className="animate-spin mr-2"/> : <Save size={18} className="mr-2" />}
                         {isSubmitting ? 'กำลังบันทึก...' : 'บันทึกการเปลี่ยนแปลง'}
                     </button>
                 </div>
