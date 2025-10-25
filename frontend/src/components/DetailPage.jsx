@@ -101,7 +101,8 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message }) => {
 
 
 // --- Review Card Component ---
-const ReviewCard = ({ review, currentUser, onReviewDeleted, onEditClick }) => {
+// ⭐⭐ FIX: เพิ่ม setNotification และ handleAuthError props ⭐⭐
+const ReviewCard = ({ review, currentUser, onReviewDeleted, onEditClick, setNotification, handleAuthError }) => {
     const numericRating = parseFloat(review.rating || 0);
     const [likes, setLikes] = useState(Number(review.likes_count || 0));
     const [userHasLiked, setUserHasLiked] = useState(review.user_has_liked);
@@ -119,9 +120,16 @@ const ReviewCard = ({ review, currentUser, onReviewDeleted, onEditClick }) => {
     // --- END FIX ---
 
     const handleToggleLike = async () => {
-        if (!currentUser) return alert('กรุณาเข้าสู่ระบบเพื่อกดถูกใจ');
+        // ⭐⭐ FIX: Removed alert() ⭐⭐
+        if (!currentUser) {
+            setNotification({ message: 'กรุณาเข้าสู่ระบบเพื่อกดถูกใจ', type: 'error' });
+            return;
+        }
         const token = localStorage.getItem('token');
-        if (!token) return alert('เซสชั่นหมดอายุ กรุณาเข้าสู่ระบบใหม่');
+        if (!token) {
+            handleAuthError();
+            return;
+        }
 
         if (isLiking) return;
         setIsLiking(true);
@@ -142,11 +150,13 @@ const ReviewCard = ({ review, currentUser, onReviewDeleted, onEditClick }) => {
                 setUserHasLiked(data.status === 'liked');
             } else {
                 console.error("Failed to toggle like:", data.error);
-                alert('เกิดข้อผิดพลาด: ไม่สามารถอัปเดตสถานะการไลก์ได้');
+                // ⭐⭐ FIX: Removed alert() ⭐⭐
+                setNotification({ message: 'เกิดข้อผิดพลาด: ไม่สามารถอัปเดตสถานะการไลก์ได้', type: 'error' });
             }
         } catch (error) {
             console.error("Network error during like toggle:", error);
-            alert('เกิดข้อผิดพลาด: ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้');
+            // ⭐⭐ FIX: Removed alert() ⭐⭐
+            setNotification({ message: 'เกิดข้อผิดพลาด: ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้', type: 'error' });
         } finally {
             setIsLiking(false);
         }
@@ -176,7 +186,11 @@ const ReviewCard = ({ review, currentUser, onReviewDeleted, onEditClick }) => {
         e.preventDefault();
         if (!newReply.trim()) return;
         const token = localStorage.getItem('token');
-        if (!token && !currentUser) return alert('กรุณาเข้าสู่ระบบเพื่อแสดงความคิดเห็น');
+        // ⭐⭐ FIX: Removed alert() ⭐⭐
+        if (!token && !currentUser) {
+            setNotification({ message: 'กรุณาเข้าสู่ระบบเพื่อแสดงความคิดเห็น', type: 'error' });
+            return;
+        }
 
         try {
             const response = await fetch(`${API_BASE_URL}/api/reviews/${review.id}/comments`, {
@@ -191,7 +205,8 @@ const ReviewCard = ({ review, currentUser, onReviewDeleted, onEditClick }) => {
             else { throw new Error('Failed to post comment'); } // Add error handling
         } catch (error) {
             console.error("Error posting reply:", error); // Log error
-            alert('เกิดข้อผิดพลาดในการแสดงความคิดเห็น');
+            // ⭐⭐ FIX: Removed alert() ⭐⭐
+            setNotification({ message: 'เกิดข้อผิดพลาดในการแสดงความคิดเห็น', type: 'error' });
         }
     };
 
@@ -742,7 +757,18 @@ const DetailPage = ({ item, setCurrentPage, onReviewSubmitted, handleItemClick, 
                                 {currentUser && (<button onClick={() => setShowReviewForm(!showReviewForm)} className="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors">{showReviewForm ? 'ยกเลิกการเขียนรีวิว' : 'เขียนรีวิวของคุณ'}</button>)}
                                 {showReviewForm && (<form onSubmit={handleReviewSubmit} className="p-6 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 space-y-4 animate-fade-in"><div><label className="block text-lg font-semibold text-gray-700 dark:text-gray-200 mb-2">ให้คะแนนสถานที่นี้</label><StarRatingInput rating={newRating} setRating={setNewRating} /></div><div><label htmlFor="comment" className="block text-lg font-semibold text-gray-700 dark:text-gray-200 mb-2">ความคิดเห็นของคุณ</label><textarea id="comment" value={newComment} onChange={(e) => setNewComment(e.target.value)} rows="4" className="w-full p-3 border rounded-lg bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-500" placeholder="เล่าประสบการณ์ของคุณ..."></textarea></div><div><label htmlFor="review-images" className="block text-lg font-semibold text-gray-700 dark:text-gray-200 mb-2">แนบรูปภาพ (สูงสุด 5 รูป)</label><input type="file" id="review-images" multiple accept="image/*" onChange={handleReviewImageChange} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0" /></div>{newReviewImages.length > 0 && (<div className="grid grid-cols-3 sm:grid-cols-5 gap-2">{newReviewImages.map((image, index) => (<div key={index} className="relative group"><img src={URL.createObjectURL(image)} alt={`preview ${index}`} className="w-full h-20 object-cover rounded-lg" /><button type="button" onClick={() => handleRemoveReviewImage(index)} className="absolute top-0 right-0 -mt-2 -mr-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100"><X size={16} /></button></div>))}</div>)}<button type="submit" disabled={isSubmittingReview} className="flex items-center justify-center px-6 py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 disabled:bg-gray-400"><Send size={18} className="mr-2" />{isSubmittingReview ? 'กำลังส่ง...' : 'ส่งรีวิว'}</button></form>)}
                                 <div className="space-y-0 -m-4">
-                                    {reviews.map(review => (editingReview && editingReview.id === review.id ? (<div key={`edit-${review.id}`} className="bg-blue-50 dark:bg-gray-900/50 border-l-4 border-blue-400 p-4 my-4 rounded-r-lg shadow-md animate-fade-in"><div className="flex justify-between items-center mb-4"><h4 className="text-lg font-bold text-gray-800 dark:text-gray-100 flex items-center"><Edit size={20} className="mr-2 text-blue-600 dark:text-blue-400" />กำลังแก้ไขรีวิว</h4><button onClick={handleCancelEdit} className="p-1 text-gray-500 hover:text-red-600 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors" title="ยกเลิกการแก้ไข"><X size={20} /></button></div><form onSubmit={handleUpdateReview} className="space-y-4"><div><label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">ให้คะแนนใหม่</label><StarRatingInput rating={editedRating} setRating={setEditedRating} /></div><div><label htmlFor={`edit-comment-${review.id}`} className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">แก้ไขความคิดเห็น</label><textarea id={`edit-comment-${review.id}`} value={editedComment} onChange={(e) => setEditedComment(e.target.value)} rows="3" className="w-full p-2 border rounded-lg bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-500" /></div><div><label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">จัดการรูปภาพ</label>{editedImages.length > 0 && (<div className="grid grid-cols-3 sm:grid-cols-5 gap-2 mb-2">{editedImages.map((image, index) => (<div key={index} className="relative group"><img src={image.type === 'new' ? URL.createObjectURL(image.data) : image.data} alt={`edit preview ${index}`} className="w-full h-20 object-cover rounded-lg" /><button type="button" onClick={() => handleRemoveEditedImage(index)} className="absolute top-0 right-0 -mt-2 -mr-2 bg-red-500 text-white rounded-full p-1 opacity-75 group-hover:opacity-100 transition-opacity"><X size={16} /></button></div>))}</div>)}{editedImages.length < 5 && (<div className="mt-2"><input type="file" multiple accept="image/*" onChange={handleEditImageChange} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-gray-100 dark:file:bg-gray-700 file:text-gray-700 dark:file:text-gray-200 hover:file:bg-gray-200" /></div>)}</div><div className="flex space-x-2 pt-2"><button type="submit" className="px-4 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-colors">บันทึกการเปลี่ยนแปลง</button><button type="button" onClick={handleCancelEdit} className="px-4 py-2 bg-gray-200 text-gray-700 font-bold rounded-lg hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500 transition-colors">ยกเลิก</button></div></form></div>) : (<ReviewCard key={review.id} review={review} currentUser={currentUser} onReviewDeleted={confirmDeleteReview} onEditClick={handleEditClick} />)))}
+                                    {reviews.map(review => (editingReview && editingReview.id === review.id ? (<div key={`edit-${review.id}`} className="bg-blue-50 dark:bg-gray-900/50 border-l-4 border-blue-400 p-4 my-4 rounded-r-lg shadow-md animate-fade-in"><div className="flex justify-between items-center mb-4"><h4 className="text-lg font-bold text-gray-800 dark:text-gray-100 flex items-center"><Edit size={20} className="mr-2 text-blue-600 dark:text-blue-400" />กำลังแก้ไขรีวิว</h4><button onClick={handleCancelEdit} className="p-1 text-gray-500 hover:text-red-600 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors" title="ยกเลิกการแก้ไข"><X size={20} /></button></div><form onSubmit={handleUpdateReview} className="space-y-4"><div><label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">ให้คะแนนใหม่</label><StarRatingInput rating={editedRating} setRating={setEditedRating} /></div><div><label htmlFor={`edit-comment-${review.id}`} className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">แก้ไขความคิดเห็น</label><textarea id={`edit-comment-${review.id}`} value={editedComment} onChange={(e) => setEditedComment(e.target.value)} rows="3" className="w-full p-2 border rounded-lg bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-500" /></div><div><label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">จัดการรูปภาพ</label>{editedImages.length > 0 && (<div className="grid grid-cols-3 sm:grid-cols-5 gap-2 mb-2">{editedImages.map((image, index) => (<div key={index} className="relative group"><img src={image.type === 'new' ? URL.createObjectURL(image.data) : image.data} alt={`edit preview ${index}`} className="w-full h-20 object-cover rounded-lg" /><button type="button" onClick={() => handleRemoveEditedImage(index)} className="absolute top-0 right-0 -mt-2 -mr-2 bg-red-500 text-white rounded-full p-1 opacity-75 group-hover:opacity-100 transition-opacity"><X size={16} /></button></div>))}</div>)}{editedImages.length < 5 && (<div className="mt-2"><input type="file" multiple accept="image/*" onChange={handleEditImageChange} className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-gray-100 dark:file:bg-gray-700 file:text-gray-700 dark:file:text-gray-200 hover:file:bg-gray-200" /></div>)}</div><div className="flex space-x-2 pt-2"><button type="submit" className="px-4 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-colors">บันทึกการเปลี่ยนแปลง</button><button type="button" onClick={handleCancelEdit} className="px-4 py-2 bg-gray-200 text-gray-700 font-bold rounded-lg hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500 transition-colors">ยกเลิก</button></div></form></div>) : (
+                                    <ReviewCard 
+                                        key={review.id} 
+                                        review={review} 
+                                        currentUser={currentUser} 
+                                        onReviewDeleted={confirmDeleteReview} 
+                                        onEditClick={handleEditClick} 
+                                        // ⭐⭐ FIX: Pass props down to ReviewCard ⭐⭐
+                                        setNotification={setNotification}
+                                        handleAuthError={handleAuthError}
+                                    />
+                                    )))}
                                 </div>
                             </div>
                         </div>
