@@ -124,8 +124,8 @@ const formatNotification = (rawNotification) => {
         message,
         // Ensure userImage is a valid URL
         userImage: image && typeof image === 'string' && image.startsWith('http')
-                   ? image
-                   : 'https://placehold.co/40x40/7e22ce/white?text=🔔', // Fallback placeholder
+                 ? image
+                 : 'https://placehold.co/40x40/7e22ce/white?text=🔔', // Fallback placeholder
         time: timeString, // Use formatted time string
         is_read: is_read || false,
         link, // This will be the locationId to navigate to
@@ -458,18 +458,18 @@ const App = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) {
-          console.error('Failed to mark notifications as read on server:', response.status);
-           // Optional: Revert optimistic update on failure, maybe after a delay
-           // setNotifications(prevNotifications); // Requires storing prev state
-           // setUnreadCount(currentlyUnread.length);
-           setNotification({message: "ไม่สามารถอัปเดตสถานะแจ้งเตือนบนเซิร์ฟเวอร์", type: "error"});
+        console.error('Failed to mark notifications as read on server:', response.status);
+         // Optional: Revert optimistic update on failure, maybe after a delay
+         // setNotifications(prevNotifications); // Requires storing prev state
+         // setUnreadCount(currentlyUnread.length);
+         setNotification({message: "ไม่สามารถอัปเดตสถานะแจ้งเตือนบนเซิร์ฟเวอร์", type: "error"});
       }
     } catch (error) {
-        console.error('Error marking notifications as read:', error);
-        // Optional: Revert optimistic update on network error
-        // setNotifications(prevNotifications);
-        // setUnreadCount(currentlyUnread.length);
-        setNotification({message: "เกิดข้อผิดพลาดในการเชื่อมต่อเพื่ออัปเดตแจ้งเตือน", type: "error"});
+       console.error('Error marking notifications as read:', error);
+       // Optional: Revert optimistic update on network error
+       // setNotifications(prevNotifications);
+       // setUnreadCount(currentlyUnread.length);
+       setNotification({message: "เกิดข้อผิดพลาดในการเชื่อมต่อเพื่ออัปเดตแจ้งเตือน", type: "error"});
     }
  }, [unreadCount, token, notifications, setNotification]); // Added notifications and setNotification
 
@@ -539,6 +539,12 @@ const App = () => {
 
  // Login handler
  const handleLogin = (userData, userToken) => {
+    // ⭐⭐⭐ เพิ่ม console.log สำหรับ Debug ⭐⭐⭐
+    console.log("LOGIN SUCCESSFUL - User ID:", userData?.id);
+    console.log("LOGIN SUCCESSFUL - User Data:", userData);
+    console.log("LOGIN SUCCESSFUL - Token:", userToken);
+    // ⭐⭐⭐ สิ้นสุด Debug ⭐⭐⭐
+
     localStorage.setItem('user', JSON.stringify(userData));
     localStorage.setItem('token', userToken);
     setCurrentUser(userData);
@@ -609,10 +615,10 @@ const App = () => {
 
     // If the item wasn't in the list before (it moved), add it
      if (isFoodShop && !foodShops.some(item => item.id === updatedItem.id)) {
-         setFoodShops(prev => [updatedItem, ...prev]);
+        setFoodShops(prev => [updatedItem, ...prev]);
      }
      if (!isFoodShop && !attractions.some(item => item.id === updatedItem.id)) {
-         setAttractions(prev => [updatedItem, ...prev]);
+        setAttractions(prev => [updatedItem, ...prev]);
      }
 
 
@@ -712,24 +718,24 @@ const App = () => {
     // Render the appropriate page component based on currentPage state
     switch (currentPage) {
       case 'attractions': return <AttractionsPage attractions={filteredAttractions} {...commonProps} selectedCategory={selectedCategory} />;
-      case 'foodshops':   return <FoodShopsPage foodShops={filteredFoodShops} {...commonProps} selectedCategory={selectedCategory} />;
+      case 'foodshops':   return <FoodShopsPage foodShops={filteredFoodShops} {...commonProps} selectedCategory={selectedCategory} />;
       case 'add-location': return <AddLocationPage setCurrentPage={handleSetCurrentPage} onLocationAdded={handleDataRefresh} setNotification={setNotification} handleAuthError={handleAuthError} />;
-      case 'login':        return <LoginPage onAuthSuccess={handleLogin} setNotification={setNotification} />; // Removed API_BASE_URL prop
-      case 'favorites':    return <FavoritesPage favoriteItems={favoriteItems} {...commonProps} />;
-      case 'profile':      return <UserProfilePage currentUser={currentUser} onProfileUpdate={handleProfileUpdate} handleAuthError={handleAuthError} handleLogout={handleLogout} setNotification={setNotification} />;
+      case 'login':        return <LoginPage onAuthSuccess={handleLogin} setNotification={setNotification} />; // Removed API_BASE_URL prop
+      case 'favorites':    return <FavoritesPage favoriteItems={favoriteItems} {...commonProps} />;
+      case 'profile':      return <UserProfilePage currentUser={currentUser} onProfileUpdate={handleProfileUpdate} handleAuthError={handleAuthError} handleLogout={handleLogout} setNotification={setNotification} />;
       case 'manage-products': return <ManageProductsPage setNotification={setNotification} handleAuthError={handleAuthError} />; // Removed API_BASE_URL prop
       case 'deletion-requests': return <ApproveDeletionsPage setNotification={setNotification} handleAuthError={handleAuthError} handleItemClick={commonProps.handleItemClick} />; // Removed API_BASE_URL prop
       case 'detail':
         if (selectedItem) {
             // ⭐⭐⭐ Ensure currentUser is passed to DetailPage ⭐⭐⭐
             return <DetailPage
-                        item={selectedItem}
-                        setCurrentPage={handleSetCurrentPage}
-                        onReviewSubmitted={() => handleDataRefresh(selectedItem.id)}
-                        {...commonProps} // This already includes currentUser from commonProps
-                        setNotification={setNotification}
-                        handleAuthError={handleAuthError}
-                        // API_BASE_URL is not needed if using the global constant
+                       item={selectedItem}
+                       setCurrentPage={handleSetCurrentPage}
+                       onReviewSubmitted={() => handleDataRefresh(selectedItem.id)}
+                       {...commonProps} // This already includes currentUser from commonProps
+                       setNotification={setNotification}
+                       handleAuthError={handleAuthError}
+                       // API_BASE_URL is not needed if using the global constant
                    />;
         }
         handleSetCurrentPage('home'); return null; // Redirect home if no valid item selected
@@ -779,18 +785,18 @@ const App = () => {
         {/* Main Content Area */}
         <main className={`flex-1 w-0 flex flex-col transition-all duration-300 ${isSidebarOpen ? 'filter brightness-50 md:filter-none' : ''} overflow-y-auto`}> {/* Added overflow-y-auto */}
           <div className={`flex-1 container mx-auto transition-opacity duration-200 ${isTransitioning ? 'opacity-0' : 'opacity-100'}`}>
-              {renderPage()}
+             {renderPage()}
           </div>
           <Footer />
         </main>
       </div>
       {/* Global Modals */}
       <ConfirmationModal
-          isOpen={!!itemToDelete}
-          onClose={() => setItemToDelete(null)}
-          onConfirm={executeDelete}
-          title="ยืนยันการลบ"
-          message="คุณแน่ใจหรือไม่ว่าต้องการลบสถานที่นี้? การกระทำนี้ไม่สามารถย้อนกลับได้ และจะลบรีวิว, ของขึ้นชื่อ, และรายการโปรดทั้งหมดที่เกี่ยวข้องกับสถานที่นี้ด้วย"
+         isOpen={!!itemToDelete}
+         onClose={() => setItemToDelete(null)}
+         onConfirm={executeDelete}
+         title="ยืนยันการลบ"
+         message="คุณแน่ใจหรือไม่ว่าต้องการลบสถานที่นี้? การกระทำนี้ไม่สามารถย้อนกลับได้ และจะลบรีวิว, ของขึ้นชื่อ, และรายการโปรดทั้งหมดที่เกี่ยวข้องกับสถานที่นี้ด้วย"
       />
       {isEditModalOpen && itemToEdit && ( // Ensure itemToEdit is not null
         <EditLocationModal
@@ -807,4 +813,3 @@ const App = () => {
 };
 
 export default App;
-
