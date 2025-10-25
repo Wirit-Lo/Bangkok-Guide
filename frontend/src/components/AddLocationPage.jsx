@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, Phone, X, MapPin, Tag, FileText, Send, ChevronDown, Check, Landmark, Coffee, ShoppingBag, Utensils, Store, Menu, UploadCloud } from 'lucide-react';
+import { Clock, Phone, X, MapPin, Tag, FileText, Send, ChevronDown, Check, Landmark, Coffee, ShoppingBag, Utensils, Store, Menu, UploadCloud, Loader } from 'lucide-react'; // Added Loader
 
 // --- Reusable Sub-Components ---
 
@@ -32,7 +32,7 @@ const categories = [
 
 const CategoryDropdown = ({ selectedCategory, onSelect }) => {
     const [isOpen, setIsOpen] = useState(false);
-    // Find selected category info, default to first if not found (shouldn't happen with default state)
+    // Find selected category info, default to first if not found
     const selectedCatInfo = categories.find(c => c.name === selectedCategory) || categories[0];
 
     return (
@@ -113,37 +113,38 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
         category: categories[0].name, // Default to the first category
         googleMapUrl: '',
         description: '',
-        // --- FIX: ใช้ startTime, endTime ---
+        // --- This state structure is CORRECT ---
         startTime: '',
         endTime: '',
-        // --- END FIX ---
+        // --- End ---
         contact: '',
         images: [],
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
 
+    // --- CLEANUP: Use functional updates for safety ---
     const handleInputChange = (e) => {
         const { name, value } = e.target;
         
-        // --- FIX: จำกัดเบอร์โทร ---
         if (name === 'contact') {
-            // อนุญาตเฉพาะตัวเลข และไม่เกิน 10 ตัว
-            const numericValue = value.replace(/[^0-9]/g, ''); // ลบตัวอักษรที่ไม่ใช่ตัวเลข
+            // Allow only digits
+            const numericValue = value.replace(/[^0-9]/g, ''); 
+            // Only update state if length is <= 10
             if (numericValue.length <= 10) {
-                 setFormData({ ...formData, [name]: numericValue });
+                setFormData(prev => ({ ...prev, [name]: numericValue }));
             }
+            // If length > 10, it does nothing, input won't update
         } else {
-             setFormData({ ...formData, [name]: value });
+            setFormData(prev => ({ ...prev, [name]: value }));
         }
-        // --- END FIX ---
     };
 
-    // --- FIX: Handler สำหรับเวลา (แยกเพราะ input type ต่างกัน) ---
+    // This handler is correct
     const handleTimeChange = (e) => {
          const { name, value } = e.target;
-         setFormData({ ...formData, [name]: value });
+         setFormData(prev => ({ ...prev, [name]: value }));
     };
-    // --- END FIX ---
+    // --- END CLEANUP ---
 
 
     const handleImageChange = (e) => {
@@ -179,12 +180,11 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
             return;
         }
 
-        // --- FIX: Validation for time (optional: both must be present or none) ---
+        // This validation is correct
         if ((formData.startTime && !formData.endTime) || (!formData.startTime && formData.endTime)) {
              setNotification({ message: 'กรุณาระบุทั้งเวลาเปิดและเวลาปิด หรือเว้นว่างทั้งคู่', type: 'error'});
              return;
         }
-        // --- END FIX ---
 
         setIsSubmitting(true);
         
@@ -203,10 +203,10 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
             }
         }
         
-        // --- FIX: Combine times into hours string ---
+        // --- This combination logic is CORRECT ---
         const hoursString = formData.startTime && formData.endTime ? `${formData.startTime}-${formData.endTime}` : '';
         data.append('hours', hoursString);
-        // --- END FIX ---
+        // --- End ---
 
         // Append image files
         formData.images.forEach(imageFile => {
@@ -226,7 +226,7 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
 
             if (response.status === 401 || response.status === 403) {
                 handleAuthError();
-                return;
+                return; // Stop execution
             }
 
             const responseData = await response.json();
@@ -236,7 +236,7 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
 
             setNotification({ message: 'เพิ่มสถานที่ใหม่เรียบร้อยแล้ว!', type: 'success' });
             if (onLocationAdded) onLocationAdded(responseData.id); // Pass new ID back if needed
-            if (setCurrentPage) setCurrentPage('home');
+            if (setCurrentPage) setCurrentPage('home'); // Redirect to home
 
         } catch (err) {
             console.error('Submit Error:', err);
@@ -265,10 +265,10 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
                     {/* Make form scrollable */}
                     <form onSubmit={handleSubmit} className="space-y-5 flex-grow overflow-y-auto max-h-[70vh] pr-2 custom-scrollbar"> {/* Added custom-scrollbar class if defined */}
                         <InputGroup icon={<Tag />} label="ชื่อสถานที่" id="name" name="name" type="text" value={formData.name} onChange={handleInputChange} required />
-                        <CategoryDropdown selectedCategory={formData.category} onSelect={(cat) => setFormData({ ...formData, category: cat })} />
+                        <CategoryDropdown selectedCategory={formData.category} onSelect={(cat) => setFormData(prev => ({ ...prev, category: cat }))} />
                         <InputGroup icon={<MapPin />} label="ลิงก์ Google Maps" id="googleMapUrl" name="googleMapUrl" type="url" value={formData.googleMapUrl} onChange={handleInputChange} placeholder="วางลิงก์จาก Address Bar หรือปุ่ม Share" />
                         
-                        {/* --- FIX: Updated Hours and Contact Inputs --- */}
+                        {/* --- This render logic is CORRECT --- */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label className="flex items-center text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
@@ -279,7 +279,7 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
                                         id="startTime"
                                         name="startTime" // Name matches state key
                                         type="time" 
-                                        value={formData.startTime} 
+                                        value={formData.startTime} // This is correct (binds to '')
                                         onChange={handleTimeChange} // Use separate handler
                                         className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-white"
                                     />
@@ -288,7 +288,7 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
                                         id="endTime"
                                         name="endTime" // Name matches state key
                                         type="time" 
-                                        value={formData.endTime} 
+                                        value={formData.endTime} // This is correct (binds to '')
                                         onChange={handleTimeChange} // Use separate handler
                                         className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-white"
                                     />
@@ -299,15 +299,15 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
                                 label="เบอร์ติดต่อ (10 หลัก)" 
                                 id="contact" 
                                 name="contact" 
-                                type="tel" // Use tel for semantic meaning and potential mobile keypad
+                                type="tel" // Use tel for semantic meaning
                                 value={formData.contact} 
                                 onChange={handleInputChange} 
                                 placeholder="ใส่เฉพาะตัวเลข 10 หลัก" 
-                                maxLength="10" // HTML5 attribute to limit length
-                                pattern="[0-9]*" // Suggests numeric input
+                                maxLength="10" 
+                                pattern="[0-9]*"
                             />
                         </div>
-                        {/* --- END FIX --- */}
+                        {/* --- END --- */}
 
                         <div>
                             <label htmlFor="description" className="flex items-center text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1"><FileText size={14} className="mr-1.5" /> รายละเอียด</label>
@@ -316,7 +316,7 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
                         <ImageUploader images={formData.images} onImageChange={handleImageChange} onRemove={handleRemoveImage} />
                         
                         <div className="pt-2">
-                            <button type="submit" disabled={isSubmitting} className="w-full flex justify-center items-center bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:shadow-lg hover:shadow-blue-500/50 transition-all shadow-md disabled:from-gray-400 disabled:to-gray-500 disabled:shadow-none disabled:cursor-not-allowed"> {/* Added disabled cursor style */}
+                            <button type="submit" disabled={isSubmitting} className="w-full flex justify-center items-center bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:shadow-lg hover:shadow-blue-500/50 transition-all shadow-md disabled:from-gray-400 disabled:to-gray-500 disabled:shadow-none disabled:cursor-not-allowed">
                                 {isSubmitting ? <Loader size={18} className="animate-spin mr-2"/> : <Send size={18} className="mr-2" />}
                                 {isSubmitting ? 'กำลังบันทึก...' : 'บันทึกข้อมูล'}
                             </button>
@@ -328,4 +328,5 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
     );
 };
 
+// Ensure export default is present
 export default AddLocationPage;
