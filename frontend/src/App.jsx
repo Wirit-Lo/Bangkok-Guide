@@ -622,7 +622,7 @@ const App = () => {
          fetchFavorites(account.token); 
     }, [handleSetCurrentPage, fetchFavorites]);
 
-    // --- ⭐ NEW: Remove Saved Account ---
+    // --- Remove Saved Account ---
     const handleRemoveAccount = useCallback((accountToRemove) => {
         setSavedAccounts(prev => {
             const newAccounts = prev.filter(acc => acc.user.id !== accountToRemove.user.id);
@@ -656,21 +656,26 @@ const App = () => {
     };
 
     const handleDataRefresh = useCallback(async (updatedItemId) => {
-        console.log(`Refreshing data, potentially focusing on item ID: ${updatedItemId}`);
-        const previousSelectedItem = selectedItem; 
-
+        console.log(`Refreshing data... Item ID: ${updatedItemId}`);
+        
+        // 1. Fetch new lists to update main data (e.g. review counts)
         await fetchLocations();
 
-        if (updatedItemId && previousSelectedItem?.id === updatedItemId) {
-            console.log(`Item ${updatedItemId} was potentially modified. Re-fetching might be needed or navigate away.`);
-            setSelectedItem(null); 
-            if (currentPage === 'detail') { 
-                 handleSetCurrentPage('home'); 
-                 setNotification({ message: "ข้อมูลสถานที่อาจมีการเปลี่ยนแปลง", type: 'info' });
+        // 2. If we are currently viewing the updated item, refresh it in place
+        //    This fixes the "bouncing out" issue by updating data instead of navigating away.
+        if (updatedItemId && selectedItem?.id === updatedItemId && currentPage === 'detail') {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/locations/${updatedItemId}`);
+                if (response.ok) {
+                    const freshItemData = await response.json();
+                    setSelectedItem(freshItemData); // Update detail view with fresh data
+                    console.log("Updated selected item in place.");
+                }
+            } catch (error) {
+                console.error("Error refreshing selected item:", error);
             }
         }
-
-    }, [fetchLocations, selectedItem, handleSetCurrentPage, setNotification, currentPage]); 
+    }, [fetchLocations, selectedItem, currentPage, API_BASE_URL]); 
 
     const handleUpdateItem = (updatedItem) => {
         console.log("Handling item update in App.jsx:", updatedItem);

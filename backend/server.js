@@ -1555,6 +1555,49 @@ app.get('/api/reviews/:reviewId/comments', async (req, res) => {
     }
 });
 
+// PUT update a comment (requires authentication, owner or admin)
+// เพิ่มส่วนนี้ลงไปในไฟล์ Backend ของคุณ
+app.put('/api/comments/:commentId', authenticateToken, async (req, res) => {
+    const { commentId } = req.params;
+    const { comment } = req.body;
+    const { userId, role } = req.user;
+
+    if (!comment || !comment.trim()) {
+        return res.status(400).json({ error: 'เนื้อหาคอมเมนต์ห้ามว่างเปล่า' });
+    }
+
+    try {
+        // 1. ตรวจสอบว่าคอมเมนต์มีอยู่จริงและเป็นของใคร
+        const { data: existingComment, error: fetchError } = await supabase
+            .from('review_comments')
+            .select('user_id')
+            .eq('id', commentId)
+            .single();
+
+        if (fetchError && fetchError.code !== 'PGRST116') throw fetchError;
+        if (!existingComment) return res.status(404).json({ error: 'ไม่พบความคิดเห็น' });
+
+        // 2. ตรวจสอบสิทธิ์ (เจ้าของคอมเมนต์ หรือ Admin)
+        if (existingComment.user_id !== userId && role !== 'admin') {
+            return res.status(403).json({ error: 'คุณไม่มีสิทธิ์แก้ไขความคิดเห็นนี้' });
+        }
+
+        // 3. อัปเดตคอมเมนต์
+        const { error: updateError } = await supabase
+            .from('review_comments')
+            .update({ comment: comment.trim() })
+            .eq('id', commentId);
+
+        if (updateError) throw updateError;
+
+        res.json({ message: 'แก้ไขความคิดเห็นสำเร็จ' });
+
+    } catch (err) {
+        console.error("Error updating comment:", err);
+        res.status(500).json({ error: 'เกิดข้อผิดพลาดในการแก้ไขความคิดเห็น' });
+    }
+});
+
 // POST create a new comment on a review (requires authentication)
 app.post('/api/reviews/:reviewId/comments', authenticateToken, async (req, res) => {
     const { reviewId } = req.params;
