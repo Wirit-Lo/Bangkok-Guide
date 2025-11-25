@@ -1,5 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, Phone, X, MapPin, Tag, FileText, Send, ChevronDown, Check, Landmark, Coffee, ShoppingBag, Utensils, Store, Menu, UploadCloud, Loader } from 'lucide-react'; // Added Loader
+import { Clock, Phone, X, MapPin, Tag, FileText, Send, ChevronDown, Check, Landmark, Coffee, ShoppingBag, Utensils, Store, Menu, UploadCloud, Loader } from 'lucide-react';
+
+// --- ⭐⭐ START: API URL Configuration ⭐⭐ ---
+const getApiBaseUrl = () => {
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        return 'http://localhost:5000';
+    }
+    // Replace with your actual deployed backend URL
+    return 'https://bangkok-guide.onrender.com';
+};
+const API_BASE_URL = getApiBaseUrl();
+// --- ⭐⭐ END: API URL Configuration ⭐⭐ ---
 
 // --- Reusable Sub-Components ---
 
@@ -11,13 +22,12 @@ const InputGroup = ({ icon, label, id, ...props }) => (
         </label>
         <input
             id={id}
-            className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-white"
+            className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-white placeholder-gray-400"
             {...props}
         />
     </div>
 );
 
-// Updated categories with new icons and colors (consistent with Edit Modal)
 const categories = [
     { name: 'วัด', icon: <Landmark size={18} />, color: 'text-amber-500' },
     { name: 'ร้านอาหาร', icon: <Utensils size={18} />, color: 'text-emerald-500' },
@@ -29,7 +39,6 @@ const categories = [
 
 const CategoryDropdown = ({ selectedCategory, onSelect }) => {
     const [isOpen, setIsOpen] = useState(false);
-    // Find selected category info, default to first if not found
     const selectedCatInfo = categories.find(c => c.name === selectedCategory) || categories[0];
 
     return (
@@ -62,19 +71,15 @@ const CategoryDropdown = ({ selectedCategory, onSelect }) => {
 const ImageItem = ({ image, onRemove }) => {
     const [objectUrl, setObjectUrl] = useState(null);
     useEffect(() => {
-        // Only create object URLs for File objects
         if (image instanceof File) {
             const url = URL.createObjectURL(image);
             setObjectUrl(url);
-            // Cleanup function to revoke the object URL
             return () => URL.revokeObjectURL(url);
         } else {
-             // If it's not a file (e.g., existing URL string), use it directly
              setObjectUrl(image);
         }
     }, [image]);
 
-    // Handle potential errors if objectUrl is null momentarily
     if (!objectUrl) return null;
 
     return (
@@ -107,63 +112,57 @@ const ImageUploader = ({ images, onImageChange, onRemove }) => (
 const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, handleAuthError }) => {
     const [formData, setFormData] = useState({
         name: '',
-        category: categories[0].name, // Default to the first category
+        category: categories[0].name,
         googleMapUrl: '',
         description: '',
-        // --- This state structure is CORRECT ---
         startTime: '',
         endTime: '',
-        // --- End ---
-        contact: '',
+        contact: '', // Initialize as empty string
         images: [],
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [isFormValid, setIsFormValid] = useState(false); // --- NEW: State for form validity ---
+    const [isFormValid, setIsFormValid] = useState(false);
 
-    // --- CLEANUP: Use functional updates for safety ---
     const handleInputChange = (e) => {
         const { name, value } = e.target;
-        
+
         if (name === 'contact') {
-            // Allow only digits
-            const numericValue = value.replace(/[^0-9]/g, ''); 
-            // Only update state if length is <= 10
+            // Allow digits only
+            const numericValue = value.replace(/[^0-9]/g, '');
+            // Limit length, but allow empty string
             if (numericValue.length <= 10) {
                 setFormData(prev => ({ ...prev, [name]: numericValue }));
             }
-            // If length > 10, it does nothing, input won't update
         } else {
             setFormData(prev => ({ ...prev, [name]: value }));
         }
     };
 
-    // This handler is correct
     const handleTimeChange = (e) => {
          const { name, value } = e.target;
          setFormData(prev => ({ ...prev, [name]: value }));
     };
-    // --- END CLEANUP ---
 
-    // --- NEW: Validate form on every data change ---
+    // --- Validate form on every data change ---
     useEffect(() => {
         const { name, googleMapUrl, description, images, startTime, endTime } = formData;
 
-        // 1. Check required text fields
+        // 1. Check required text fields (Contact is NOT included here)
         const requiredFieldsFilled =
             name.trim() !== '' &&
-            googleMapUrl.trim() !== '' && // Require Google Maps
-            description.trim() !== '';     // Require description
+            googleMapUrl.trim() !== '' &&
+            description.trim() !== '';
 
         // 2. Check for at least one image
-        const hasImage = images.length > 0; // Require at least one image
+        const hasImage = images.length > 0;
 
-        // 3. Check time validation (both must be filled, or both must be empty)
+        // 3. Check time validation
         const timeIsValid = (startTime && endTime) || (!startTime && !endTime);
 
+        // ✅ Set form validity (Contact is optional, so it's not in the condition)
         setIsFormValid(requiredFieldsFilled && hasImage && timeIsValid);
 
-    }, [formData]); // Re-run this check whenever formData changes
-    // --- END NEW ---
+    }, [formData]);
 
 
     const handleImageChange = (e) => {
@@ -171,14 +170,12 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
             const newFiles = Array.from(e.target.files);
             setFormData(prevState => ({
                 ...prevState,
-                // Ensure combined array does not exceed 10 images
                 images: [...prevState.images, ...newFiles].slice(0, 10)
             }));
-            // Clear the input value to allow selecting the same file again if needed
             e.target.value = null;
         }
     };
-    
+
     const handleRemoveImage = (indexToRemove) => {
         setFormData(prevState => ({
             ...prevState,
@@ -189,87 +186,87 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        // --- UPDATED: Check all required fields ---
         if (!formData.name.trim()) {
             setNotification({ message: 'กรุณากรอกชื่อสถานที่', type: 'error' });
             return;
         }
-        if (!formData.googleMapUrl.trim()) { // Added check
+        if (!formData.googleMapUrl.trim()) {
             setNotification({ message: 'กรุณากรอกลิงก์ Google Maps', type: 'error' });
             return;
         }
-        if (formData.images.length === 0) { // Added check
+        if (formData.images.length === 0) {
             setNotification({ message: 'กรุณาอัปโหลดอย่างน้อย 1 รูป', type: 'error' });
             return;
         }
-        if (!formData.description.trim()) { // Added check
+        if (!formData.description.trim()) {
             setNotification({ message: 'กรุณากรอกรายละเอียด', type: 'error' });
             return;
         }
-        // --- END UPDATED ---
-        
+
         if (formData.googleMapUrl && !formData.googleMapUrl.startsWith('https://www.google.com/maps') && !formData.googleMapUrl.startsWith('https://maps.app.goo.gl')) {
             setNotification({ message: 'รูปแบบลิงก์ Google Maps ไม่ถูกต้อง', type: 'error' });
             return;
         }
 
-        // This validation is correct
         if ((formData.startTime && !formData.endTime) || (!formData.startTime && formData.endTime)) {
              setNotification({ message: 'กรุณาระบุทั้งเวลาเปิดและเวลาปิด หรือเว้นว่างทั้งคู่', type: 'error'});
              return;
         }
 
         setIsSubmitting(true);
-        
+
         const token = localStorage.getItem('token');
+        console.log("Token retrieved for Add Location:", token ? 'Exists' : 'MISSING!');
+
         if (!token) {
+            console.error("Add Location Error: No token found. Calling handleAuthError.");
             handleAuthError();
             setIsSubmitting(false);
             return;
         }
 
         const data = new FormData();
-        // Append all fields except images, startTime, endTime
         for (const key in formData) {
             if (key !== 'images' && key !== 'startTime' && key !== 'endTime') {
+                // If contact is empty string, it sends empty string (which is fine)
                 data.append(key, formData[key]);
             }
         }
-        
-        // --- This combination logic is CORRECT ---
+
         const hoursString = formData.startTime && formData.endTime ? `${formData.startTime}-${formData.endTime}` : '';
         data.append('hours', hoursString);
-        // --- End ---
 
-        // Append image files
         formData.images.forEach(imageFile => {
-            // Ensure it's a File object before appending
             if (imageFile instanceof File) {
                  data.append('images', imageFile);
             }
         });
 
         try {
-            const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-            const response = await fetch(`${apiUrl}/api/locations`, {
+            const response = await fetch(`${API_BASE_URL}/api/locations`, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${token}` },
                 body: data,
             });
 
+            console.log("Add Location Response Status:", response.status);
+
             if (response.status === 401 || response.status === 403) {
+                console.error("Add Location Error: Received 401/403. Calling handleAuthError.");
                 handleAuthError();
-                return; // Stop execution
+                return;
             }
 
             const responseData = await response.json();
             if (!response.ok) {
+                console.error("Add Location Error Data:", responseData);
                 throw new Error(responseData.error || 'เกิดข้อผิดพลาดที่ไม่รู้จัก');
             }
 
+            console.log("Add Location Success:", responseData);
             setNotification({ message: 'เพิ่มสถานที่ใหม่เรียบร้อยแล้ว!', type: 'success' });
-            if (onLocationAdded) onLocationAdded(responseData.id); // Pass new ID back if needed
-            if (setCurrentPage) setCurrentPage('home'); // Redirect to home
+            if (onLocationAdded) onLocationAdded(responseData.id);
+            if (setCurrentPage) setCurrentPage('home');
 
         } catch (err) {
             console.error('Submit Error:', err);
@@ -282,7 +279,7 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
     return (
         <div className="flex items-center justify-center min-h-[80vh] p-4">
             <div className="relative w-full max-w-5xl flex flex-col md:flex-row bg-white dark:bg-gray-800 rounded-2xl shadow-2xl overflow-hidden">
-                {/* Left side image (unchanged) */}
+                {/* Left side image */}
                 <div className="hidden md:block md:w-5/12 relative">
                     <img src="https://i.pinimg.com/736x/a2/be/b5/a2beb5f58adc8386709c8ba8ba67b529.jpg" alt="Travel background" className="w-full h-full object-cover" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent p-8 flex flex-col justify-end text-white">
@@ -294,62 +291,61 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
                 {/* Right side form */}
                 <div className="w-full md:w-7/12 p-8 sm:p-10 flex flex-col justify-center">
                     <h2 className="text-3xl font-bold text-gray-800 dark:text-white mb-6">เพิ่มสถานที่ใหม่</h2>
-                    
-                    {/* Make form scrollable */}
-                    <form onSubmit={handleSubmit} className="space-y-5 flex-grow overflow-y-auto max-h-[70vh] pr-2 custom-scrollbar"> {/* Added custom-scrollbar class if defined */}
+
+                    <form onSubmit={handleSubmit} className="space-y-5 flex-grow overflow-y-auto max-h-[70vh] pr-2 custom-scrollbar">
                         <InputGroup icon={<Tag />} label="ชื่อสถานที่" id="name" name="name" type="text" value={formData.name} onChange={handleInputChange} required />
                         <CategoryDropdown selectedCategory={formData.category} onSelect={(cat) => setFormData(prev => ({ ...prev, category: cat }))} />
                         <InputGroup icon={<MapPin />} label="ลิงก์ Google Maps" id="googleMapUrl" name="googleMapUrl" type="url" value={formData.googleMapUrl} onChange={handleInputChange} placeholder="วางลิงก์จาก Address Bar หรือปุ่ม Share" />
-                        
-                        {/* --- This render logic is CORRECT --- */}
+
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label className="flex items-center text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1">
                                     <Clock size={14} className="mr-1.5" /> เวลาทำการ
                                 </label>
                                 <div className="flex items-center gap-2">
-                                     <input 
-                                        id="startTime"
-                                        name="startTime" // Name matches state key
-                                        type="time" 
-                                        value={formData.startTime} // This is correct (binds to '')
-                                        onChange={handleTimeChange} // Use separate handler
-                                        className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-white"
-                                    />
-                                    <span className="text-gray-500 dark:text-gray-400">-</span>
-                                    <input 
-                                        id="endTime"
-                                        name="endTime" // Name matches state key
-                                        type="time" 
-                                        value={formData.endTime} // This is correct (binds to '')
-                                        onChange={handleTimeChange} // Use separate handler
-                                        className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-white"
-                                    />
+                                     <input
+                                         id="startTime"
+                                         name="startTime"
+                                         type="time"
+                                         value={formData.startTime}
+                                         onChange={handleTimeChange}
+                                         className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-white"
+                                     />
+                                     <span className="text-gray-500 dark:text-gray-400">-</span>
+                                     <input
+                                         id="endTime"
+                                         name="endTime"
+                                         type="time"
+                                         value={formData.endTime}
+                                         onChange={handleTimeChange}
+                                         className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900 dark:text-white"
+                                     />
                                 </div>
                             </div>
-                            <InputGroup 
-                                icon={<Phone />} 
-                                label="เบอร์ติดต่อ (10 หลัก)" 
-                                id="contact" 
-                                name="contact" 
-                                type="tel" // Use tel for semantic meaning
-                                value={formData.contact} 
-                                onChange={handleInputChange} 
-                                placeholder="ใส่เฉพาะตัวเลข 10 หลัก" 
-                                maxLength="10" 
+                            {/* --- ⭐⭐ UPDATED: Contact Field is now Optional ⭐⭐ --- */}
+                            <InputGroup
+                                icon={<Phone />}
+                                label="เบอร์ติดต่อ (ไม่บังคับ)"
+                                id="contact"
+                                name="contact"
+                                type="tel"
+                                value={formData.contact}
+                                onChange={handleInputChange}
+                                placeholder="ระบุเบอร์โทรศัพท์ (ถ้ามี)"
+                                maxLength="10"
                                 pattern="[0-9]*"
                             />
+                            {/* --- ⭐⭐ END UPDATE ⭐⭐ --- */}
                         </div>
-                        {/* --- END --- */}
 
                         <div>
                             <label htmlFor="description" className="flex items-center text-sm font-semibold text-gray-600 dark:text-gray-300 mb-1"><FileText size={14} className="mr-1.5" /> รายละเอียด</label>
                             <textarea id="description" name="description" rows="4" value={formData.description} onChange={handleInputChange} className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-900 dark:text-white focus:ring-blue-500 focus:border-blue-500" placeholder="ใส่คำอธิบายสั้นๆ..."></textarea>
                         </div>
                         <ImageUploader images={formData.images} onImageChange={handleImageChange} onRemove={handleRemoveImage} />
-                        
+
                         <div className="pt-2">
-                            <button type="submit" disabled={isSubmitting || !isFormValid} className="w-full flex justify-center items-center bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:shadow-lg hover:shadow-blue-500/50 transition-all shadow-md disabled:from-gray-400 disabled:to-gray-500 disabled:shadow-none disabled:cursor-not-allowed disabled:opacity-50"> {/* UPDATED disabled state and added opacity */}
+                            <button type="submit" disabled={isSubmitting || !isFormValid} className="w-full flex justify-center items-center bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:shadow-lg hover:shadow-blue-500/50 transition-all shadow-md disabled:from-gray-400 disabled:to-gray-500 disabled:shadow-none disabled:cursor-not-allowed disabled:opacity-50">
                                 {isSubmitting ? <Loader size={18} className="animate-spin mr-2"/> : <Send size={18} className="mr-2" />}
                                 {isSubmitting ? 'กำลังบันทึก...' : 'บันทึกข้อมูล'}
                             </button>
@@ -361,6 +357,4 @@ const AddLocationPage = ({ setCurrentPage, onLocationAdded, setNotification, han
     );
 };
 
-// Ensure export default is present
 export default AddLocationPage;
-

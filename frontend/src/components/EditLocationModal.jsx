@@ -5,7 +5,17 @@ import {
     Landmark, Coffee, ShoppingBag, Utensils, Store, Menu // Icons for categories
 } from 'lucide-react';
 
-// --- Reusable Sub-Components (Adapted from AddLocationPage) ---
+// --- ⭐⭐ START: API URL Configuration (Consistent with App) ⭐⭐ ---
+const getApiBaseUrl = () => {
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        return 'http://localhost:5000';
+    }
+    return 'https://bangkok-guide.onrender.com';
+};
+const API_BASE_URL = getApiBaseUrl();
+// --- ⭐⭐ END: API URL Configuration ⭐⭐ ---
+
+// --- Reusable Sub-Components ---
 
 const InputGroup = ({ icon, label, id, ...props }) => (
     <div>
@@ -21,7 +31,7 @@ const InputGroup = ({ icon, label, id, ...props }) => (
     </div>
 );
 
-// --- Categories with Icons (from AddLocationPage) ---
+// --- Categories with Icons ---
 const categories = [
     { name: 'วัด', icon: <Landmark size={18} />, color: 'text-amber-500' },
     { name: 'ร้านอาหาร', icon: <Utensils size={18} />, color: 'text-emerald-500' },
@@ -33,7 +43,7 @@ const categories = [
 
 const CategoryDropdown = ({ selectedCategory, onSelect }) => {
     const [isOpen, setIsOpen] = useState(false);
-    const selectedCatInfo = categories.find(c => c.name === selectedCategory) || categories.find(c => c.name === 'อื่นๆ'); // Default to 'อื่นๆ'
+    const selectedCatInfo = categories.find(c => c.name === selectedCategory) || categories.find(c => c.name === 'อื่นๆ') || categories[0];
 
     return (
         <div>
@@ -65,30 +75,27 @@ const CategoryDropdown = ({ selectedCategory, onSelect }) => {
     );
 };
 
-// --- Special ImageItem for Edit Modal (handles {type, data}) ---
+// --- Special ImageItem for Edit Modal ---
 const EditImageItem = ({ imageObj, onRemove }) => {
     const [objectUrl, setObjectUrl] = useState(null);
 
     useEffect(() => {
         let url = null;
         if (imageObj.type === 'new' && imageObj.data instanceof File) {
-            // New file, create a blob URL
             url = URL.createObjectURL(imageObj.data);
             setObjectUrl(url);
         } else if (imageObj.type === 'existing') {
-            // Existing image, use the URL directly
             setObjectUrl(imageObj.data);
         }
 
-        // Cleanup function to revoke blob URL
         return () => {
             if (url) {
                 URL.revokeObjectURL(url);
             }
         };
-    }, [imageObj]); // Re-run if the image object changes
+    }, [imageObj]);
 
-    if (!objectUrl) return null; // Don't render if URL isn't ready
+    if (!objectUrl) return null;
 
     return (
         <div className="relative group aspect-square">
@@ -114,7 +121,7 @@ const EditImageItem = ({ imageObj, onRemove }) => {
 const EditLocationModal = ({ item, onClose, onItemUpdated, setNotification, handleAuthError }) => {
     // --- Text fields state ---
     const [name, setName] = useState('');
-    const [category, setCategory] = useState(categories[0].name); // Default to first category
+    const [category, setCategory] = useState(categories[0].name);
     const [description, setDescription] = useState('');
     const [googleMapUrl, setGoogleMapUrl] = useState('');
     const [startTime, setStartTime] = useState('');
@@ -122,14 +129,14 @@ const EditLocationModal = ({ item, onClose, onItemUpdated, setNotification, hand
     const [contact, setContact] = useState('');
     
     // --- Image management state ---
-    const [images, setImages] = useState([]); // Stores { type: 'existing'/'new', data: url/File }
+    const [images, setImages] = useState([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    // --- Load item data into state when modal opens ---
+    // --- Load item data ---
     useEffect(() => {
         if (item) {
             setName(item.name || '');
-            setCategory(item.category || categories[0].name); // Default if no category
+            setCategory(item.category || categories[0].name);
             setDescription(item.description || '');
             setGoogleMapUrl(item.google_map_url || item.googleMapUrl || '');
             setContact(item.contact || '');
@@ -159,21 +166,18 @@ const EditLocationModal = ({ item, onClose, onItemUpdated, setNotification, hand
         }
     }, [item]);
 
-    // --- Handle adding new image files ---
     const handleImageChange = (e) => {
         if (e.target.files) {
             const newFiles = Array.from(e.target.files).map(file => ({ type: 'new', data: file }));
-            setImages(prev => [...prev, ...newFiles].slice(0, 10)); // Limit to 10 images total
+            setImages(prev => [...prev, ...newFiles].slice(0, 10));
         }
-        e.target.value = null; // Clear input
+        e.target.value = null;
     };
 
-    // --- Handle removing an image ---
     const handleRemoveImage = (index) => {
         setImages(prev => prev.filter((_, i) => i !== index));
     };
 
-    // --- Handle phone number input ---
     const handleContactChange = (e) => {
         const numericValue = e.target.value.replace(/[^0-9]/g, '');
         if (numericValue.length <= 10) {
@@ -181,11 +185,9 @@ const EditLocationModal = ({ item, onClose, onItemUpdated, setNotification, hand
         }
     };
 
-    // --- Form Submission Logic (unchanged) ---
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        // --- Validation for time (optional: both must be present or none) ---
         if ((startTime && !endTime) || (!startTime && endTime)) {
              setNotification({ message: 'กรุณาระบุทั้งเวลาเปิดและเวลาปิด หรือเว้นว่างทั้งคู่', type: 'error'});
              return;
@@ -214,16 +216,11 @@ const EditLocationModal = ({ item, onClose, onItemUpdated, setNotification, hand
 
         formData.append('existingImages', JSON.stringify(existingImages));
         newImageFiles.forEach(file => {
-            formData.append('images', file); // API expects 'images'
+            formData.append('images', file);
         });
         
-        // --- FIX: Using Production URL directly to resolve compiler warning ---
-        // This avoids the 'import.meta.env' warning in this environment.
-        // For production, using environment variables (VITE_API_URL) is still the best practice.
-        const API_BASE_URL = 'https://bangkok-guide.onrender.com';
-        // const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'; // Original code
-
         try {
+            // ⭐⭐ FIX: Use global API_BASE_URL ⭐⭐
             const response = await fetch(`${API_BASE_URL}/api/locations/${item.id}`, {
                 method: 'PUT',
                 headers: {
@@ -232,9 +229,16 @@ const EditLocationModal = ({ item, onClose, onItemUpdated, setNotification, hand
                 body: formData,
             });
             
-            if (response.status === 401 || response.status === 403) {
+            // ⭐⭐ FIX: Separate 401 (Auth Error) from 403 (Permission Error) ⭐⭐
+            if (response.status === 401) {
+                console.error("Edit Modal: 401 Unauthorized - logging out");
                 handleAuthError();
                 return;
+            }
+
+            if (response.status === 403) {
+                console.error("Edit Modal: 403 Forbidden");
+                throw new Error('คุณไม่มีสิทธิ์แก้ไขสถานที่นี้ (403 Permission Denied)');
             }
 
             if (!response.ok) {
@@ -244,7 +248,8 @@ const EditLocationModal = ({ item, onClose, onItemUpdated, setNotification, hand
 
             const result = await response.json();
             setNotification({ message: 'อัปเดตข้อมูลสำเร็จ!', type: 'success' });
-            onItemUpdated(result); // Pass updated item back to App
+            onItemUpdated(result);
+            onClose(); // Close modal on success
 
         } catch (error) {
             console.error('Failed to update item:', error);
@@ -256,7 +261,6 @@ const EditLocationModal = ({ item, onClose, onItemUpdated, setNotification, hand
 
     if (!item) return null;
 
-    // --- STYLED JSX ---
     return (
         <div className="fixed inset-0 bg-black/60 z-[99] flex items-center justify-center p-4 animate-fade-in">
             <div 
@@ -279,7 +283,7 @@ const EditLocationModal = ({ item, onClose, onItemUpdated, setNotification, hand
                 <form 
                     id="edit-location-form"
                     onSubmit={handleSubmit} 
-                    className="p-6 overflow-y-auto space-y-5 custom-scrollbar" // Use custom-scrollbar if defined globally
+                    className="p-6 overflow-y-auto space-y-5 custom-scrollbar"
                 >
                     <InputGroup icon={<Tag />} label="ชื่อสถานที่" id="edit-loc-name" type="text" value={name} onChange={(e) => setName(e.target.value)} required />
                     
@@ -379,6 +383,3 @@ const EditLocationModal = ({ item, onClose, onItemUpdated, setNotification, hand
 };
 
 export default EditLocationModal;
-
-
-
