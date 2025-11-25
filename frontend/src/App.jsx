@@ -204,6 +204,9 @@ const App = () => {
     const [notifications, setNotifications] = useState([]);
     const [unreadCount, setUnreadCount] = useState(0);
 
+    // --- Multi-Account Support ---
+    const [savedAccounts, setSavedAccounts] = useState([]);
+
     // --- State for Deletion Confirmation Modal ---
     const [itemToDelete, setItemToDelete] = useState(null); 
 
@@ -288,15 +291,23 @@ const App = () => {
             console.log("Initializing App...");
             setLoadingData(true); 
             await fetchLocations();
+            
+            // --- Load saved accounts ---
+            const storedAccounts = localStorage.getItem('saved_accounts');
+            if (storedAccounts) {
+                try {
+                    setSavedAccounts(JSON.parse(storedAccounts));
+                } catch (e) {
+                    console.error("Failed to parse saved accounts", e);
+                }
+            }
+
             const storedToken = localStorage.getItem('token');
             const storedUser = localStorage.getItem('user');
-            console.log("Stored token:", storedToken ? 'Exists' : 'None');
-            console.log("Stored user:", storedUser ? 'Exists' : 'None');
 
             if (storedToken && storedUser) {
                 try {
                     const parsedUser = JSON.parse(storedUser);
-                    console.log("Parsed user from localStorage:", parsedUser);
                     setCurrentUser(parsedUser);
                     setToken(storedToken);
                     await fetchFavorites(storedToken);
@@ -520,13 +531,13 @@ const App = () => {
             if (!response.ok) throw new Error('Failed to toggle favorite on server');
             const data = await response.json(); 
             console.log("Toggle favorite success:", data.status);
-
-            // --- ⭐ Added Success Notification ---
+            
+            // Notification on success
             setNotification({ 
                 message: isCurrentlyFavorite ? 'ลบออกจากรายการโปรดแล้ว' : 'เพิ่มลงในรายการโปรดแล้ว', 
                 type: 'success' 
             });
-            
+
         } catch (error) {
             console.error('Error toggling favorite:', error);
             setNotification({ message: 'เกิดข้อผิดพลาดในการอัปเดตรายการโปรด', type: 'error' });
@@ -537,22 +548,25 @@ const App = () => {
 
     const handleLogin = (userData, userToken) => {
         console.log("LOGIN SUCCESSFUL - User ID:", userData?.id);
-        console.log("LOGIN SUCCESSFUL - User Data:", userData);
-        console.log("LOGIN SUCCESSFUL - Token:", userToken ? 'Received' : 'MISSING!'); 
-
+        
         if (!userData || !userToken) {
-            console.error("Login handler received invalid userData or userToken.");
             setNotification({ message: 'ข้อมูลการเข้าสู่ระบบไม่สมบูรณ์', type: 'error'});
-            localStorage.removeItem('user');
-            localStorage.removeItem('token');
-            setCurrentUser(null);
-            setToken(null);
             return; 
         }
 
         try {
             localStorage.setItem('user', JSON.stringify(userData));
             localStorage.setItem('token', userToken);
+
+            // --- Save to multi-session list ---
+            setSavedAccounts(prev => {
+                // Filter out existing entry for this user to avoid duplicates
+                const otherAccounts = prev.filter(acc => acc.user.id !== userData.id);
+                const newAccounts = [...otherAccounts, { user: userData, token: userToken }];
+                localStorage.setItem('saved_accounts', JSON.stringify(newAccounts));
+                return newAccounts;
+            });
+
         } catch (error) {
             console.error("Error saving to localStorage:", error);
             setNotification({ message: 'ไม่สามารถบันทึกข้อมูลการเข้าสู่ระบบในเบราว์เซอร์', type: 'error'});
@@ -569,6 +583,14 @@ const App = () => {
 
     const handleLogout = () => {
         console.log("Logging out user...");
+        
+        // --- Remove ONLY current user from saved list (Full Logout) ---
+        if (currentUser) {
+            const newSaved = savedAccounts.filter(acc => acc.user.id !== currentUser.id);
+            setSavedAccounts(newSaved);
+            localStorage.setItem('saved_accounts', JSON.stringify(newSaved));
+        }
+
         localStorage.removeItem('user');
         localStorage.removeItem('token');
         setCurrentUser(null);
@@ -580,15 +602,56 @@ const App = () => {
         handleSetCurrentPage('home');
     };
 
+    // --- Add Account (Go to login but keep session) ---
+    const handleAddAccount = useCallback(() => {
+        // Clear active session in memory only, but DON'T remove from 'saved_accounts'
+        setCurrentUser(null);
+        setToken(null);
+        localStorage.removeItem('user'); 
+        localStorage.removeItem('token');
+        handleSetCurrentPage('login');
+    }, [handleSetCurrentPage]);
+
+    // --- Switch to Saved Account ---
+    const handleSelectAccount = useCallback((account) => {
+         setCurrentUser(account.user);
+         setToken(account.token);
+         localStorage.setItem('user', JSON.stringify(account.user));
+         localStorage.setItem('token', account.token);
+         handleSetCurrentPage('home');
+         fetchFavorites(account.token); 
+    }, [handleSetCurrentPage, fetchFavorites]);
+
+    // --- ⭐ NEW: Remove Saved Account ---
+    const handleRemoveAccount = useCallback((accountToRemove) => {
+        setSavedAccounts(prev => {
+            const newAccounts = prev.filter(acc => acc.user.id !== accountToRemove.user.id);
+            localStorage.setItem('saved_accounts', JSON.stringify(newAccounts));
+            return newAccounts;
+        });
+        setNotification({ message: 'ลบบัญชีออกจากรายการแล้ว', type: 'success' });
+    }, []);
+
     const handleProfileUpdate = (updatedUser, newToken) => {
         console.log("Updating profile:", updatedUser);
         setCurrentUser(updatedUser);
         if (newToken) {
-            console.log("Received new token during profile update.");
             setToken(newToken);
             localStorage.setItem('token', newToken);
         }
         localStorage.setItem('user', JSON.stringify(updatedUser));
+        
+        // Update in saved accounts too
+        setSavedAccounts(prev => {
+            const newAccounts = prev.map(acc => 
+                acc.user.id === updatedUser.id 
+                ? { ...acc, user: updatedUser, token: newToken || acc.token } 
+                : acc
+            );
+            localStorage.setItem('saved_accounts', JSON.stringify(newAccounts));
+            return newAccounts;
+        });
+
         setNotification({ message: 'ข้อมูลโปรไฟล์อัปเดตแล้ว!', type: 'success' });
     };
 
@@ -810,6 +873,12 @@ const App = () => {
                 onNotificationClick={handleNotificationClick}
                 isSidebarOpen={isSidebarOpen}
                 toggleSidebar={toggleSidebar}
+                
+                // --- ⭐ PROPS: ส่งฟังก์ชันจัดการบัญชี ---
+                handleAddAccount={handleAddAccount}
+                savedAccounts={savedAccounts}
+                handleSelectAccount={handleSelectAccount}
+                handleRemoveAccount={handleRemoveAccount} // ส่งฟังก์ชันลบไป
             />
 
             <div className="flex flex-1 p-4 gap-4"> 

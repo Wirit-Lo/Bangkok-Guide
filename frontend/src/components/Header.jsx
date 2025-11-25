@@ -1,10 +1,13 @@
-import React, { useState, useEffect, useRef, memo } from 'react'; // <<< FIX 1: Import 'memo'
-import { Sun, Moon, Bell, User, X, MapPin, MessageSquare, ThumbsUp, BellOff, Settings, Heart, LogOut, LogIn, Menu, Home as HomeIcon, Utensils, PlusCircle } from 'lucide-react';
+import React, { useState, useEffect, useRef, memo } from 'react';
+import { 
+    Sun, Moon, Bell, User, X, MapPin, MessageSquare, ThumbsUp, BellOff, 
+    Settings, Heart, LogOut, LogIn, Menu, Home as HomeIcon, Utensils, 
+    PlusCircle, Users, Trash2 // เพิ่ม Trash2 icon
+} from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { th } from 'date-fns/locale';
 
 // --- Reusable NavLink Component ---
-// <<< FIX 1 (PERFORMANCE): Wrap component in memo >>>
 const NavLink = memo(({ icon, text, page, setCurrentPage, isActive }) => (
     <button
         onClick={() => setCurrentPage(page)}
@@ -21,7 +24,6 @@ const NavLink = memo(({ icon, text, page, setCurrentPage, isActive }) => (
 ));
 
 // --- Individual Notification Item Component ---
-// <<< FIX 2 (PERFORMANCE): Wrap component in memo >>>
 const NotificationItem = memo(({ notification, onNotificationClick }) => {
     
     const handleItemClick = () => {
@@ -30,7 +32,6 @@ const NotificationItem = memo(({ notification, onNotificationClick }) => {
         }
     };
 
-    // <<< FIX 3 (A11Y): Add keyboard handler for clickable div >>>
     const handleKeyDown = (e) => {
         if (notification.link && (e.key === 'Enter' || e.key === ' ')) {
             e.preventDefault();
@@ -42,7 +43,6 @@ const NotificationItem = memo(({ notification, onNotificationClick }) => {
         <div 
             onClick={notification.link ? handleItemClick : undefined} 
             className={`w-full text-left flex items-start p-3 transition-colors duration-200 border-b dark:border-gray-700 ${notification.link ? 'hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer' : ''}`}
-            // <<< FIX 3 (A11Y): Add accessibility attributes >>>
             role={notification.link ? "button" : undefined}
             tabIndex={notification.link ? 0 : undefined}
             onKeyDown={handleKeyDown}
@@ -51,7 +51,6 @@ const NotificationItem = memo(({ notification, onNotificationClick }) => {
                 <img 
                     src={notification.userImage || 'https://placehold.co/48x48/e2e8f0/333333?text=🌍'} 
                     className="w-10 h-10 rounded-full object-cover shadow-sm"
-                    // <<< FIX 4 (A11Y): Add alt tag for image >>>
                     alt="Profile image"
                 />
             </div>
@@ -76,7 +75,6 @@ const NotificationPanel = ({ isOpen, notifications, onNotificationClick, onClose
                 <button 
                     onClick={onClose} 
                     className="text-gray-500 hover:text-gray-800 dark:hover:text-white"
-                    // <<< FIX 5 (A11Y): Add aria-label to icon button >>>
                     aria-label="Close notifications panel"
                 >
                     <X size={20} />
@@ -109,10 +107,15 @@ const Header = ({
     notifications,
     unreadCount,
     handleMarkNotificationsAsRead,
-    onNotificationClick 
+    onNotificationClick,
+    
+    // --- New Props for Multi-Account ---
+    handleAddAccount,
+    savedAccounts = [],
+    handleSelectAccount,
+    handleRemoveAccount // รับ props ลบบัญชี
 }) => {
     const [scrolled, setScrolled] = useState(false);
-    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
     const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
     const userMenuRef = useRef(null);
@@ -143,7 +146,6 @@ const Header = ({
         }
     };
 
-    // <<< FIX 6 (A11Y): Add keyboard handler for logo >>>
     const handleLogoKeyDown = (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
@@ -159,6 +161,9 @@ const Header = ({
     if (currentUser) {
         navLinks.push({ icon: <PlusCircle size={20} />, text: "เพิ่มสถานที่", page: "add-location" });
     }
+
+    // Filter accounts to show only OTHER accounts
+    const otherAccounts = savedAccounts.filter(acc => acc.user.id !== currentUser?.id);
     
     return (
         <header className={`sticky top-0 z-40 transition-all duration-300 ${scrolled ? 'bg-white/95 dark:bg-gray-800/95 shadow-md backdrop-blur-sm border-b border-gray-200 dark:border-gray-700' : 'bg-transparent'}`}>
@@ -166,7 +171,6 @@ const Header = ({
                 <div 
                     className="flex items-center gap-3 cursor-pointer group" 
                     onClick={() => setCurrentPage('home')}
-                    // <<< FIX 6 (A11Y): Add accessibility attributes to logo >>>
                     role="button"
                     tabIndex={0}
                     onKeyDown={handleLogoKeyDown}
@@ -190,7 +194,6 @@ const Header = ({
                             <button 
                                 onClick={toggleNotificationPanel} 
                                 className="p-2 rounded-full text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-                                // <<< FIX 7 (A11Y): Add aria-label to icon button >>>
                                 aria-label="Toggle notifications"
                             >
                                 <Bell size={22} />
@@ -202,8 +205,8 @@ const Header = ({
                                 isOpen={isNotificationPanelOpen} 
                                 notifications={notifications} 
                                 onNotificationClick={(notification) => {
-                                    onNotificationClick(notification); // Call function from App.jsx
-                                    setIsNotificationPanelOpen(false); // Close panel after click
+                                    onNotificationClick(notification);
+                                    setIsNotificationPanelOpen(false);
                                 }}
                                 onClose={() => setIsNotificationPanelOpen(false)}
                             />
@@ -212,19 +215,75 @@ const Header = ({
                     {currentUser ? (
                         <div className="relative" ref={userMenuRef}>
                             <button onClick={() => setIsUserMenuOpen(!isUserMenuOpen)} className="flex items-center gap-3 pl-2 pr-4 py-2 rounded-full bg-gradient-to-r from-green-400 to-teal-500 text-white shadow-lg hover:shadow-green-500/50 transition-all">
-                                 <div className="w-8 h-8 bg-white/30 rounded-full flex items-center justify-center">
-                                    {currentUser.profileImageUrl ? 
-                                        <img src={currentUser.profileImageUrl} alt="Profile" className="w-full h-full rounded-full object-cover" /> 
+                                 <div className="w-8 h-8 bg-white/30 rounded-full flex items-center justify-center overflow-hidden">
+                                     {currentUser.profileImageUrl || currentUser.profileImage ? 
+                                        <img src={currentUser.profileImageUrl || currentUser.profileImage} alt="Profile" className="w-full h-full rounded-full object-cover" /> 
                                         : <User size={18} />}
                                  </div>
                                 <span className="font-semibold text-base">{currentUser.displayName || currentUser.username}</span>
                             </button>
-                            <div className={`absolute right-0 top-full mt-2 w-48 bg-white dark:bg-gray-700 rounded-lg shadow-xl transition-all duration-200 ${isUserMenuOpen ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 pointer-events-none'}`}>
+                            
+                            {/* User Dropdown Menu */}
+                            <div className={`absolute right-0 top-full mt-2 w-64 bg-white dark:bg-gray-700 rounded-lg shadow-xl transition-all duration-200 z-50 ${isUserMenuOpen ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 pointer-events-none'}`}>
                                 <div className="p-2">
-                                    <button onClick={() => { setCurrentPage('profile'); setIsUserMenuOpen(false); }} className="w-full text-left flex items-center px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-md"><Settings size={16} className="mr-2" /> แก้ไขโปรไฟล์</button>
-                                    <button onClick={() => { setCurrentPage('favorites'); setIsUserMenuOpen(false); }} className="w-full text-left flex items-center px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-md"><Heart size={16} className="mr-2" /> รายการโปรด</button>
+                                    <button onClick={() => { setCurrentPage('profile'); setIsUserMenuOpen(false); }} className="w-full text-left flex items-center px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-md">
+                                        <Settings size={16} className="mr-2" /> แก้ไขโปรไฟล์
+                                    </button>
+                                    <button onClick={() => { setCurrentPage('favorites'); setIsUserMenuOpen(false); }} className="w-full text-left flex items-center px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-md">
+                                        <Heart size={16} className="mr-2" /> รายการโปรด
+                                    </button>
+                                    
                                     <hr className="my-1 border-gray-100 dark:border-gray-600" />
-                                    <button onClick={() => { handleLogout(); setIsUserMenuOpen(false); }} className="w-full text-left flex items-center px-4 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-500/20 rounded-md"><LogOut size={16} className="mr-2" /> ออกจากระบบ</button>
+
+                                    {/* Multi-Account Section */}
+                                    {otherAccounts.length > 0 && (
+                                        <div className="mb-1">
+                                            <div className="px-3 py-1 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                                                สลับบัญชี
+                                            </div>
+                                            {otherAccounts.map((account, index) => (
+                                                // --- ปรับโครงสร้างเป็น Flex เพื่อวางปุ่มลบไว้ด้านขวา ---
+                                                <div key={index} className="flex items-center justify-between w-full group hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors pr-2">
+                                                    <button 
+                                                        onClick={() => { handleSelectAccount(account); setIsUserMenuOpen(false); }}
+                                                        className="flex-1 text-left px-3 py-2 text-gray-700 dark:text-gray-200 flex items-center gap-2 transition-colors text-sm overflow-hidden"
+                                                    >
+                                                        <div className="w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-600 flex items-center justify-center overflow-hidden flex-shrink-0">
+                                                            {account.user.profileImageUrl || account.user.profileImage ? (
+                                                                <img src={account.user.profileImageUrl || account.user.profileImage} alt="" className="w-full h-full object-cover" />
+                                                            ) : (
+                                                                <User size={14} />
+                                                            )}
+                                                        </div>
+                                                        <span className="truncate">{account.user.displayName || account.user.username}</span>
+                                                    </button>
+                                                    
+                                                    {/* --- ปุ่มลบบัญชี (แสดงเมื่อ Hover) --- */}
+                                                    <button 
+                                                        onClick={(e) => { 
+                                                            e.stopPropagation(); 
+                                                            handleRemoveAccount(account); 
+                                                        }}
+                                                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-full transition-colors opacity-0 group-hover:opacity-100"
+                                                        title="ลบบัญชีนี้"
+                                                    >
+                                                        <Trash2 size={14} />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                            <hr className="my-1 border-gray-100 dark:border-gray-600" />
+                                        </div>
+                                    )}
+
+                                    <button onClick={() => { handleAddAccount(); setIsUserMenuOpen(false); }} className="w-full text-left flex items-center px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-md">
+                                        <PlusCircle size={16} className="mr-2" /> เพิ่มบัญชีอื่น
+                                    </button>
+
+                                    <hr className="my-1 border-gray-100 dark:border-gray-600" />
+                                    
+                                    <button onClick={() => { handleLogout(); setIsUserMenuOpen(false); }} className="w-full text-left flex items-center px-4 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-500/20 rounded-md">
+                                        <LogOut size={16} className="mr-2" /> ออกจากระบบ
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -233,12 +292,11 @@ const Header = ({
                     )}
                 </div>
 
-                {/* Mobile Menu */}
+                {/* Mobile Menu (Simplified for brevity, uses existing patterns) */}
                 <div className="md:hidden flex items-center gap-2">
-                    {/* ... (your mobile menu code is fine, no changes needed) ... */}
+                     {/* You can implement mobile menu toggle logic here if needed */}
                 </div>
             </div>
-             {/* ... (your mobile menu panel code is fine, no changes needed) ... */}
         </header>
     );
 };
