@@ -9,7 +9,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import 'dotenv/config';
 
-console.log('--- SERVER (UPDATED VERSION: Fix @User & Nested Replies & Enter Key) LOADING ---');
+console.log('--- SERVER (UPDATED VERSION: Fix Notification Payload ID) LOADING ---');
 
 // --- Supabase Client Setup ---
 if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY || !process.env.JWT_SECRET) {
@@ -66,6 +66,7 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 app.use(express.json());
+app.use(express.urlencoded({ extended: true })); 
 
 app.use((req, res, next) => {
     console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
@@ -217,7 +218,7 @@ async function createAndSendNotification({ type, actorId, actorName, actorProfil
         }
 
         const standardizedPayload = {
-             locationId: payload.location?.id,
+             locationId: payload.location?.id, // Ensure this is not undefined
              locationName: payload.location?.name,
              locationImageUrl: payload.location?.imageUrl,
              productId: payload.product?.id,
@@ -226,6 +227,13 @@ async function createAndSendNotification({ type, actorId, actorName, actorProfil
              commentId: payload.commentId,
              commentSnippet: payload.commentSnippet
         };
+
+        // Basic Validation
+        if (['new_review', 'new_reply', 'mention', 'new_comment_like'].includes(type)) {
+            if (!standardizedPayload.locationId) {
+                console.warn("⚠️ Warning: Notification payload missing locationId. Frontend might crash.");
+            }
+        }
 
         const notificationData = {
             actor_id: safeActorId,
@@ -324,10 +332,8 @@ app.get('/api/events', authenticateToken, async (req, res) => {
 // --- API Endpoints ---
 
 // --- [FIX] GET ALL USERS FOR MENTION LIST ---
-// นี่คือส่วนสำคัญที่เพิ่มเข้ามาเพื่อแก้ Error 404 ครับ
 app.get('/api/users', async (req, res) => {
     try {
-        // เลือกเฉพาะข้อมูลที่จำเป็นเพื่อความปลอดภัย (ไม่ต้องเอา password มา)
         const { data } = await supabase
             .from('users')
             .select('id, username, display_name, profile_image_url');
@@ -733,8 +739,10 @@ app.post('/api/reviews/:locationId', authenticateToken, upload.array('reviewImag
 
         // Notify Owner
         let loc = null;
-        ({ data: loc } = await supabase.from('attractions').select('*').eq('id', locationId).maybeSingle());
-        if (!loc) ({ data: loc } = await supabase.from('foodShops').select('*').eq('id', locationId).maybeSingle());
+        // BUG FIX: Select ID as well to prevent frontend crash
+        ({ data: loc } = await supabase.from('attractions').select('id, name, image_url, user_id').eq('id', locationId).maybeSingle());
+        if (!loc) ({ data: loc } = await supabase.from('foodShops').select('id, name, image_url, user_id').eq('id', locationId).maybeSingle());
+        
         if (loc && String(loc.user_id) !== String(req.user.userId)) {
             createAndSendNotification({ type: 'new_review', actorId: req.user.userId, actorName: req.user.displayName, actorProfileImageUrl: req.user.profileImageUrl, recipientId: loc.user_id, payload: { location: formatRowForFrontend(loc), reviewId: inserted.id } });
         }
@@ -808,8 +816,9 @@ app.post('/api/reviews/:reviewId/toggle-like', authenticateToken, async (req, re
             const { data: r } = await supabase.from('reviews').select('user_id, location_id').eq('id', reviewId).single();
             if (r && String(r.user_id) !== String(userId)) {
                 let loc = null;
-                ({ data: loc } = await supabase.from('attractions').select('*').eq('id', r.location_id).maybeSingle());
-                if (!loc) ({ data: loc } = await supabase.from('foodShops').select('*').eq('id', r.location_id).maybeSingle());
+                // BUG FIX: Select ID
+                ({ data: loc } = await supabase.from('attractions').select('id, name, image_url').eq('id', r.location_id).maybeSingle());
+                if (!loc) ({ data: loc } = await supabase.from('foodShops').select('id, name, image_url').eq('id', r.location_id).maybeSingle());
                 if (loc) createAndSendNotification({ type: 'new_like', actorId: userId, actorName: displayName, actorProfileImageUrl: profileImageUrl, recipientId: r.user_id, payload: { location: formatRowForFrontend(loc), reviewId: reviewId } });
             }
         }
@@ -825,10 +834,10 @@ app.get('/api/reviews/:reviewId/comments', async (req, res) => {
     res.json((data || []).map(formatRowForFrontend));
 });
 
-// POST Comment (Improved Mentions & Regex Fix)
+// POST Comment (Fixed: Uses explicit IDs for robust mentions)
 app.post('/api/reviews/:reviewId/comments', authenticateToken, async (req, res) => {
     const { reviewId } = req.params;
-    const { comment } = req.body;
+    const { comment, mentionedUserIds } = req.body; // Accept IDs from frontend
     const { userId, displayName, profileImageUrl } = req.user;
 
     if (!comment) return res.status(400).json({ error: 'Empty comment' });
@@ -842,12 +851,13 @@ app.post('/api/reviews/:reviewId/comments', authenticateToken, async (req, res) 
         const { data: review } = await supabase.from('reviews').select('user_id, location_id').eq('id', reviewId).single();
         let location = null;
         if (review) {
-            ({ data: location } = await supabase.from('attractions').select('name, image_url').eq('id', review.location_id).maybeSingle());
-            if (!location) ({ data: location } = await supabase.from('foodShops').select('name, image_url').eq('id', review.location_id).maybeSingle());
+            // BUG FIX: Select ID to avoid undefined locationId
+            ({ data: location } = await supabase.from('attractions').select('id, name, image_url').eq('id', review.location_id).maybeSingle());
+            if (!location) ({ data: location } = await supabase.from('foodShops').select('id, name, image_url').eq('id', review.location_id).maybeSingle());
         }
 
         if (location) {
-            // Notify Reply
+            // Notify Reply (To Review Owner)
             if (String(review.user_id) !== String(userId)) {
                 createAndSendNotification({
                     type: 'new_reply', actorId: userId, actorName: displayName, actorProfileImageUrl: profileImageUrl, recipientId: review.user_id,
@@ -855,31 +865,24 @@ app.post('/api/reviews/:reviewId/comments', authenticateToken, async (req, res) 
                 });
             }
 
-            // Notify Mentions (FIXED REGEX)
-            // เปลี่ยน Regex ให้หยุดเมื่อเจอ space หรือ @ ใหม่ (ป้องกันการจับทั้งประโยค)
-            // เดิม: /@([\w\u0E00-\u0E7F\s]+)/g (จับ space ด้วย)
-            // ใหม่: /@([^\s@]+)/g (จับจนกว่าจะเจอ space หรือ @)
-            const mentionRegex = /@([^\s@]+)/g; 
-            const potentialNames = [...comment.matchAll(mentionRegex)].map(m => m[1].trim());
-            
-            if (potentialNames.length > 0) {
-                const { data: mentionedUsers } = await supabase
-                    .from('users')
-                    .select('id, username, display_name')
-                    .or(`username.in.(${potentialNames.join(',')}),display_name.in.(${potentialNames.join(',')})`);
-                
-                if (mentionedUsers?.length) {
-                    const notified = new Set();
-                    mentionedUsers.forEach(mUser => {
-                        if (String(mUser.id) !== String(userId) && !notified.has(mUser.id)) {
-                            notified.add(mUser.id);
-                            createAndSendNotification({
-                                type: 'mention', actorId: userId, actorName: displayName, actorProfileImageUrl: profileImageUrl, recipientId: mUser.id,
-                                payload: { location: formatRowForFrontend(location), commentSnippet: comment.substring(0, 50), reviewId: reviewId, commentId: inserted.id }
-                            });
-                        }
-                    });
-                }
+            // Notify Mentions (Using Explicit IDs from Frontend - Solves Space Name Issue)
+            if (mentionedUserIds) {
+                try {
+                    const targetIds = JSON.parse(mentionedUserIds);
+                    if (Array.isArray(targetIds)) {
+                        const notified = new Set();
+                        targetIds.forEach(targetId => {
+                            // Prevent self-notification and duplicates
+                            if (String(targetId) !== String(userId) && !notified.has(targetId)) {
+                                notified.add(targetId);
+                                createAndSendNotification({
+                                    type: 'mention', actorId: userId, actorName: displayName, actorProfileImageUrl: profileImageUrl, recipientId: targetId,
+                                    payload: { location: formatRowForFrontend(location), commentSnippet: comment.substring(0, 50), reviewId: reviewId, commentId: inserted.id }
+                                });
+                            }
+                        });
+                    }
+                } catch (e) { console.error("Error parsing mentionedUserIds", e); }
             }
         }
         res.status(201).json(formatRowForFrontend({ ...inserted, user_profile: { profile_image_url: profileImageUrl } }));
@@ -917,8 +920,9 @@ app.post('/api/comments/:commentId/toggle-like', authenticateToken, async (req, 
                 const { data: r } = await supabase.from('reviews').select('location_id').eq('id', c.review_id).single();
                 if (r) {
                     let loc = null;
-                    ({ data: loc } = await supabase.from('attractions').select('name, image_url').eq('id', r.location_id).maybeSingle());
-                    if (!loc) ({ data: loc } = await supabase.from('foodShops').select('name, image_url').eq('id', r.location_id).maybeSingle());
+                    // BUG FIX: Select ID
+                    ({ data: loc } = await supabase.from('attractions').select('id, name, image_url').eq('id', r.location_id).maybeSingle());
+                    if (!loc) ({ data: loc } = await supabase.from('foodShops').select('id, name, image_url').eq('id', r.location_id).maybeSingle());
                     if (loc) createAndSendNotification({ type: 'new_comment_like', actorId: userId, actorName: displayName, actorProfileImageUrl: profileImageUrl, recipientId: c.user_id, payload: { location: formatRowForFrontend(loc), commentSnippet: c.comment.substring(0, 30), reviewId: c.review_id, commentId: commentId } });
                 }
             }
