@@ -75,8 +75,7 @@ const renderContentWithMentions = (text) => {
 const groupComments = (comments) => {
     if (!comments || comments.length === 0) return [];
 
-    // 1. แก้ไข: สร้าง Object ใหม่ (Deep Clone เบื้องต้น) และรีเซ็ต replies เป็น [] 
-    // เพื่อป้องกันปัญหาข้อมูลซ้ำเมื่อ React Re-render
+    // Clone objects to prevent mutation of the original state during re-renders
     const sorted = comments
         .map(c => ({ ...c, replies: [] })) 
         .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
@@ -85,12 +84,10 @@ const groupComments = (comments) => {
     const byAuthor = new Map();
 
     sorted.forEach(comment => {
-        // เช็คว่าเป็น Reply หรือไม่ (ขึ้นต้นด้วย @...)
         const match = comment.comment.match(/^@([\wก-๙.-]+)/);
         const isReply = !!match;
         let addedToParent = false;
 
-        // Initialize array for this author if not exists
         if (!byAuthor.has(comment.author)) {
             byAuthor.set(comment.author, []);
         }
@@ -99,10 +96,8 @@ const groupComments = (comments) => {
             const targetAuthor = match[1];
             const targetComments = byAuthor.get(targetAuthor) || [];
             
-            // หา Parent ล่าสุดของคนที่เรา Reply หา
             if (targetComments.length > 0) {
                 const parent = targetComments[targetComments.length - 1];
-                // parent.replies ถูก reset เป็น [] แล้วที่บรรทัด map ด้านบน จึง push ได้อย่างปลอดภัย
                 parent.replies.push(comment);
                 addedToParent = true;
             }
@@ -112,6 +107,7 @@ const groupComments = (comments) => {
             roots.push(comment);
         }
 
+        // Only track root comments as potential parents to keep threading simple
         if (!addedToParent) { 
              byAuthor.get(comment.author).push(comment);
         }
@@ -266,15 +262,13 @@ const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthErr
                 const response = await fetch(`${API_BASE_URL}/api/users`); 
                 if (response.ok) {
                     const data = await response.json();
-                    // แก้ไข: ตรวจสอบ displayName (camelCase) ก่อน display_name (snake_case)
                     const formattedUsers = Array.isArray(data) ? data.map(u => ({
-                        name: u.displayName || u.display_name || u.username, 
+                        name: u.displayName || u.display_name || u.username,
                         username: u.username,
-                        avatar: u.profile_image_url || u.profileImageUrl || u.avatar
+                        avatar: u.profile_image_url || u.profileImageUrl || u.avatar,
+                        id: u.id
                     })) : [];
                     setSystemUsers(formattedUsers);
-                } else {
-                    console.warn("API /api/users ไม่สามารถเรียกใช้งานได้ (Status: " + response.status + ")");
                 }
             } catch (error) {
                 console.error("Failed to fetch system users:", error);
@@ -295,7 +289,7 @@ const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthErr
             const response = await fetch(`${API_BASE_URL}/api/reviews/${locationId}${userIdQuery}`);
             const data = await response.json();
             
-            // 2. เพิ่ม: กรอง ID ซ้ำจากต้นทางเพื่อความปลอดภัย
+            // Deduplicate to ensure unique keys
             const uniqueComments = Array.isArray(data) 
                 ? Array.from(new Map(data.map(item => [item.id, item])).values())
                 : [];
@@ -306,14 +300,13 @@ const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthErr
         }
     };
 
-    // Organize comments into threads
     const organizedComments = useMemo(() => groupComments(comments), [comments]);
 
-    // All Users for Mention
     const allMentionCandidates = useMemo(() => {
         const commentUsers = comments.map(c => ({
             name: c.author,
-            avatar: c.author_profile_image_url || c.authorProfileImageUrl
+            avatar: c.author_profile_image_url || c.authorProfileImageUrl,
+            id: c.user_id
         })).filter(u => u.name);
         
         const combined = [...commentUsers, ...systemUsers];
@@ -323,6 +316,8 @@ const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthErr
             if (user.name && user.name !== currentUser?.username && user.name !== currentUser?.displayName) {
                 if (!uniqueMap.has(user.name)) {
                     uniqueMap.set(user.name, user);
+                } else if (user.id && !uniqueMap.get(user.name).id) {
+                    uniqueMap.set(user.name, user);
                 }
             }
         });
@@ -330,7 +325,6 @@ const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthErr
         return Array.from(uniqueMap.values());
     }, [comments, systemUsers, currentUser]);
 
-    // Input Handling
     const handleInputChange = (e) => {
         const val = e.target.value;
         setNewComment(val);
@@ -412,11 +406,21 @@ const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthErr
         if (!newComment.trim() || !currentUser) return;
         setIsLoading(true);
 
+        const mentionedUserIds = [];
+        allMentionCandidates.forEach(user => {
+            if (user.id && newComment.includes(`@${user.name}`)) {
+                mentionedUserIds.push(user.id);
+            }
+        });
+
         try {
             const token = localStorage.getItem('token');
             const formData = new FormData();
             formData.append('comment', newComment);
             formData.append('rating', 5);
+            if (mentionedUserIds.length > 0) {
+                formData.append('mentionedUserIds', JSON.stringify(mentionedUserIds));
+            }
 
             const response = await fetch(`${API_BASE_URL}/api/reviews/${locationId}`, {
                 method: 'POST',
