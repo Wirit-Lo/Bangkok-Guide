@@ -3,7 +3,8 @@ import {
     MapPin, Star, Clock, Phone, ChevronLeft, 
     X, Edit, Trash2, Heart, ChevronRight, Gift, Plus, 
     Image as ImageIcon, Save, AlertTriangle,
-    MessageSquare, Send, User
+    MessageSquare, Send, User, CornerDownRight,
+    MessageCircle, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { th } from 'date-fns/locale';
@@ -18,7 +19,7 @@ const getApiBaseUrl = () => {
 const API_BASE_URL = getApiBaseUrl();
 // --- END: API URL Configuration ---
 
-// --- Helper Component: Avatar (From CommentSection) ---
+// --- Helper Component: Avatar ---
 const Avatar = ({ src, alt, size = "md", className = "" }) => {
     const sizeClasses = {
         xs: "w-6 h-6",
@@ -29,7 +30,6 @@ const Avatar = ({ src, alt, size = "md", className = "" }) => {
 
     const baseClass = `${sizeClasses[size] || sizeClasses.md} rounded-full object-cover border-2 border-slate-700 shadow-sm shrink-0 ${className}`;
 
-    // แสดงรูปโปรไฟล์ถ้ามี
     if (src && src !== 'null' && src !== 'undefined') {
         return (
             <img 
@@ -41,7 +41,6 @@ const Avatar = ({ src, alt, size = "md", className = "" }) => {
         );
     }
 
-    // ถ้าไม่มีรูป ใช้ Gradient Placeholder ตามดีไซน์
     const gradients = [
         "from-pink-400 to-orange-400",
         "from-blue-400 to-indigo-500",
@@ -59,10 +58,9 @@ const Avatar = ({ src, alt, size = "md", className = "" }) => {
     );
 };
 
-// --- Helper: Parse Text with Mentions (From CommentSection) ---
+// --- Helper: Parse Text with Mentions ---
 const renderContentWithMentions = (text) => {
     if (!text) return null;
-    // Regex จับคำที่ขึ้นต้นด้วย @ ตามด้วยตัวอักษร (รวมภาษาไทย จุด และขีด)
     const parts = text.split(/(@[\wก-๙.-]+)/g);
     
     return parts.map((part, index) => {
@@ -73,55 +71,266 @@ const renderContentWithMentions = (text) => {
     });
 };
 
-// --- CommentSection Component (Merged) ---
+// --- Comment Grouping Logic (Utility) ---
+const groupComments = (comments) => {
+    if (!comments || comments.length === 0) return [];
+
+    // 1. แก้ไข: สร้าง Object ใหม่ (Deep Clone เบื้องต้น) และรีเซ็ต replies เป็น [] 
+    // เพื่อป้องกันปัญหาข้อมูลซ้ำเมื่อ React Re-render
+    const sorted = comments
+        .map(c => ({ ...c, replies: [] })) 
+        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+    const roots = [];
+    const byAuthor = new Map();
+
+    sorted.forEach(comment => {
+        // เช็คว่าเป็น Reply หรือไม่ (ขึ้นต้นด้วย @...)
+        const match = comment.comment.match(/^@([\wก-๙.-]+)/);
+        const isReply = !!match;
+        let addedToParent = false;
+
+        // Initialize array for this author if not exists
+        if (!byAuthor.has(comment.author)) {
+            byAuthor.set(comment.author, []);
+        }
+
+        if (isReply) {
+            const targetAuthor = match[1];
+            const targetComments = byAuthor.get(targetAuthor) || [];
+            
+            // หา Parent ล่าสุดของคนที่เรา Reply หา
+            if (targetComments.length > 0) {
+                const parent = targetComments[targetComments.length - 1];
+                // parent.replies ถูก reset เป็น [] แล้วที่บรรทัด map ด้านบน จึง push ได้อย่างปลอดภัย
+                parent.replies.push(comment);
+                addedToParent = true;
+            }
+        }
+
+        if (!addedToParent) {
+            roots.push(comment);
+        }
+
+        if (!addedToParent) { 
+             byAuthor.get(comment.author).push(comment);
+        }
+    });
+
+    return roots.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+};
+
+// --- Single Comment Item Component ---
+const CommentItem = ({ comment, currentUser, onLike, onReply }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+    const hasReplies = comment.replies && comment.replies.length > 0;
+
+    return (
+        <div className="flex gap-4 animate-fade-in-up">
+            <Avatar 
+                src={comment.author_profile_image_url || comment.authorProfileImageUrl} 
+                alt={comment.author || "User"} 
+            />
+
+            <div className="flex-1 min-w-0">
+                {/* Main Comment Box */}
+                <div className="bg-[#334155]/50 border border-slate-700 rounded-2xl px-4 py-3 relative group hover:border-slate-600 transition-all">
+                    <div className="flex items-baseline justify-between mb-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-white text-base truncate">
+                                {comment.author}
+                            </span>
+                            {comment.author === 'Admin' && (
+                                <span className="bg-blue-500/20 text-blue-300 text-[10px] px-2 py-0.5 rounded-full border border-blue-500/30 font-semibold tracking-wider">
+                                    ADMIN
+                                </span>
+                            )}
+                        </div>
+                        <span className="text-xs text-slate-500 whitespace-nowrap ml-2">
+                            {comment.created_at ? formatDistanceToNow(new Date(comment.created_at), { addSuffix: true, locale: th }) : 'เมื่อสักครู่'}
+                        </span>
+                    </div>
+
+                    <p className="text-slate-300 text-sm leading-relaxed break-words">
+                        {renderContentWithMentions(comment.comment)}
+                    </p>
+                </div>
+
+                {/* Action Bar */}
+                <div className="flex items-center gap-4 mt-1 ml-2 mb-2">
+                    <button 
+                        onClick={() => onLike(comment.id, comment.user_has_liked)}
+                        className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${comment.user_has_liked ? 'text-pink-500' : 'text-slate-500 hover:text-pink-400'}`}
+                    >
+                        <Heart size={14} fill={comment.user_has_liked ? "currentColor" : "none"} className={comment.user_has_liked ? "animate-pulse" : ""} />
+                        <span>{comment.likes_count || 0} ถูกใจ</span>
+                    </button>
+                    <button 
+                        onClick={() => onReply(comment)}
+                        className="text-xs text-slate-500 hover:text-blue-400 transition-colors font-medium flex items-center gap-1"
+                    >
+                        <MessageCircle size={14} />
+                        ตอบกลับ
+                    </button>
+                </div>
+
+                {/* Replies Section (Collapsible) */}
+                {hasReplies && (
+                    <div className="mt-2">
+                        {!isExpanded ? (
+                            <button 
+                                onClick={() => setIsExpanded(true)}
+                                className="flex items-center gap-2 text-xs font-bold text-blue-400 hover:text-blue-300 transition-colors ml-2 bg-blue-500/10 px-3 py-1.5 rounded-full"
+                            >
+                                <CornerDownRight size={14} />
+                                ดูการตอบกลับ {comment.replies.length} รายการ
+                            </button>
+                        ) : (
+                            <div className="pl-4 sm:pl-8 relative space-y-4">
+                                {/* Vertical Line Connector */}
+                                <div className="absolute left-0 top-0 bottom-4 w-[2px] bg-slate-700 rounded-full"></div>
+                                
+                                <button 
+                                    onClick={() => setIsExpanded(false)}
+                                    className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 mb-2 ml-2"
+                                >
+                                    <ChevronUp size={14} /> ซ่อนการตอบกลับ
+                                </button>
+
+                                {comment.replies.map(reply => (
+                                    <div key={reply.id} className="relative animate-fade-in">
+                                        <div className="flex gap-3">
+                                            <Avatar 
+                                                src={reply.author_profile_image_url || reply.authorProfileImageUrl} 
+                                                alt={reply.author} 
+                                                size="sm"
+                                            />
+                                            <div className="flex-1 min-w-0">
+                                                <div className="bg-[#334155]/30 border border-slate-700/50 rounded-2xl px-3 py-2">
+                                                    <div className="flex items-baseline justify-between mb-1">
+                                                        <span className="font-bold text-white text-sm">{reply.author}</span>
+                                                        <span className="text-[10px] text-slate-500">
+                                                            {reply.created_at ? formatDistanceToNow(new Date(reply.created_at), { addSuffix: true, locale: th }) : ''}
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-slate-300 text-xs leading-relaxed break-words">
+                                                        {renderContentWithMentions(reply.comment)}
+                                                    </p>
+                                                </div>
+                                                <div className="flex items-center gap-3 mt-1 ml-2">
+                                                    <button 
+                                                        onClick={() => onLike(reply.id, reply.user_has_liked)}
+                                                        className={`flex items-center gap-1 text-[10px] font-medium transition-colors ${reply.user_has_liked ? 'text-pink-500' : 'text-slate-500 hover:text-pink-400'}`}
+                                                    >
+                                                        <Heart size={12} fill={reply.user_has_liked ? "currentColor" : "none"} />
+                                                        {reply.likes_count || 0}
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => onReply(comment)} // Reply to parent instead of child to keep 1 level depth
+                                                        className="text-[10px] text-slate-500 hover:text-blue-400 font-medium"
+                                                    >
+                                                        ตอบกลับ
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+// --- CommentSection Component ---
 const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthError, setNotification }) => {
     const [comments, setComments] = useState([]);
     const [newComment, setNewComment] = useState("");
     const [isLoading, setIsLoading] = useState(false);
+    const [replyingTo, setReplyingTo] = useState(null); 
     
     // Mention Logic
     const [showMentionList, setShowMentionList] = useState(false);
     const [mentionQuery, setMentionQuery] = useState("");
     const [cursorPosition, setCursorPosition] = useState(0);
     const inputRef = useRef(null);
+    const [systemUsers, setSystemUsers] = useState([]);
 
-    // สร้างรายชื่อ User ที่ไม่ซ้ำกันสำหรับการ @Mention (เก็บทั้งชื่อและรูป)
-    const uniqueUsers = useMemo(() => {
-        const usersMap = new Map();
-        comments.forEach(c => {
-            if (c.author && c.author !== currentUser?.username && !usersMap.has(c.author)) {
-                usersMap.set(c.author, {
-                    name: c.author,
-                    avatar: c.author_profile_image_url || c.authorProfileImageUrl
-                });
+    // Fetch System Users
+    useEffect(() => {
+        const fetchSystemUsers = async () => {
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/users`); 
+                if (response.ok) {
+                    const data = await response.json();
+                    // แก้ไข: ตรวจสอบ displayName (camelCase) ก่อน display_name (snake_case)
+                    const formattedUsers = Array.isArray(data) ? data.map(u => ({
+                        name: u.displayName || u.display_name || u.username, 
+                        username: u.username,
+                        avatar: u.profile_image_url || u.profileImageUrl || u.avatar
+                    })) : [];
+                    setSystemUsers(formattedUsers);
+                } else {
+                    console.warn("API /api/users ไม่สามารถเรียกใช้งานได้ (Status: " + response.status + ")");
+                }
+            } catch (error) {
+                console.error("Failed to fetch system users:", error);
             }
-        });
-        return Array.from(usersMap.values());
-    }, [comments, currentUser]);
+        };
 
+        if (currentUser) fetchSystemUsers();
+    }, [currentUser]);
+
+    // Fetch Comments
     useEffect(() => {
         fetchComments();
     }, [locationId, currentUser]);
 
     const fetchComments = async () => {
         try {
-            // ส่ง userId ไปด้วยเพื่อเช็คสถานะ user_has_liked
             const userIdQuery = currentUser ? `?userId=${currentUser.id}` : '';
             const response = await fetch(`${API_BASE_URL}/api/reviews/${locationId}${userIdQuery}`);
+            const data = await response.json();
             
-            if (!response.ok) {
-                const reviewRes = await fetch(`${API_BASE_URL}/api/reviews/${locationId}`);
-                const data = await reviewRes.json();
-                setComments(Array.isArray(data) ? data : []);
-            } else {
-                const data = await response.json();
-                setComments(Array.isArray(data) ? data : []);
-            }
+            // 2. เพิ่ม: กรอง ID ซ้ำจากต้นทางเพื่อความปลอดภัย
+            const uniqueComments = Array.isArray(data) 
+                ? Array.from(new Map(data.map(item => [item.id, item])).values())
+                : [];
+
+            setComments(uniqueComments);
         } catch (error) {
             console.error("Error fetching comments:", error);
         }
     };
 
+    // Organize comments into threads
+    const organizedComments = useMemo(() => groupComments(comments), [comments]);
+
+    // All Users for Mention
+    const allMentionCandidates = useMemo(() => {
+        const commentUsers = comments.map(c => ({
+            name: c.author,
+            avatar: c.author_profile_image_url || c.authorProfileImageUrl
+        })).filter(u => u.name);
+        
+        const combined = [...commentUsers, ...systemUsers];
+        const uniqueMap = new Map();
+        
+        combined.forEach(user => {
+            if (user.name && user.name !== currentUser?.username && user.name !== currentUser?.displayName) {
+                if (!uniqueMap.has(user.name)) {
+                    uniqueMap.set(user.name, user);
+                }
+            }
+        });
+        
+        return Array.from(uniqueMap.values());
+    }, [comments, systemUsers, currentUser]);
+
+    // Input Handling
     const handleInputChange = (e) => {
         const val = e.target.value;
         setNewComment(val);
@@ -129,14 +338,16 @@ const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthErr
         const selectionStart = e.target.selectionStart;
         setCursorPosition(selectionStart);
 
-        // Logic ตรวจจับเครื่องหมาย @ เพื่อแสดง Suggestion
         const lastAtPos = val.lastIndexOf('@', selectionStart);
         if (lastAtPos !== -1 && lastAtPos < selectionStart) {
-            const query = val.substring(lastAtPos + 1, selectionStart);
-            if (!query.includes(' ')) {
-                setShowMentionList(true);
-                setMentionQuery(query);
-                return;
+            const charBeforeAt = lastAtPos > 0 ? val[lastAtPos - 1] : ' ';
+            if (charBeforeAt === ' ' || charBeforeAt === '\n') {
+                const query = val.substring(lastAtPos + 1, selectionStart);
+                if (!query.includes(' ')) {
+                    setShowMentionList(true);
+                    setMentionQuery(query);
+                    return;
+                }
             }
         }
         setShowMentionList(false);
@@ -145,111 +356,92 @@ const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthErr
     const insertMention = (name) => {
         const val = newComment;
         const lastAtPos = val.lastIndexOf('@', cursorPosition);
-        
         if (lastAtPos !== -1) {
             const before = val.substring(0, lastAtPos);
             const after = val.substring(cursorPosition);
             const newValue = `${before}@${name} ${after}`;
-            
             setNewComment(newValue);
             setShowMentionList(false);
-            
-            setTimeout(() => {
-                if(inputRef.current) {
-                    inputRef.current.focus();
-                }
-            }, 100);
+            if(inputRef.current) inputRef.current.focus();
         }
     };
 
-    const handleLike = async (commentId, currentLikes, userLiked) => {
+    const handleReplyClick = (comment) => {
+        setReplyingTo(comment);
+        setNewComment(`@${comment.author} `);
+        if(inputRef.current) {
+            inputRef.current.focus();
+            inputRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    };
+
+    const handleCancelReply = () => {
+        setReplyingTo(null);
+        setNewComment("");
+    };
+
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            if (newComment.trim()) {
+                handleSubmit(e);
+            }
+        }
+    };
+
+    const handleLike = async (commentId, userLiked) => {
         if (!currentUser) {
-            if (handleAuthError) handleAuthError(); 
-            else alert("กรุณาเข้าสู่ระบบ");
+            if (handleAuthError) handleAuthError();
             return;
         }
+        setComments(prev => prev.map(c => c.id === commentId ? { ...c, likes_count: userLiked ? parseInt(c.likes_count) - 1 : parseInt(c.likes_count) + 1, user_has_liked: !userLiked } : c));
         
-        // Optimistic Update
-        setComments(prev => prev.map(c => {
-            if (c.id === commentId) {
-                return {
-                    ...c,
-                    likes_count: userLiked ? Math.max(0, parseInt(c.likes_count) - 1) : parseInt(c.likes_count) + 1,
-                    user_has_liked: !userLiked
-                };
-            }
-            return c;
-        }));
-
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch(`${API_BASE_URL}/api/reviews/${commentId}/toggle-like`, {
+            await fetch(`${API_BASE_URL}/api/reviews/${commentId}/toggle-like`, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${token}` }
             });
-
-            if (response.status === 401 || response.status === 403) {
-                if (handleAuthError) handleAuthError();
-                return;
-            }
-
-            if (response.ok) {
-                // แจ้งเตือนเมื่อกดถูกใจสำเร็จ (ตามที่ต้องการ)
-                if (!userLiked && setNotification) {
-                    // setNotification({ message: 'ถูกใจความคิดเห็นแล้ว', type: 'success' });
-                }
-            } else {
-                throw new Error('Failed to like');
-            }
         } catch (error) {
-            console.error("Like failed", error);
-            if (setNotification) {
-                setNotification({ message: 'เกิดข้อผิดพลาดในการกดถูกใจ', type: 'error' });
-            }
-            fetchComments(); // Revert changes
+            fetchComments();
         }
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!newComment.trim()) return;
-        
-        if (!currentUser) {
-            if (handleAuthError) handleAuthError();
-            return;
-        }
-
+        if (!newComment.trim() || !currentUser) return;
         setIsLoading(true);
+
         try {
             const token = localStorage.getItem('token');
             const formData = new FormData();
             formData.append('comment', newComment);
             formData.append('rating', 5);
-            
+
             const response = await fetch(`${API_BASE_URL}/api/reviews/${locationId}`, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${token}` },
                 body: formData
             });
 
-            if (response.status === 401 || response.status === 403) {
-                if (handleAuthError) handleAuthError();
-                return;
-            }
-
             if (response.ok) {
                 setNewComment("");
+                setReplyingTo(null);
+                setShowMentionList(false);
                 fetchComments();
                 if(onReviewChange) onReviewChange();
-                if (setNotification) setNotification({ message: 'แสดงความคิดเห็นสำเร็จ', type: 'success' });
+                if(setNotification) setNotification({ message: 'แสดงความคิดเห็นสำเร็จ', type: 'success' });
             }
         } catch (error) {
             console.error("Submit failed", error);
-            if (setNotification) setNotification({ message: 'ส่งความคิดเห็นไม่สำเร็จ', type: 'error' });
         } finally {
             setIsLoading(false);
         }
     };
+
+    const filteredCandidates = allMentionCandidates.filter(u => 
+        u.name.toLowerCase().includes(mentionQuery.toLowerCase())
+    );
 
     return (
         <div className="bg-[#1e293b] rounded-2xl p-6 shadow-xl border border-slate-700 text-slate-200">
@@ -257,7 +449,7 @@ const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthErr
                 รีวิวและความคิดเห็น
             </h3>
 
-            <div className="space-y-4 mb-8">
+            <div className="space-y-6 mb-8">
                 <div className="flex items-center gap-2 text-blue-400 mb-4 font-semibold">
                     <MessageSquare size={20} />
                     <span>ความคิดเห็น ({comments.length})</span>
@@ -268,72 +460,39 @@ const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthErr
                         ยังไม่มีความคิดเห็น เป็นคนแรกที่แสดงความคิดเห็นสิ!
                     </div>
                 ) : (
-                    comments.map((comment) => (
-                        <div key={comment.id} className="bg-[#334155]/50 p-4 rounded-xl border border-slate-700 hover:border-slate-600 transition-all group">
-                            <div className="flex gap-4">
-                                <Avatar 
-                                    src={comment.author_profile_image_url || comment.authorProfileImageUrl} 
-                                    alt={comment.author || "User"} 
-                                />
-
-                                <div className="flex-1">
-                                    <div className="flex items-baseline justify-between">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                            <span className="font-bold text-white text-base">
-                                                {comment.author}
-                                            </span>
-                                            {comment.author === 'Admin' && (
-                                                <span className="bg-blue-500/20 text-blue-300 text-[10px] px-2 py-0.5 rounded-full border border-blue-500/30 font-semibold tracking-wider">
-                                                    ADMIN
-                                                </span>
-                                            )}
-                                        </div>
-                                        <span className="text-xs text-slate-500 whitespace-nowrap ml-2">
-                                            {comment.created_at ? formatDistanceToNow(new Date(comment.created_at), { addSuffix: true, locale: th }) : 'เมื่อสักครู่'}
-                                        </span>
-                                    </div>
-
-                                    <p className="text-slate-300 mt-1 text-sm leading-relaxed">
-                                        {renderContentWithMentions(comment.comment)}
-                                    </p>
-
-                                    <div className="flex items-center gap-4 mt-3">
-                                        <button 
-                                            onClick={() => handleLike(comment.id, comment.likes_count, comment.user_has_liked)}
-                                            className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${comment.user_has_liked ? 'text-pink-500' : 'text-slate-500 hover:text-pink-400'}`}
-                                        >
-                                            <Heart size={16} fill={comment.user_has_liked ? "currentColor" : "none"} className={comment.user_has_liked ? "animate-pulse" : ""} />
-                                            <span>{comment.likes_count || 0} ถูกใจ</span>
-                                        </button>
-                                        <button 
-                                            onClick={() => {
-                                                setNewComment((prev) => {
-                                                    const prefix = prev.length > 0 && !prev.endsWith(' ') ? ' ' : '';
-                                                    return `${prev}${prefix}@${comment.author} `;
-                                                });
-                                                if(inputRef.current) inputRef.current.focus();
-                                            }}
-                                            className="text-xs text-slate-500 hover:text-blue-400 transition-colors font-medium"
-                                        >
-                                            ตอบกลับ
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                    organizedComments.map(rootComment => (
+                        <CommentItem 
+                            key={rootComment.id}
+                            comment={rootComment}
+                            currentUser={currentUser}
+                            onLike={handleLike}
+                            onReply={handleReplyClick}
+                        />
                     ))
                 )}
             </div>
 
-            <div className="bg-[#334155] p-4 rounded-xl border border-slate-600 relative">
-                {/* Mention Suggestion List */}
-                {showMentionList && uniqueUsers.length > 0 && (
+            <div className={`bg-[#334155] p-4 rounded-xl border ${replyingTo ? 'border-blue-500/50 ring-1 ring-blue-500/20' : 'border-slate-600'} relative transition-all duration-300`}>
+                
+                {replyingTo && (
+                    <div className="flex items-center justify-between mb-3 bg-blue-500/10 px-3 py-2 rounded-lg border border-blue-500/20 animate-fade-in">
+                        <div className="flex items-center gap-2 text-sm text-blue-300">
+                            <CornerDownRight size={16} />
+                            <span>กำลังตอบกลับ <b>{replyingTo.author}</b></span>
+                        </div>
+                        <button onClick={handleCancelReply} className="text-slate-400 hover:text-white bg-slate-700/50 p-1 rounded-full">
+                            <X size={14} />
+                        </button>
+                    </div>
+                )}
+
+                {showMentionList && filteredCandidates.length > 0 && (
                     <div className="absolute bottom-full left-0 mb-2 w-64 bg-slate-800 border border-slate-600 rounded-lg shadow-2xl overflow-hidden z-30 animate-fade-in-up">
-                        <div className="p-2 bg-slate-900/80 text-xs text-slate-400 font-semibold border-b border-slate-700">แนะนำ (Mention)</div>
+                        <div className="p-2 bg-slate-900/80 text-xs text-slate-400 font-semibold border-b border-slate-700">
+                            แนะนำ (Mention)
+                        </div>
                         <div className="max-h-48 overflow-y-auto">
-                            {uniqueUsers
-                                .filter(u => u.name.toLowerCase().includes(mentionQuery.toLowerCase()))
-                                .map((user, idx) => (
+                            {filteredCandidates.map((user, idx) => (
                                 <button
                                     key={idx}
                                     onClick={() => insertMention(user.name)}
@@ -347,8 +506,8 @@ const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthErr
                     </div>
                 )}
 
-                <form onSubmit={handleSubmit} className="flex gap-3 items-center">
-                    <div className="hidden sm:block">
+                <form onSubmit={handleSubmit} className="flex gap-3 items-end">
+                    <div className="hidden sm:block pb-1">
                         <Avatar 
                             src={currentUser?.profileImageUrl} 
                             alt={currentUser?.username || "Me"} 
@@ -356,19 +515,25 @@ const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthErr
                     </div>
                     
                     <div className="flex-1 relative">
-                        <input
+                        <textarea
                             ref={inputRef}
-                            type="text"
                             value={newComment}
                             onChange={handleInputChange}
-                            placeholder={currentUser ? "แสดงความคิดเห็น... (พิมพ์ @ เพื่อกล่าวถึง)" : "กรุณาเข้าสู่ระบบเพื่อแสดงความคิดเห็น"}
+                            onKeyDown={handleKeyDown}
+                            placeholder={currentUser ? (replyingTo ? "พิมพ์ข้อความตอบกลับ..." : "แสดงความคิดเห็น... (พิมพ์ @ เพื่อกล่าวถึง)") : "กรุณาเข้าสู่ระบบเพื่อแสดงความคิดเห็น"}
                             disabled={!currentUser || isLoading}
-                            className="w-full bg-slate-900/50 border border-slate-600 text-slate-200 text-sm rounded-full py-3 px-5 pr-12 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-slate-500 shadow-inner"
+                            rows={1}
+                            style={{ minHeight: '44px', maxHeight: '120px' }}
+                            className="w-full bg-slate-900/50 border border-slate-600 text-slate-200 text-sm rounded-2xl py-3 px-4 pr-12 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-slate-500 shadow-inner resize-none overflow-hidden"
+                            onInput={(e) => {
+                                e.target.style.height = 'auto';
+                                e.target.style.height = e.target.scrollHeight + 'px';
+                            }}
                         />
                         <button 
                             type="submit"
                             disabled={!newComment.trim() || isLoading}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-blue-600 text-white rounded-full hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600 transition-all shadow-lg shadow-blue-900/30 flex items-center justify-center"
+                            className="absolute right-2 bottom-2 p-1.5 bg-blue-600 text-white rounded-full hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600 transition-all shadow-lg shadow-blue-900/30 flex items-center justify-center"
                         >
                             <Send size={16} className={isLoading ? "animate-spin" : "ml-0.5"} />
                         </button>
@@ -774,7 +939,7 @@ const DetailPage = ({ item, setCurrentPage, handleItemClick, currentUser, favori
                                     locationId={item.id} 
                                     currentUser={currentUser}
                                     handleAuthError={handleAuthError}
-                                    setNotification={setNotification} // ส่ง Props ลงไป
+                                    setNotification={setNotification}
                                 />
                             </div>
                         </div>
