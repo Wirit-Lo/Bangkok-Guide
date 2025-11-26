@@ -3,6 +3,8 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { MapPin, Star, MessageSquare, Clock, Phone, ChevronLeft, Send, X, Edit, Trash2, Heart, ThumbsUp, ChevronRight, Gift, Plus, Image as ImageIcon, Save, AlertTriangle, User, MoreHorizontal } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { th } from 'date-fns/locale';
+import { useScrollToAnchor } from '../hooks/useScrollToAnchor';
+import { CommentSection } from '../components/CommentSection';
 
 // --- START: API URL Configuration ---
 const getApiBaseUrl = () => {

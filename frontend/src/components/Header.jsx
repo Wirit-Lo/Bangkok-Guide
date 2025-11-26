@@ -2,10 +2,10 @@ import React, { useState, useEffect, useRef, memo } from 'react';
 import { 
     Sun, Moon, Bell, User, X, MapPin, MessageSquare, ThumbsUp, BellOff, 
     Settings, Heart, LogOut, LogIn, Menu, Home as HomeIcon, Utensils, 
-    PlusCircle, Users, Trash2 // เพิ่ม Trash2 icon
+    PlusCircle, Users, Trash2 // Import Trash2 สำหรับไอคอนถังขยะ
 } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
-import { th } from 'date-fns/locale';
+import { NotificationDropdown } from '../components/NotificationDropdown';
+
 
 // --- Reusable NavLink Component ---
 const NavLink = memo(({ icon, text, page, setCurrentPage, isActive }) => (
@@ -23,77 +23,99 @@ const NavLink = memo(({ icon, text, page, setCurrentPage, isActive }) => (
     </button>
 ));
 
-// --- Individual Notification Item Component ---
-const NotificationItem = memo(({ notification, onNotificationClick }) => {
+// --- Notification Item Component (เพิ่มปุ่มลบ) ---
+const NotificationItem = memo(({ notification, onNotificationClick, onDelete }) => {
     
-    const handleItemClick = () => {
-        if (notification.link) {
-            onNotificationClick(notification);
-        }
+    const handleItemClick = (e) => {
+        onNotificationClick(notification);
     };
 
-    const handleKeyDown = (e) => {
-        if (notification.link && (e.key === 'Enter' || e.key === ' ')) {
-            e.preventDefault();
-            handleItemClick();
-        }
+    const handleDeleteClick = (e) => {
+        e.stopPropagation(); // ป้องกันไม่ให้ไปกดลิงก์แจ้งเตือนตอนกดลบ
+        onDelete(notification.id);
     };
 
     return (
         <div 
-            onClick={notification.link ? handleItemClick : undefined} 
-            className={`w-full text-left flex items-start p-3 transition-colors duration-200 border-b dark:border-gray-700 ${notification.link ? 'hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer' : ''}`}
-            role={notification.link ? "button" : undefined}
-            tabIndex={notification.link ? 0 : undefined}
-            onKeyDown={handleKeyDown}
+            className={`group w-full text-left flex items-start p-3 transition-colors duration-200 border-b dark:border-gray-700 relative ${notification.link ? 'hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer' : ''} ${!notification.is_read ? 'bg-blue-50/30 dark:bg-blue-900/10' : ''}`}
         >
-            <div className="flex-shrink-0 relative">
-                <img 
-                    src={notification.userImage || 'https://placehold.co/48x48/e2e8f0/333333?text=🌍'} 
-                    className="w-10 h-10 rounded-full object-cover shadow-sm"
-                    alt="Profile image"
-                />
+            <div className="flex-1 flex items-start gap-3" onClick={handleItemClick}>
+                <div className="flex-shrink-0 relative">
+                    <img 
+                        src={notification.userImage || 'https://placehold.co/48x48/e2e8f0/333333?text=🌍'} 
+                        className="w-10 h-10 rounded-full object-cover shadow-sm border border-gray-200 dark:border-gray-600"
+                        alt="Profile"
+                        onError={(e) => e.target.src = 'https://placehold.co/48x48/e2e8f0/333333?text=User'}
+                    />
+                    {!notification.is_read && (
+                        <span className="absolute bottom-0 right-0 w-3 h-3 bg-blue-500 border-2 border-white dark:border-gray-800 rounded-full"></span>
+                    )}
+                </div>
+                <div className="flex-1 overflow-hidden pr-8"> {/* เพิ่ม padding ขวาเผื่อปุ่มลบ */}
+                    <p className="text-sm text-gray-800 dark:text-gray-200 line-clamp-2 leading-snug" dangerouslySetInnerHTML={{ __html: notification.message.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }}></p>
+                    <p className="text-xs text-blue-500 dark:text-blue-400 font-medium mt-1">
+                        {notification.time}
+                    </p>
+                </div>
             </div>
-            <div className="ml-4 flex-1 overflow-hidden">
-                <p className="text-sm text-gray-800 dark:text-gray-200 line-clamp-2" dangerouslySetInnerHTML={{ __html: notification.message.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }}></p>
-                <p className="text-xs text-blue-500 dark:text-blue-400 font-medium mt-1">
-                    {formatDistanceToNow(new Date(notification.time), { addSuffix: true, locale: th })}
-                </p>
-            </div>
+
+            {/* ปุ่มลบ (แสดงตลอด เพื่อให้เห็นชัดเจน) */}
+            <button 
+                onClick={handleDeleteClick}
+                className="absolute right-2 top-3 p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-full transition-all duration-200 z-10"
+                title="ลบการแจ้งเตือนนี้"
+            >
+                <Trash2 size={16} />
+            </button>
         </div>
     );
 });
 
 
-// --- Notification Panel Component ---
-const NotificationPanel = ({ isOpen, notifications, onNotificationClick, onClose }) => {
+// --- Notification Panel Component (เพิ่มปุ่มล้างทั้งหมด) ---
+const NotificationPanel = ({ isOpen, notifications, onNotificationClick, onClose, onDelete, onClearAll }) => {
     if (!isOpen) return null;
     return (
-        <div className={`absolute right-0 top-full mt-2 w-80 sm:w-96 bg-white dark:bg-gray-800 rounded-lg shadow-xl border dark:border-gray-700 transition-all duration-200 ${isOpen ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 pointer-events-none'}`}>
-            <div className="flex justify-between items-center p-4 font-bold border-b dark:border-gray-700 text-gray-800 dark:text-white">
-                การแจ้งเตือน
-                <button 
-                    onClick={onClose} 
-                    className="text-gray-500 hover:text-gray-800 dark:hover:text-white"
-                    aria-label="Close notifications panel"
-                >
-                    <X size={20} />
-                </button>
+        <div className={`absolute right-0 top-full mt-2 w-80 sm:w-96 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-100 dark:border-gray-700 transition-all duration-200 origin-top-right z-50 ${isOpen ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 -translate-y-2 scale-95 pointer-events-none'}`}>
+            <div className="flex justify-between items-center p-4 border-b border-gray-100 dark:border-gray-700">
+                <h3 className="font-bold text-gray-800 dark:text-white">การแจ้งเตือน</h3>
+                <div className="flex items-center gap-2">
+                    {notifications.length > 0 && (
+                        <button 
+                            onClick={onClearAll}
+                            className="text-xs text-red-500 hover:text-red-600 font-medium px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors flex items-center gap-1"
+                        >
+                            <Trash2 size={12} /> ล้างทั้งหมด
+                        </button>
+                    )}
+                </div>
             </div>
-            <div className="flex flex-col max-h-96 overflow-y-auto">
+            
+            <div className="flex flex-col max-h-[400px] overflow-y-auto custom-scrollbar">
                 {notifications.length > 0 ? (
-                    notifications.map((notif) => <NotificationItem key={notif.id} notification={notif} onNotificationClick={onNotificationClick} />)
+                    notifications.map((notif) => (
+                        <NotificationItem 
+                            key={notif.id} 
+                            notification={notif} 
+                            onNotificationClick={onNotificationClick} 
+                            onDelete={onDelete} // ส่งฟังก์ชันลบไปที่ Item
+                        />
+                    ))
                 ) : (
-                    <div className="p-8 flex flex-col items-center justify-center text-center">
-                        <BellOff size={40} className="text-gray-300 dark:text-gray-500" />
-                        <p className="mt-4 font-semibold text-gray-700 dark:text-gray-200">ยังไม่มีการแจ้งเตือน</p>
-                        <p className="text-sm text-gray-500 dark:text-gray-400">การแจ้งเตือนใหม่ๆ จะแสดงที่นี่</p>
+                    <div className="p-10 flex flex-col items-center justify-center text-center text-gray-400 dark:text-gray-500">
+                        <div className="w-16 h-16 bg-gray-50 dark:bg-gray-700/50 rounded-full flex items-center justify-center mb-3">
+                            <BellOff size={32} className="opacity-50" />
+                        </div>
+                        <p className="font-medium text-gray-600 dark:text-gray-300">ไม่มีการแจ้งเตือน</p>
+                        <p className="text-xs mt-1">คุณจะเห็นการอัปเดตต่างๆ ที่นี่</p>
                     </div>
                 )}
             </div>
         </div>
     );
 };
+
+
 
 
 // --- Main Header Component ---
@@ -109,11 +131,13 @@ const Header = ({
     handleMarkNotificationsAsRead,
     onNotificationClick,
     
-    // --- New Props for Multi-Account ---
+    // Props สำหรับจัดการบัญชีและแจ้งเตือน
     handleAddAccount,
     savedAccounts = [],
     handleSelectAccount,
-    handleRemoveAccount // รับ props ลบบัญชี
+    handleRemoveAccount,
+    handleDeleteNotification, // รับฟังก์ชันลบรายตัว
+    handleClearAllNotifications // รับฟังก์ชันล้างทั้งหมด
 }) => {
     const [scrolled, setScrolled] = useState(false);
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -193,13 +217,17 @@ const Header = ({
                         <div className="relative" ref={notificationPanelRef}>
                             <button 
                                 onClick={toggleNotificationPanel} 
-                                className="p-2 rounded-full text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                                className={`p-2 rounded-full transition-all duration-200 ${isNotificationPanelOpen ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
                                 aria-label="Toggle notifications"
                             >
-                                <Bell size={22} />
-                                {unreadCount > 0 && (
-                                    <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-white text-xs font-bold">{unreadCount > 9 ? '9+' : unreadCount}</span>
-                                )}
+                                <div className="relative">
+                                    <Bell size={22} className={isNotificationPanelOpen ? 'fill-current' : ''} />
+                                    {unreadCount > 0 && (
+                                        <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold ring-2 ring-white dark:ring-gray-800 animate-pulse">
+                                            {unreadCount > 9 ? '9+' : unreadCount}
+                                        </span>
+                                    )}
+                                </div>
                             </button>
                             <NotificationPanel 
                                 isOpen={isNotificationPanelOpen} 
@@ -209,6 +237,9 @@ const Header = ({
                                     setIsNotificationPanelOpen(false);
                                 }}
                                 onClose={() => setIsNotificationPanelOpen(false)}
+                                // --- ⭐ ส่งฟังก์ชันจัดการการลบไปที่ Panel ---
+                                onDelete={handleDeleteNotification}
+                                onClearAll={handleClearAllNotifications}
                             />
                         </div>
                     )}
@@ -242,7 +273,6 @@ const Header = ({
                                                 สลับบัญชี
                                             </div>
                                             {otherAccounts.map((account, index) => (
-                                                // --- ปรับโครงสร้างเป็น Flex เพื่อวางปุ่มลบไว้ด้านขวา ---
                                                 <div key={index} className="flex items-center justify-between w-full group hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors pr-2">
                                                     <button 
                                                         onClick={() => { handleSelectAccount(account); setIsUserMenuOpen(false); }}
@@ -258,7 +288,6 @@ const Header = ({
                                                         <span className="truncate">{account.user.displayName || account.user.username}</span>
                                                     </button>
                                                     
-                                                    {/* --- ปุ่มลบบัญชี (แสดงเมื่อ Hover) --- */}
                                                     <button 
                                                         onClick={(e) => { 
                                                             e.stopPropagation(); 
@@ -292,7 +321,6 @@ const Header = ({
                     )}
                 </div>
 
-                {/* Mobile Menu (Simplified for brevity, uses existing patterns) */}
                 <div className="md:hidden flex items-center gap-2">
                      {/* You can implement mobile menu toggle logic here if needed */}
                 </div>
@@ -300,5 +328,6 @@ const Header = ({
         </header>
     );
 };
+
 
 export default Header;

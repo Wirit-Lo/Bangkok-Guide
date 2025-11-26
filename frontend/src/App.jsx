@@ -46,7 +46,8 @@ const formatNotification = (rawNotification) => {
     const payload = parsedPayload;
 
     let message = 'มีการแจ้งเตือนใหม่';
-    let image = actor_profile_image_url || 'https://placehold.co/40x40/7e22ce/white?text=🔔';
+    const defaultImage = 'https://placehold.co/40x40/3b82f6/ffffff?text=User';
+    let image = actor_profile_image_url;
     let link = null;
 
     const actor = `**${actor_name || 'มีคน'}**`;
@@ -86,7 +87,6 @@ const formatNotification = (rawNotification) => {
             link = locationId; 
             break;
         default:
-            console.warn("Unknown notification type:", type);
             break;
     }
 
@@ -95,9 +95,7 @@ const formatNotification = (rawNotification) => {
     return {
         id: id || crypto.randomUUID(),
         message,
-        userImage: image && typeof image === 'string' && image.startsWith('http')
-                  ? image
-                  : 'https://placehold.co/40x40/7e22ce/white?text=🔔', 
+        userImage: image && typeof image === 'string' && image.startsWith('http') ? image : defaultImage, 
         time: timeString, 
         is_read: is_read || false,
         link, 
@@ -224,8 +222,9 @@ const App = () => {
         setCurrentPage('login'); 
     }, [setNotification]); 
 
-    const fetchLocations = useCallback(async () => {
-        setLoadingData(true);
+    // ⭐ FIX: Added 'silent' parameter to avoid flickering loading state
+    const fetchLocations = useCallback(async (silent = false) => {
+        if (!silent) setLoadingData(true);
         console.log('Fetching locations from:', API_BASE_URL);
         try {
             const [attractionsResponse, foodShopsResponse] = await Promise.all([
@@ -255,7 +254,7 @@ const App = () => {
             setAttractions([]); 
             setFoodShops([]); 
         } finally {
-            setLoadingData(false);
+            if (!silent) setLoadingData(false);
         }
     }, [setNotification]); 
 
@@ -357,12 +356,14 @@ const App = () => {
                     console.log("SSE Message Received:", eventData.type); 
 
                     if (eventData.type === 'historic_notifications' && Array.isArray(eventData.data)) {
+                        // --- Fix: Handle historic notifications ---
                         const formattedData = eventData.data
                             .map(formatNotification)
                             .sort((a, b) => new Date(b.original_created_at) - new Date(a.original_created_at));
                         setNotifications(formattedData.slice(0, 50)); 
                         console.log(`SSE: Loaded ${formattedData.length} historic notifications.`);
                     } else if (eventData.type === 'notification' && eventData.data) {
+                        // --- Fix: Handle live notifications ---
                         const newNotification = formatNotification(eventData.data);
                         console.log("SSE: Received new notification:", newNotification);
                         setNotifications((prev) =>
@@ -474,6 +475,50 @@ const App = () => {
         }
     }, [unreadCount, token, notifications, setNotification]); 
 
+    // --- ⭐ NEW: Delete Notification Handler ---
+    const handleDeleteNotification = useCallback(async (notificationId) => {
+        // Optimistic update: Remove from UI immediately
+        setNotifications(prev => prev.filter(n => n.id !== notificationId));
+        
+        // If it has a real ID (not a temp one), delete from server
+        if (notificationId && typeof notificationId === 'string') {
+             try {
+                const token = localStorage.getItem('token');
+                if (!token) return;
+                await fetch(`${API_BASE_URL}/api/notifications/${notificationId}`, {
+                    method: 'DELETE',
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+            } catch (error) {
+                console.error("Error deleting notification:", error);
+            }
+        }
+    }, []);
+
+    // --- ⭐ NEW: Clear All Notifications Handler ---
+    const handleClearAllNotifications = useCallback(async () => {
+        if (notifications.length === 0) return;
+        if (!window.confirm('คุณต้องการลบการแจ้งเตือนทั้งหมดใช่หรือไม่?')) return;
+        
+        // Optimistic update
+        setNotifications([]);
+        setUnreadCount(0);
+
+        try {
+            const token = localStorage.getItem('token');
+            if (!token) return;
+            await fetch(`${API_BASE_URL}/api/notifications`, {
+                method: 'DELETE',
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            setNotification({ message: 'ล้างการแจ้งเตือนทั้งหมดแล้ว', type: 'success' });
+        } catch (error) {
+            console.error("Error clearing notifications:", error);
+            setNotification({ message: 'เกิดข้อผิดพลาดในการล้างแจ้งเตือน', type: 'error' });
+        }
+    }, [notifications, setNotification]);
+
+
     const handleNotificationClick = useCallback(async (notificationPayload) => {
         console.log("Notification clicked:", notificationPayload);
         const locationId = notificationPayload.link;
@@ -484,7 +529,8 @@ const App = () => {
 
         if (!location) { 
             console.warn(`Location ${locationId} not in state, fetching...`);
-            setLoadingData(true); 
+            // Pass 'true' for silent fetch to avoid loading screen flash
+            await fetchLocations(true); 
             try {
                 const response = await fetch(`${API_BASE_URL}/api/locations/${locationId}`);
                 if (!response.ok) throw new Error(`Failed to fetch ${locationId} (${response.status})`);
@@ -494,9 +540,7 @@ const App = () => {
                 console.error("Error fetching location from notification:", error);
                 setNotification({ message: 'ไม่สามารถโหลดข้อมูลสถานที่ได้', type: 'error' });
                 return; 
-            } finally {
-                 setLoadingData(false); 
-            }
+            } 
         }
 
         if (location?.id) { 
@@ -508,7 +552,7 @@ const App = () => {
         }
 
         setIsSidebarOpen(false); 
-    }, [attractions, foodShops, handleSetCurrentPage, setNotification]); 
+    }, [attractions, foodShops, handleSetCurrentPage, setNotification, fetchLocations]); 
 
     const handleToggleFavorite = useCallback(async (locationId) => {
         if (!currentUser) {
@@ -656,26 +700,23 @@ const App = () => {
     };
 
     const handleDataRefresh = useCallback(async (updatedItemId) => {
-        console.log(`Refreshing data... Item ID: ${updatedItemId}`);
+        console.log(`Refreshing data... ID: ${updatedItemId}`);
         
-        // 1. Fetch new lists to update main data (e.g. review counts)
-        await fetchLocations();
+        // ⭐ FIX: Call with true to avoid loading spinner (silent update)
+        await fetchLocations(true); 
 
-        // 2. If we are currently viewing the updated item, refresh it in place
-        //    This fixes the "bouncing out" issue by updating data instead of navigating away.
-        if (updatedItemId && selectedItem?.id === updatedItemId && currentPage === 'detail') {
+        // ⭐ FIX: String comparison to prevent bouncing
+        if (updatedItemId && selectedItem && String(selectedItem.id) === String(updatedItemId) && currentPage === 'detail') {
             try {
                 const response = await fetch(`${API_BASE_URL}/api/locations/${updatedItemId}`);
                 if (response.ok) {
                     const freshItemData = await response.json();
-                    setSelectedItem(freshItemData); // Update detail view with fresh data
+                    setSelectedItem(freshItemData); 
                     console.log("Updated selected item in place.");
                 }
-            } catch (error) {
-                console.error("Error refreshing selected item:", error);
-            }
+            } catch (error) { console.error(error); }
         }
-    }, [fetchLocations, selectedItem, currentPage, API_BASE_URL]); 
+    }, [fetchLocations, selectedItem, currentPage]); 
 
     const handleUpdateItem = (updatedItem) => {
         console.log("Handling item update in App.jsx:", updatedItem);
@@ -879,11 +920,13 @@ const App = () => {
                 isSidebarOpen={isSidebarOpen}
                 toggleSidebar={toggleSidebar}
                 
-                // --- ⭐ PROPS: ส่งฟังก์ชันจัดการบัญชี ---
+                // --- ⭐ PROPS: ส่งฟังก์ชันจัดการบัญชีและแจ้งเตือน ---
                 handleAddAccount={handleAddAccount}
                 savedAccounts={savedAccounts}
                 handleSelectAccount={handleSelectAccount}
-                handleRemoveAccount={handleRemoveAccount} // ส่งฟังก์ชันลบไป
+                handleRemoveAccount={handleRemoveAccount}
+                handleDeleteNotification={handleDeleteNotification} // เพิ่ม
+                handleClearAllNotifications={handleClearAllNotifications} // เพิ่ม
             />
 
             <div className="flex flex-1 p-4 gap-4"> 
