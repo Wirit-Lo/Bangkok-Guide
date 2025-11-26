@@ -9,7 +9,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import 'dotenv/config';
 
-console.log('--- SERVER (MERGED VERSION + User Search API) LOADING ---');
+console.log('--- SERVER (UPDATED VERSION: Fix @User & Nested Replies & Enter Key) LOADING ---');
 
 // --- Supabase Client Setup ---
 if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY || !process.env.JWT_SECRET) {
@@ -24,7 +24,7 @@ const app = express();
 const port = process.env.PORT || 5000;
 let clients = []; // For SSE connections
 
-// --- 🗑️ AUTOMATIC CLEANUP SYSTEM (ระบบลบแจ้งเตือนเก่าอัตโนมัติ) ---
+// --- 🗑️ AUTOMATIC CLEANUP SYSTEM ---
 const cleanupOldNotifications = async () => {
     console.log('🧹 [Cleanup] Starting scheduled cleanup for old notifications...');
     const thirtyDaysAgo = new Date();
@@ -216,7 +216,6 @@ async function createAndSendNotification({ type, actorId, actorName, actorProfil
             return; 
         }
 
-        // Standardized Payload for Clicking/Navigation
         const standardizedPayload = {
              locationId: payload.location?.id,
              locationName: payload.location?.name,
@@ -324,18 +323,33 @@ app.get('/api/events', authenticateToken, async (req, res) => {
 
 // --- API Endpoints ---
 
+// --- [FIX] GET ALL USERS FOR MENTION LIST ---
+// นี่คือส่วนสำคัญที่เพิ่มเข้ามาเพื่อแก้ Error 404 ครับ
+app.get('/api/users', async (req, res) => {
+    try {
+        // เลือกเฉพาะข้อมูลที่จำเป็นเพื่อความปลอดภัย (ไม่ต้องเอา password มา)
+        const { data } = await supabase
+            .from('users')
+            .select('id, username, display_name, profile_image_url');
+        
+        res.json((data || []).map(formatRowForFrontend));
+    } catch (err) {
+        console.error('Failed to fetch all users:', err);
+        res.status(500).json({ error: 'Failed to fetch users' });
+    }
+});
+
 // --- [NEW] USER SEARCH FOR AUTOCOMPLETE ---
 app.get('/api/users/search', async (req, res) => {
     const { q } = req.query;
     if (!q || q.trim().length < 1) return res.json([]);
 
     try {
-        // Search in username OR display_name (using ilike for case-insensitive partial match)
         const { data } = await supabase
             .from('users')
             .select('id, username, display_name, profile_image_url')
             .or(`username.ilike.%${q}%,display_name.ilike.%${q}%`)
-            .limit(5); // Limit results for dropdown
+            .limit(5);
         
         res.json((data || []).map(formatRowForFrontend));
     } catch (err) {
@@ -355,9 +369,8 @@ app.get('/api/users/:userId', async (req, res) => {
     }
 });
 
-// (Update/Delete User endpoints omitted for brevity but presumed present unchanged)
+// --- UPDATE USER ---
 app.put('/api/users/:userIdToUpdate', authenticateToken, upload.single('profileImage'), async (req, res) => {
-    // ... (same as previous version) ...
     const { userIdToUpdate } = req.params;
     const { userId, role } = req.user;
     if (userIdToUpdate !== userId && role !== 'admin') return res.status(403).json({ error: 'Unauthorized' });
@@ -404,7 +417,6 @@ app.put('/api/users/:userIdToUpdate', authenticateToken, upload.single('profileI
 });
 
 app.delete('/api/users/:userIdToDelete', authenticateToken, async (req, res) => {
-    // ... (same as previous version) ...
     const { userIdToDelete } = req.params;
     const { userId, role } = req.user;
     const { currentPassword } = req.body;
@@ -457,8 +469,7 @@ app.delete('/api/notifications', authenticateToken, async (req, res) => {
     res.json({ message: 'Cleared all' });
 });
 
-// --- FAMOUS PRODUCTS & LOCATIONS (Same as before) ---
-// ... (Omitting standard CRUD for brevity, keeping structure valid) ...
+// --- FAMOUS PRODUCTS & LOCATIONS ---
 app.get('/api/famous-products/all', authenticateToken, requireAdmin, async (req, res) => {
     const locationMap = new Map();
     try {
@@ -585,7 +596,6 @@ app.post('/api/locations', authenticateToken, upload.array('images', 10), async 
     } catch (err) { if (uploadedImageUrls.length) await deleteFromSupabase(uploadedImageUrls); res.status(500).json({ error: 'Failed to create' }); }
 });
 app.put('/api/locations/:id', authenticateToken, upload.array('images', 10), async (req, res) => {
-    // ... Same as previous (Complex logic preserved) ...
     const { id } = req.params;
     const { userId, role } = req.user;
     const { name, category: newCategory, description, googleMapUrl, hours, contact, existingImages } = req.body;
@@ -732,9 +742,7 @@ app.post('/api/reviews/:locationId', authenticateToken, upload.array('reviewImag
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
-// ... (PUT/DELETE Reviews omitted, same logic) ...
 app.put('/api/reviews/:reviewId', authenticateToken, upload.array('reviewImages', 5), async (req, res) => {
-    // Standard update logic
     const { reviewId } = req.params;
     const { rating, comment, existingImages, locationId } = req.body;
     const { userId, role } = req.user;
@@ -817,7 +825,7 @@ app.get('/api/reviews/:reviewId/comments', async (req, res) => {
     res.json((data || []).map(formatRowForFrontend));
 });
 
-// POST Comment (Improved Mentions)
+// POST Comment (Improved Mentions & Regex Fix)
 app.post('/api/reviews/:reviewId/comments', authenticateToken, async (req, res) => {
     const { reviewId } = req.params;
     const { comment } = req.body;
@@ -847,13 +855,14 @@ app.post('/api/reviews/:reviewId/comments', authenticateToken, async (req, res) 
                 });
             }
 
-            // Notify Mentions
-            // Matches @Username (Allows Thai chars, alphanumeric, spaces if needed for loose match logic)
-            const mentionRegex = /@([\w\u0E00-\u0E7F\s]+)/g; 
+            // Notify Mentions (FIXED REGEX)
+            // เปลี่ยน Regex ให้หยุดเมื่อเจอ space หรือ @ ใหม่ (ป้องกันการจับทั้งประโยค)
+            // เดิม: /@([\w\u0E00-\u0E7F\s]+)/g (จับ space ด้วย)
+            // ใหม่: /@([^\s@]+)/g (จับจนกว่าจะเจอ space หรือ @)
+            const mentionRegex = /@([^\s@]+)/g; 
             const potentialNames = [...comment.matchAll(mentionRegex)].map(m => m[1].trim());
             
             if (potentialNames.length > 0) {
-                // Search by Username OR Display Name
                 const { data: mentionedUsers } = await supabase
                     .from('users')
                     .select('id, username, display_name')
@@ -950,6 +959,7 @@ app.post('/api/favorites/toggle', authenticateToken, async (req, res) => {
     if (count > 0) { await supabase.from('favorites').delete().match({ user_id: userId, location_id: locationId }); res.json({ status: 'removed' }); }
     else { await supabase.from('favorites').insert({ user_id: userId, location_id: locationId }); res.json({ status: 'added' }); }
 });
+
 
 app.listen(port, () => {
     console.log(`✅✅✅ MERGED SERVER RUNNING at http://localhost:${port}`);
