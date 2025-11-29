@@ -14,7 +14,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const BACKEND_URL = 'http://localhost:5000'; 
 
 const LoginPage = ({ onAuthSuccess, setNotification }) => {
-  // ⚡ OPTIMIZATION: เช็ค URL ทันทีที่โหลด Component เพื่อตั้งค่า Loading State ตั้งแต่เริ่ม
+  // ⚡ Check URL: ดูว่าเป็นการ Redirect กลับมาจาก Google หรือไม่
   const isRedirecting = window.location.hash.includes('access_token') || 
                         window.location.search.includes('code=');
 
@@ -22,48 +22,41 @@ const LoginPage = ({ onAuthSuccess, setNotification }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   
-  // ✅ เริ่มต้น loading ตามสถานะ URL ทันที
+  // สถานะ Loading เริ่มต้นตาม URL
   const [loading, setLoading] = useState(isRedirecting);
   const [showPassword, setShowPassword] = useState(false);
   const [statusMessage, setStatusMessage] = useState(isRedirecting ? 'กำลังยืนยันตัวตน...' : '');
   
-  // Ref ป้องกันการทำงานซ้ำ
+  // Ref ป้องกันการทำงานซ้ำ (สำคัญมากสำหรับ React StrictMode)
   const processingRef = useRef(false);
 
-  // --- ฟังก์ชันช่วยจัดการเมื่อ Login สำเร็จ ---
+  // --- ฟังก์ชันจบงาน (Finalize) ---
   const finalizeLogin = (user, token) => {
     setStatusMessage("เข้าสู่ระบบสำเร็จ!");
     
-    // 1. บันทึก Token ปัจจุบัน
+    // 1. บันทึก Token
     localStorage.setItem('token', token);
     localStorage.setItem('user', JSON.stringify(user));
 
-    // 2. ⭐ บันทึกลงรายการสลับบัญชี (saved_users) ⭐
+    // 2. บันทึก Saved Users
     try {
-        const savedUsersStr = localStorage.getItem('saved_users');
-        let savedUsers = savedUsersStr ? JSON.parse(savedUsersStr) : [];
-        
-        savedUsers = savedUsers.filter(u => u.id !== user.id && u.username !== user.username);
-        
-        const userToSave = { 
-            ...user, 
-            token, 
-            lastLogin: new Date().toISOString() 
-        }; 
-        savedUsers.unshift(userToSave);
-        
-        if (savedUsers.length > 5) savedUsers.pop();
-        localStorage.setItem('saved_users', JSON.stringify(savedUsers));
-    } catch (e) {
-        console.error("Error saving to account list:", e);
-    }
+        const savedUsers = JSON.parse(localStorage.getItem('saved_users') || '[]');
+        const newSaved = [
+            { ...user, token, lastLogin: new Date().toISOString() },
+            ...savedUsers.filter(u => u.id !== user.id)
+        ].slice(0, 5);
+        localStorage.setItem('saved_users', JSON.stringify(newSaved));
+    } catch (e) { console.error(e); }
 
-    // 3. เปลี่ยนหน้าทันที!
-    if (onAuthSuccess) {
-        onAuthSuccess(user, token);
-    } else {
-        window.location.href = '/dashboard';
-    }
+    // 3. เปลี่ยนหน้า (หน่วงเวลา 1.5 วินาที ให้ User เห็นข้อความสำเร็จ)
+    setTimeout(() => {
+        if (onAuthSuccess) {
+            onAuthSuccess(user, token);
+        } else {
+            // ใช้ replace เพื่อไม่ให้กด Back กลับมาหน้า Login ได้
+            window.location.replace('/dashboard');
+        }
+    }, 1500); 
   };
 
   // --- 1. Logic Social Login ---
@@ -75,10 +68,9 @@ const LoginPage = ({ onAuthSuccess, setNotification }) => {
         const { error } = await supabase.auth.signInWithOAuth({
             provider: provider.toLowerCase(),
             options: { 
-                redirectTo: window.location.origin,
+                redirectTo: window.location.origin, // ตรวจสอบว่าตรงกับใน Supabase Dashboard -> Auth -> URL Configuration
                 skipBrowserRedirect: false,
                 queryParams: {
-                    prompt: 'select_account',
                     access_type: 'offline'
                 }
             }
@@ -86,123 +78,129 @@ const LoginPage = ({ onAuthSuccess, setNotification }) => {
         if (error) throw error;
     } catch (err) {
         console.error("Social Login Error:", err);
-        alert(`เกิดข้อผิดพลาด: ${err.message}`);
+        alert(`Login Error: ${err.message}`);
         setLoading(false);
-        setStatusMessage('');
     }
   };
 
-  // --- 2. Logic ส่งข้อมูลไป Backend (แบบ Fire & Forget) ---
+  // --- 2. Logic Sync Backend (Fire & Forget) ---
   const syncWithBackend = async (session) => {
     if (processingRef.current) return;
-    processingRef.current = true;
+    processingRef.current = true; // Lock กันซ้ำ
 
     try {
-        // 🚀 FAST TRACK: ไม่รอ Backend ตอบกลับ
-        // สร้าง User Object จากข้อมูล Supabase โดยตรงเลย
+        console.log("⚡ Syncing with backend for:", session.user.email);
+        
         const socialUser = {
             id: session.user.id,
             email: session.user.email,
-            username: session.user.user_metadata.full_name || session.user.user_metadata.name || session.user.email.split('@')[0],
+            username: session.user.user_metadata.full_name || session.user.email.split('@')[0],
             photoUrl: session.user.user_metadata.avatar_url,
             provider: session.user.app_metadata.provider || 'social'
         };
 
-        // เตรียม Payload ส่งหลังบ้าน
-        const userPayload = {
-            email: socialUser.email,
-            displayName: socialUser.username,
-            photoUrl: socialUser.photoUrl,
-            provider: socialUser.provider
-        };
-        
-        // ⚡ ส่งข้อมูลไป Backend แบบ Background Process (ไม่ใส่ await)
-        // ใช้ keepalive: true เพื่อให้ request ทำงานต่อแม้หน้าเว็บจะถูก redirect ไปแล้ว
+        // ยิง Backend เงียบๆ
         fetch(`${BACKEND_URL}/api/auth/social-login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(userPayload),
+            body: JSON.stringify({
+                email: socialUser.email,
+                displayName: socialUser.username,
+                photoUrl: socialUser.photoUrl,
+                provider: socialUser.provider
+            }),
             keepalive: true 
-        }).catch(err => console.error("Background Sync Error:", err));
+        }).catch(err => console.warn("Backend sync warning:", err));
 
-        // ✅ เข้าสู่ระบบทันทีโดยใช้ Token จาก Supabase
+        // ✅ เข้าสู่ระบบทันที
         finalizeLogin(socialUser, session.access_token);
 
     } catch (err) {
-        console.error("Critical Error:", err);
-        // ถ้า Supabase พังจริงๆ ถึงค่อย Logout
+        console.error("Sync Critical Error:", err);
         processingRef.current = false;
-        await supabase.auth.signOut();
         setLoading(false);
-        setStatusMessage('');
-        window.history.replaceState(null, '', window.location.pathname);
     }
   };
 
-  // --- 3. ตรวจสอบสถานะการ Login (Fast Track) ---
+  // --- 3. ตรวจสอบสถานะการ Login (Stable Version) ---
   useEffect(() => {
+    // กรณีที่ 1: ไม่ได้ Redirect มา (เปิดหน้า Login ปกติ)
     if (!isRedirecting) {
-        const clearOldSession = async () => {
+        // เคลียร์ Session เก่าทิ้ง เพื่อป้องกัน State ค้าง
+        const clearSession = async () => {
             const { data } = await supabase.auth.getSession();
             if (data?.session) {
-                // Clear session เพื่อความสะอาด แต่ไม่ต้อง await นาน
-                supabase.auth.signOut();
+                await supabase.auth.signOut();
                 localStorage.removeItem('token');
             }
         };
-        clearOldSession();
+        clearSession();
         return;
     }
 
-    // กรณีมี Redirect Code: รอจับ Session แล้ว Sync ทันที
+    // กรณีที่ 2: Redirect กลับมาพร้อม Code (Login Flow)
+    // ใช้วิธี Listen Event อย่างเดียว เพื่อความเสถียรสูงสุด
+    console.log("🔄 Detecting OAuth redirect...");
+    
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
-        if (event === 'SIGNED_IN' && session) {
-            syncWithBackend(session);
+        console.log("🔔 Auth Event:", event);
+        if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session) {
+             syncWithBackend(session);
         }
     });
 
-    return () => authListener.subscription.unsubscribe();
+    // Fallback: ถ้าผ่านไป 5 วินาทียังเงียบ (เช่น Code เสีย) ให้ปลด Loading
+    const safetyTimeout = setTimeout(() => {
+        if (loading && !processingRef.current) {
+            console.warn("⚠️ Login timed out.");
+            setLoading(false);
+            setStatusMessage("การเชื่อมต่อล่าช้า กรุณาลองใหม่อีกครั้ง");
+            // ล้าง URL ให้สะอาด
+            window.history.replaceState(null, '', window.location.pathname);
+        }
+    }, 5000);
+
+    return () => {
+        authListener.subscription.unsubscribe();
+        clearTimeout(safetyTimeout);
+    };
   }, [isRedirecting]);
 
-  // --- 4. Logic Login ปกติ (Manual) ---
-  const handleManualLogin = async () => {
-    if (!username || !password) {
-        alert("กรุณากรอกชื่อผู้ใช้และรหัสผ่าน");
-        return;
-    }
+  // --- 4. Manual Login (Updated for Form Submit) ---
+  const handleManualLogin = async (e) => {
+    // ✅ เพิ่ม e.preventDefault() เพื่อไม่ให้หน้าเว็บ Refresh เมื่อกด Enter
+    if (e) e.preventDefault(); 
+
+    if (!username || !password) return alert("กรุณากรอกข้อมูล");
 
     setLoading(true);
-    setStatusMessage("กำลังตรวจสอบ...");
-    const endpoint = isRegisterMode ? '/api/register' : '/api/login';
+    setStatusMessage("ตรวจสอบข้อมูล...");
     
     try {
+        const endpoint = isRegisterMode ? '/api/register' : '/api/login';
         const response = await fetch(`${BACKEND_URL}${endpoint}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password }),
         });
-
         const data = await response.json();
 
         if (!response.ok) throw new Error(data.error || 'Server Error');
 
-        if (!isRegisterMode) {
-            finalizeLogin(data.user, data.token);
-        } else {
-            alert('สมัครสมาชิกสำเร็จ! กรุณาเข้าสู่ระบบ');
+        if (isRegisterMode) {
+            alert('สมัครสำเร็จ');
             setIsRegisterMode(false);
             setLoading(false);
-            setStatusMessage('');
+        } else {
+            finalizeLogin(data.user, data.token);
         }
-
     } catch (err) {
         alert(err.message);
         setLoading(false);
-        setStatusMessage('');
     }
   };
 
-  // --- ⚡ Render Loading State ---
+  // --- Loading Screen ---
   if (loading) {
     return (
         <div className="flex flex-col items-center justify-center min-h-[70vh] bg-gray-50 dark:bg-gray-900">
@@ -217,14 +215,21 @@ const LoginPage = ({ onAuthSuccess, setNotification }) => {
                     {statusMessage}
                 </h3>
                 <p className="text-gray-500 text-sm text-center">
-                    กำลังเชื่อมต่อกับระบบ...
+                    กำลังแลกเปลี่ยนกุญแจความปลอดภัย...
                 </p>
+                {/* ปุ่มยกเลิก กรณีรอนานเกินไป */}
+                <button 
+                    onClick={() => { setLoading(false); window.history.replaceState(null, '', window.location.pathname); }}
+                    className="mt-6 text-sm text-red-500 hover:text-red-700 underline cursor-pointer"
+                >
+                    ยกเลิกและกลับไปหน้าเดิม
+                </button>
             </div>
         </div>
     );
   }
 
-  // --- Components ---
+  // --- Components UI ---
   const GoogleIcon = () => (
     <svg className="w-5 h-5 mr-3" viewBox="0 0 48 48">
         <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8c-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4C12.955 4 4 12.955 4 24s8.955 20 20 20s20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z"></path>
@@ -264,7 +269,8 @@ const LoginPage = ({ onAuthSuccess, setNotification }) => {
               </p>
           </div>
 
-          <div className="mt-6 space-y-6">
+          {/* ✅ ใช้ <form> และย้าย onSubmit มาที่นี่เพื่อให้รองรับการกด Enter */}
+          <form onSubmit={handleManualLogin} className="mt-6 space-y-6">
             <div className="relative">
               <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20}/>
               <input
@@ -294,7 +300,7 @@ const LoginPage = ({ onAuthSuccess, setNotification }) => {
             </div>
 
             <button
-              onClick={handleManualLogin}
+              type="submit" // ✅ เปลี่ยนเป็น type="submit" เพื่อให้ฟอร์มทำงานเมื่อกด Enter
               disabled={loading}
               className="w-full flex justify-center items-center bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:from-blue-700 hover:to-indigo-700 transition-all transform hover:scale-105 shadow-lg cursor-pointer active:scale-95"
             >
@@ -302,7 +308,7 @@ const LoginPage = ({ onAuthSuccess, setNotification }) => {
               {isRegisterMode ? <UserPlus size={20} className={loading ? "hidden" : "mr-2"} /> : <LogIn size={20} className={loading ? "hidden" : "mr-2"} />}
               {isRegisterMode ? 'สมัครสมาชิก' : 'เข้าสู่ระบบ'}
             </button>
-          </div>
+          </form>
 
           <div className="my-6 flex items-center">
             <div className="flex-grow border-t border-gray-300 dark:border-gray-600"></div>
