@@ -1,59 +1,103 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Heart, MessageSquare, Send, MoreHorizontal, User, Trash2, Edit, X } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Heart, MessageSquare, Send, User, CornerDownRight, ChevronUp, X } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { th } from 'date-fns/locale';
 
 const API_BASE_URL = window.location.hostname === 'localhost' ? 'http://localhost:5000' : 'https://bangkok-guide.onrender.com';
 
-// --- Helper Component: Avatar ---
-// ถ้ามีรูปใช้รูป ถ้าไม่มีใช้ดีไซน์ Gradient เหมือนในภาพ
-const Avatar = ({ src, alt, size = "md" }) => {
-    const sizeClasses = {
-        sm: "w-8 h-8",
-        md: "w-10 h-10",
-        lg: "w-12 h-12"
-    };
+// --- Helper: Group Comments (จัดกลุ่มแม่-ลูก) ---
+const groupComments = (comments) => {
+    if (!comments || comments.length === 0) return [];
+    // เรียงตามเวลาเก่า -> ใหม่
+    const sorted = comments.map(c => ({ ...c, replies: [] })).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    const byId = new Map(sorted.map(c => [String(c.id), c]));
+    const roots = [];
 
-    if (src) {
-        return (
-            <img 
-                src={src} 
-                alt={alt} 
-                className={`${sizeClasses[size]} rounded-full object-cover border-2 border-slate-700 shadow-sm`}
-                onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
-            />
-        );
-    }
-
-    // ดีไซน์ Placeholder แบบในรูป (Gradient ส้ม-ชมพู หรือ ฟ้า-ม่วง สุ่มตามความยาวชื่อ)
-    const gradients = [
-        "from-pink-400 to-orange-400",
-        "from-blue-400 to-indigo-500",
-        "from-green-400 to-teal-500",
-        "from-purple-400 to-pink-500"
-    ];
-    const randomGradient = gradients[alt ? alt.length % gradients.length : 0];
-
-    return (
-        <div className={`${sizeClasses[size]} rounded-full bg-gradient-to-br ${randomGradient} flex items-center justify-center text-white shadow-md border-2 border-slate-700 shrink-0`}>
-            <User size={size === 'sm' ? 14 : 20} strokeWidth={2.5} />
-        </div>
-    );
+    sorted.forEach(comment => {
+        const parentId = comment.reply_to_id || comment.replyToId || comment.parent_id;
+        if (parentId && byId.has(String(parentId))) {
+            byId.get(String(parentId)).replies.push(comment);
+        } else {
+            roots.push(comment);
+        }
+    });
+    // เรียง Root ใหม่สุดอยู่บน
+    return roots.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 };
 
-// --- Helper: Parse Text with Mentions ---
-// เปลี่ยนข้อความ @Name ให้เป็นสีฟ้า
-const renderContentWithMentions = (text) => {
-    if (!text) return null;
-    // Regex จับคำที่ขึ้นต้นด้วย @ ตามด้วยตัวอักษร
-    const parts = text.split(/(@[\wก-๙]+)/g);
-    
-    return parts.map((part, index) => {
-        if (part.startsWith('@')) {
-            return <span key={index} className="text-blue-400 font-semibold cursor-pointer hover:underline">{part}</span>;
-        }
-        return part;
-    });
+// --- Sub-Component: Single Comment Item ---
+const CommentItem = ({ comment, currentUser, onLike, onReply }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+    const hasReplies = comment.replies && comment.replies.length > 0;
+
+    return (
+        <div className="bg-slate-800/80 p-4 rounded-xl border border-slate-700 mb-4">
+            <div className="flex gap-4">
+                {/* Avatar Display Logic */}
+                <div className="shrink-0">
+                    {comment.author_profile_image_url ? (
+                        <img src={comment.author_profile_image_url} alt={comment.author} className="w-10 h-10 rounded-full border-2 border-slate-600" />
+                    ) : (
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-bold border-2 border-slate-600">
+                            <User size={20} />
+                        </div>
+                    )}
+                </div>
+
+                <div className="flex-1">
+                    <div className="flex justify-between items-baseline">
+                        <span className="font-bold text-white">{comment.author}</span>
+                        <span className="text-xs text-slate-500">{comment.created_at ? formatDistanceToNow(new Date(comment.created_at), { addSuffix: true, locale: th }) : ''}</span>
+                    </div>
+                    <p className="text-slate-300 text-sm mt-1">{comment.comment}</p>
+
+                    <div className="flex gap-4 mt-2">
+                        <button onClick={() => onLike(comment.id, comment.user_has_liked)} className={`text-xs flex items-center gap-1 ${comment.user_has_liked ? 'text-pink-500' : 'text-slate-500 hover:text-pink-400'}`}>
+                            <Heart size={14} fill={comment.user_has_liked ? "currentColor" : "none"} /> {comment.likes_count || 0}
+                        </button>
+                        <button onClick={() => onReply(comment)} className="text-xs text-slate-500 hover:text-blue-400">ตอบกลับ</button>
+                    </div>
+
+                    {/* Nested Replies Section */}
+                    {hasReplies && (
+                        <div className="mt-3 ml-2 border-l-2 border-slate-700 pl-4">
+                            {!isExpanded ? (
+                                <button onClick={() => setIsExpanded(true)} className="text-xs text-blue-400 flex items-center gap-1">
+                                    <CornerDownRight size={12} /> ดู {comment.replies.length} การตอบกลับ
+                                </button>
+                            ) : (
+                                <div className="space-y-3">
+                                    <button onClick={() => setIsExpanded(false)} className="text-xs text-slate-500 flex items-center gap-1 mb-2">
+                                        <ChevronUp size={12} /> ซ่อน
+                                    </button>
+                                    {comment.replies.map(reply => (
+                                        <div key={reply.id} className="flex gap-3">
+                                            <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-xs text-white shrink-0">
+                                                {reply.author[0]}
+                                            </div>
+                                            <div className="flex-1">
+                                                <div className="flex gap-2 items-baseline">
+                                                    <span className="font-bold text-sm text-white">{reply.author}</span>
+                                                    <span className="text-[10px] text-slate-500">{formatDistanceToNow(new Date(reply.created_at), { addSuffix: true, locale: th })}</span>
+                                                </div>
+                                                <p className="text-xs text-slate-300">{reply.comment}</p>
+                                                <div className="flex gap-3 mt-1">
+                                                    <button onClick={() => onLike(reply.id, reply.user_has_liked)} className={`text-[10px] flex gap-1 ${reply.user_has_liked ? 'text-pink-500' : 'text-slate-500'}`}>
+                                                        <Heart size={10} /> {reply.likes_count}
+                                                    </button>
+                                                    <button onClick={() => onReply(comment)} className="text-[10px] text-slate-500 hover:text-blue-400">ตอบกลับ</button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
 };
 
 export const CommentSection = ({ locationId, currentUser, onReviewChange }) => {
@@ -61,114 +105,51 @@ export const CommentSection = ({ locationId, currentUser, onReviewChange }) => {
     const [newComment, setNewComment] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     
-    // Mention Logic
-    const [showMentionList, setShowMentionList] = useState(false);
-    const [mentionQuery, setMentionQuery] = useState("");
-    const [cursorPosition, setCursorPosition] = useState(0);
+    // ✅ เพิ่ม State สำคัญ: เก็บ ID ของคอมเมนต์ที่กำลังตอบกลับ
+    const [replyingTo, setReplyingTo] = useState(null); 
     const inputRef = useRef(null);
 
-    // ดึงรายชื่อคนที่มีในคอมเมนต์เพื่อทำ List @Mention
-    const uniqueUsers = [...new Set(comments.map(c => c.author))].filter(u => u !== currentUser?.username);
-
-    useEffect(() => {
-        fetchComments();
-    }, [locationId]);
-
+    // Fetch Comments (เหมือนเดิม แต่รองรับข้อมูลที่ต้องนำมาจัดกลุ่ม)
     const fetchComments = async () => {
         try {
-            const response = await fetch(`${API_BASE_URL}/api/reviews/${locationId}/comments`); // ปรับ Endpoint ตาม Backend จริง
-            // Mock Data สำหรับทดสอบหาก Backend ยังไม่พร้อม หรือใช้ Endpoint รีวิวแทน
-            if (!response.ok) {
-                // Fallback: ดึงรีวิวมาแสดงแทนคอมเมนต์ในตัวอย่างนี้
-                const reviewRes = await fetch(`${API_BASE_URL}/api/reviews/${locationId}`);
-                const data = await reviewRes.json();
-                setComments(data);
-            } else {
+            const response = await fetch(`${API_BASE_URL}/api/reviews/${locationId}`); // ใช้ Endpoint หลักที่รวมรีวิวทั้งหมด
+            if (response.ok) {
                 const data = await response.json();
                 setComments(data);
             }
-        } catch (error) {
-            console.error("Error fetching comments:", error);
-        }
+        } catch (error) { console.error("Error fetching comments:", error); }
     };
 
-    // --- Handle Input Change for Mentions ---
-    const handleInputChange = (e) => {
-        const val = e.target.value;
-        setNewComment(val);
-        
-        const selectionStart = e.target.selectionStart;
-        setCursorPosition(selectionStart);
+    useEffect(() => { fetchComments(); }, [locationId]);
 
-        // Logic ตรวจจับเครื่องหมาย @
-        const lastAtPos = val.lastIndexOf('@', selectionStart);
-        if (lastAtPos !== -1 && lastAtPos < selectionStart) {
-            const query = val.substring(lastAtPos + 1, selectionStart);
-            if (!query.includes(' ')) { // ถ้ายังไม่มีวรรค แสดงว่ากำลังพิมพ์ชื่อ
-                setShowMentionList(true);
-                setMentionQuery(query);
-                return;
-            }
-        }
-        setShowMentionList(false);
-    };
+    // ✅ ใช้ useMemo จัดกลุ่มคอมเมนต์เพื่อแสดงผล
+    const organizedComments = useMemo(() => groupComments(comments), [comments]);
 
-    const insertMention = (name) => {
-        const val = newComment;
-        const lastAtPos = val.lastIndexOf('@', cursorPosition);
-        const before = val.substring(0, lastAtPos);
-        const after = val.substring(cursorPosition);
-        const newValue = `${before}@${name} ${after}`;
-        
-        setNewComment(newValue);
-        setShowMentionList(false);
-        
-        // Focus กลับไปที่ Input
-        setTimeout(() => {
-            if(inputRef.current) inputRef.current.focus();
-        }, 100);
-    };
-
-    // --- Handle Actions ---
-    const handleLike = async (commentId, currentLikes, userLiked) => {
-        if (!currentUser) return alert("กรุณาเข้าสู่ระบบ");
-        
-        // Optimistic Update (อัปเดตหน้าจอทันทีไม่ต้องรอ Server)
-        setComments(prev => prev.map(c => {
-            if (c.id === commentId) {
-                return {
-                    ...c,
-                    likes_count: userLiked ? parseInt(c.likes_count) - 1 : parseInt(c.likes_count) + 1,
-                    user_has_liked: !userLiked
-                };
-            }
-            return c;
-        }));
-
-        try {
-            const token = localStorage.getItem('token');
-            await fetch(`${API_BASE_URL}/api/reviews/${commentId}/toggle-like`, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-        } catch (error) {
-            console.error("Like failed", error);
-            fetchComments(); // Revert if failed
+    const handleReplyClick = (comment) => {
+        setReplyingTo(comment); // ✅ เก็บ ID ไว้
+        setNewComment(`@${comment.author} `);
+        if(inputRef.current) {
+            inputRef.current.focus();
+            inputRef.current.scrollIntoView({ behavior: 'smooth' });
         }
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (!newComment.trim() || !currentUser) return;
-
         setIsLoading(true);
+
         try {
             const token = localStorage.getItem('token');
-            // สมมติว่าใช้ Endpoint สร้างรีวิว/คอมเมนต์เดียวกัน
             const formData = new FormData();
             formData.append('comment', newComment);
-            formData.append('rating', 5); // Default rating for comment only
+            formData.append('rating', 5);
             
+            // ✅ ส่ง reply_to_id ไปให้ Backend ถ้าระบบจำค่า replyingTo ได้
+            if (replyingTo && replyingTo.id) {
+                formData.append('reply_to_id', String(replyingTo.id));
+            }
+
             const response = await fetch(`${API_BASE_URL}/api/reviews/${locationId}`, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${token}` },
@@ -177,6 +158,7 @@ export const CommentSection = ({ locationId, currentUser, onReviewChange }) => {
 
             if (response.ok) {
                 setNewComment("");
+                setReplyingTo(null); // ✅ Reset ค่า
                 fetchComments();
                 if(onReviewChange) onReviewChange();
             }
@@ -189,131 +171,50 @@ export const CommentSection = ({ locationId, currentUser, onReviewChange }) => {
 
     return (
         <div className="bg-slate-900 rounded-2xl p-6 shadow-xl border border-slate-800 text-slate-200">
-            <h3 className="text-2xl font-bold mb-6 flex items-center gap-2 text-white">
-                รีวิวและความคิดเห็น
-            </h3>
-
-            {/* --- Comment List --- */}
+            <h3 className="text-2xl font-bold mb-6 flex items-center gap-2 text-white">รีวิวและความคิดเห็น</h3>
+            
             <div className="space-y-4 mb-8">
-                <div className="flex items-center gap-2 text-blue-400 mb-4 font-semibold">
-                    <MessageSquare size={20} />
-                    <span>ความคิดเห็น ({comments.length})</span>
-                </div>
-
                 {comments.length === 0 ? (
-                    <div className="text-center py-8 text-slate-500 bg-slate-800/50 rounded-xl">
-                        ยังไม่มีความคิดเห็น เป็นคนแรกที่แสดงความคิดเห็นสิ!
-                    </div>
+                    <div className="text-center py-8 text-slate-500">ยังไม่มีความคิดเห็น</div>
                 ) : (
-                    comments.map((comment) => (
-                        <div key={comment.id} className="bg-slate-800/80 p-4 rounded-xl border border-slate-700 hover:border-slate-600 transition-all group">
-                            <div className="flex gap-4">
-                                {/* Avatar */}
-                                <Avatar 
-                                    src={comment.author_profile_image_url || comment.authorProfileImageUrl} 
-                                    alt={comment.author || "User"} 
-                                />
-
-                                <div className="flex-1">
-                                    {/* Header: Name & Time */}
-                                    <div className="flex items-baseline justify-between">
-                                        <div className="flex items-center gap-2">
-                                            <span className="font-bold text-white text-base">
-                                                {comment.author}
-                                            </span>
-                                            {/* Badge Admin Example */}
-                                            {comment.author === 'Admin' && (
-                                                <span className="bg-blue-500/20 text-blue-300 text-xs px-2 py-0.5 rounded-full border border-blue-500/30">
-                                                    Admin
-                                                </span>
-                                            )}
-                                        </div>
-                                        <span className="text-xs text-slate-500">
-                                            {comment.created_at ? formatDistanceToNow(new Date(comment.created_at), { addSuffix: true, locale: th }) : 'เมื่อสักครู่'}
-                                        </span>
-                                    </div>
-
-                                    {/* Content */}
-                                    <p className="text-slate-300 mt-1 text-sm leading-relaxed">
-                                        {renderContentWithMentions(comment.comment)}
-                                    </p>
-
-                                    {/* Actions */}
-                                    <div className="flex items-center gap-4 mt-3">
-                                        <button 
-                                            onClick={() => handleLike(comment.id, comment.likes_count, comment.user_has_liked)}
-                                            className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${comment.user_has_liked ? 'text-pink-500' : 'text-slate-500 hover:text-pink-400'}`}
-                                        >
-                                            <Heart size={16} fill={comment.user_has_liked ? "currentColor" : "none"} />
-                                            <span>{comment.likes_count || 0} ถูกใจ</span>
-                                        </button>
-                                        <button 
-                                            onClick={() => {
-                                                setNewComment(`@${comment.author} `);
-                                                if(inputRef.current) inputRef.current.focus();
-                                            }}
-                                            className="text-xs text-slate-500 hover:text-blue-400 transition-colors font-medium"
-                                        >
-                                            ตอบกลับ
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                    // ✅ Render เฉพาะ Root comments (คอมเมนต์แม่) แล้วให้ Component จัดการลูกเอง
+                    organizedComments.map(root => (
+                        <CommentItem 
+                            key={root.id} 
+                            comment={root} 
+                            currentUser={currentUser} 
+                            onLike={() => {}} // ใส่ Logic Like ตามต้องการ
+                            onReply={handleReplyClick} 
+                        />
                     ))
                 )}
             </div>
 
-            {/* --- Input Section (Sticky Bottom style in design) --- */}
-            <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 relative">
-                {/* Mention Popover */}
-                {showMentionList && (
-                    <div className="absolute bottom-full left-0 mb-2 w-64 bg-slate-800 border border-slate-700 rounded-lg shadow-2xl overflow-hidden z-20">
-                        <div className="p-2 bg-slate-900/50 text-xs text-slate-400 font-semibold border-b border-slate-700">แนะนำ</div>
-                        {uniqueUsers
-                            .filter(u => u.toLowerCase().includes(mentionQuery.toLowerCase()))
-                            .map((user, idx) => (
-                            <button
-                                key={idx}
-                                onClick={() => insertMention(user)}
-                                className="w-full text-left px-4 py-2 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-2"
-                            >
-                                <div className="w-6 h-6 rounded-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center text-[10px] text-white">
-                                    {user[0]}
-                                </div>
-                                {user}
-                            </button>
-                        ))}
+            {/* Input Box */}
+            <div className={`bg-slate-800 p-4 rounded-xl border ${replyingTo ? 'border-blue-500/50' : 'border-slate-700'} relative`}>
+                {/* ✅ แสดงสถานะว่ากำลังตอบกลับใคร */}
+                {replyingTo && (
+                    <div className="flex items-center justify-between mb-2 text-xs text-blue-300 bg-blue-500/10 p-2 rounded">
+                        <span>กำลังตอบกลับคุณ <b>{replyingTo.author}</b></span>
+                        <button onClick={() => { setReplyingTo(null); setNewComment(""); }}><X size={14}/></button>
                     </div>
                 )}
-
-                <form onSubmit={handleSubmit} className="flex gap-3 items-start">
-                    {/* Current User Avatar */}
-                    <div className="hidden sm:block">
-                        <Avatar 
-                            src={currentUser?.profileImageUrl} 
-                            alt={currentUser?.username || "Me"} 
-                        />
-                    </div>
-                    
-                    <div className="flex-1 relative">
+                
+                <form onSubmit={handleSubmit} className="flex gap-3">
+                    <div className="flex-1">
                         <input
                             ref={inputRef}
                             type="text"
                             value={newComment}
-                            onChange={handleInputChange}
-                            placeholder={currentUser ? "แสดงความคิดเห็น... (พิมพ์ @ เพื่อกล่าวถึง)" : "กรุณาเข้าสู่ระบบเพื่อแสดงความคิดเห็น"}
+                            onChange={(e) => setNewComment(e.target.value)}
+                            placeholder={currentUser ? (replyingTo ? "พิมพ์ข้อความตอบกลับ..." : "แสดงความคิดเห็น...") : "กรุณาเข้าสู่ระบบ"}
                             disabled={!currentUser || isLoading}
-                            className="w-full bg-slate-900/50 border border-slate-700 text-slate-200 text-sm rounded-full py-3 px-5 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-slate-600"
+                            className="w-full bg-slate-900/50 border border-slate-700 rounded-full py-2 px-4 focus:border-blue-500 outline-none text-sm"
                         />
-                        <button 
-                            type="submit"
-                            disabled={!newComment.trim() || isLoading}
-                            className="absolute right-2 top-1.5 p-1.5 bg-blue-600 text-white rounded-full hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600 transition-all shadow-lg shadow-blue-900/20"
-                        >
-                            <Send size={16} className={isLoading ? "animate-spin" : "ml-0.5"} />
-                        </button>
                     </div>
+                    <button type="submit" disabled={!newComment.trim() || isLoading} className="bg-blue-600 text-white p-2 rounded-full hover:bg-blue-500">
+                        <Send size={18} />
+                    </button>
                 </form>
             </div>
         </div>

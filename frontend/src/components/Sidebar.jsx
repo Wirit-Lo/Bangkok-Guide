@@ -5,7 +5,7 @@ import {
     ChevronLeft, Menu, X, MapPin
 } from 'lucide-react';
 
-// --- Reusable Navigation Item Component with new design ---
+// --- Reusable Navigation Item Component ---
 const NavItem = ({ icon, text, onClick, isSelected, isOpen, color }) => (
     <button
         onClick={onClick}
@@ -41,7 +41,7 @@ const Sidebar = memo(({
     setSelectedCategory, 
     setCurrentPage, 
     currentUser, 
-    handleLogout,
+    handleLogout, // ⚠️ ต้องแน่ใจว่าฟังก์ชันนี้ใน App.jsx มีการสั่ง supabase.auth.signOut() แล้วนะครับ
     isSidebarOpen, 
     toggleSidebar 
 }) => {
@@ -65,20 +65,19 @@ const Sidebar = memo(({
         setSelectedCategory('ทั้งหมด'); 
     };
 
-    // --- ⭐⭐ แก้ไข CSS Class ตรงนี้ (เพิ่ม rounded-3xl) ⭐⭐ ---
     const sidebarContainerClasses = `
         sticky top-0 h-screen z-40
         flex flex-col shadow-2xl shadow-slate-900/10 dark:shadow-black/20
         bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl border-r border-slate-200/50 dark:border-gray-700/50
-        rounded-r-3xl md:rounded-3xl /* เพิ่มความโค้งมน */
+        rounded-r-3xl md:rounded-3xl
         transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]
         ${isSidebarOpen ? 'w-72' : 'w-0 md:w-[100px]'} 
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
     `;
-    // --- ⭐⭐ จบการแก้ไข ⭐⭐ ---
 
     return (
         <>
+            {/* Overlay for mobile */}
             {isSidebarOpen && (
                 <div
                     onClick={toggleSidebar}
@@ -86,7 +85,9 @@ const Sidebar = memo(({
                     aria-hidden="true"
                 ></div>
             )}
-            <aside className={`${sidebarContainerClasses} relative ml-4 my-4`}> {/* เพิ่ม margin เล็กน้อยเพื่อให้เห็นความโค้งชัดขึ้น */}
+
+            <aside className={`${sidebarContainerClasses} relative ml-4 my-4`}>
+                {/* Toggle Button */}
                 <button 
                     onClick={toggleSidebar} 
                     className="hidden md:flex items-center justify-center w-8 h-8 bg-white dark:bg-gray-700 text-gray-500 hover:bg-blue-500 hover:text-white dark:hover:bg-blue-500 rounded-full shadow-lg border border-slate-200 dark:border-slate-600 absolute top-1/2 -translate-y-1/2 -right-4 z-50 transition-all duration-300"
@@ -95,6 +96,7 @@ const Sidebar = memo(({
                     <ChevronLeft size={18} className={`transition-transform duration-500 ease-in-out ${!isSidebarOpen && 'rotate-180'}`} />
                 </button>
 
+                {/* Header / Logo */}
                 <div className="flex items-center justify-center pt-8 pb-6 px-4 flex-shrink-0 relative">
                     <button
                         onClick={handleLogoClick}
@@ -109,6 +111,7 @@ const Sidebar = memo(({
                      </button>
                 </div>
 
+                {/* Menu Items */}
                 <div className="flex-grow overflow-y-auto overflow-x-hidden p-4 space-y-6 custom-scrollbar">
                     <div>
                         <h3 className={`px-3 mb-2 text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider transition-opacity ${!isSidebarOpen && 'hidden'}`}>
@@ -144,20 +147,20 @@ const Sidebar = memo(({
                                 />
                                 {currentUser.role === 'admin' && (
                                     <>
-                                            <NavItem
-                                                icon={<Wrench size={22} />}
-                                                text="จัดการของขึ้นชื่อ"
-                                                isOpen={isSidebarOpen}
-                                                onClick={() => setCurrentPage('manage-products')}
-                                                color="text-blue-500"
-                                            />
-                                            <NavItem
-                                                icon={<ShieldCheck size={22} />}
-                                                text="อนุมัติการลบ"
-                                                isOpen={isSidebarOpen}
-                                                onClick={() => setCurrentPage('deletion-requests')}
-                                                color="text-teal-500"
-                                            />
+                                        <NavItem
+                                            icon={<Wrench size={22} />}
+                                            text="จัดการของขึ้นชื่อ"
+                                            isOpen={isSidebarOpen}
+                                            onClick={() => setCurrentPage('manage-products')}
+                                            color="text-blue-500"
+                                        />
+                                        <NavItem
+                                            icon={<ShieldCheck size={22} />}
+                                            text="อนุมัติการลบ"
+                                            isOpen={isSidebarOpen}
+                                            onClick={() => setCurrentPage('deletion-requests')}
+                                            color="text-teal-500"
+                                        />
                                     </>
                                 )}
                             </nav>
@@ -165,7 +168,8 @@ const Sidebar = memo(({
                     )}
                 </div>
 
-                <div className="flex-shrink-0 p-4 border-t border-slate-200/50 dark:border-slate-700/50 bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm rounded-br-3xl md:rounded-b-3xl"> {/* เพิ่มความโค้งมนส่วนล่าง */}
+                {/* Footer / User Profile */}
+                <div className="flex-shrink-0 p-4 border-t border-slate-200/50 dark:border-slate-700/50 bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm rounded-br-3xl md:rounded-b-3xl">
                     {currentUser ? (
                         <div className="space-y-2">
                             <NavItem icon={<Heart size={22} />} text="รายการโปรด" isOpen={isSidebarOpen} onClick={() => setCurrentPage('favorites')} color="text-red-500"/>

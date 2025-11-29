@@ -49,6 +49,7 @@ const formatNotification = (rawNotification) => {
     const defaultImage = 'https://placehold.co/40x40/3b82f6/ffffff?text=User';
     let image = actor_profile_image_url;
     let link = null;
+    let targetId = null; // เพิ่มตัวแปรสำหรับเก็บ ID ของคอมเมนต์/รีวิวเป้าหมาย
 
     const actor = `**${actor_name || 'มีคน'}**`;
     const locationName = payload.location?.name || payload.locationName;
@@ -56,23 +57,30 @@ const formatNotification = (rawNotification) => {
     const locationId = payload.location?.id || payload.locationId;
     const productName = payload.product?.name || payload.productName;
     const productImageUrl = payload.product?.imageUrl || payload.productImageUrl;
+    
+    // พยายามหา Comment ID หรือ Review ID จาก Payload
+    const commentId = payload.comment?.id || payload.commentId || payload.review?.id || payload.reviewId || payload.id;
 
     switch (type) {
         case 'new_review':
             message = `${actor} ได้รีวิว: **"${locationName || 'โพสต์ของคุณ'}"**`;
             link = locationId;
+            targetId = commentId; // เก็บ ID เพื่อให้เลื่อนไปหาได้
             break;
         case 'new_like':
             message = `${actor} ถูกใจรีวิวของคุณใน: **"${locationName || 'สถานที่แห่งหนึ่ง'}"**`;
             link = locationId;
+            targetId = commentId;
             break;
         case 'new_reply':
             message = `${actor} ตอบกลับรีวิวของคุณใน: **"${locationName || 'สถานที่แห่งหนึ่ง'}"**`;
             link = locationId;
+            targetId = commentId;
             break;
         case 'new_comment_like':
             message = `${actor} ถูกใจความคิดเห็นของคุณใน: **"${locationName || 'สถานที่แห่งหนึ่ง'}"**`;
             link = locationId;
+            targetId = commentId;
             break;
         case 'new_location':
             message = `มีการเพิ่มสถานที่ใหม่โดย ${actor}: **"${locationName || 'ไม่มีชื่อ'}"**`;
@@ -85,6 +93,12 @@ const formatNotification = (rawNotification) => {
                 : `${actor} เพิ่มของขึ้นชื่อใหม่: **"${productName || 'ไม่มีชื่อ'}"**`;
             image = productImageUrl || locationImageUrl || image;
             link = locationId; 
+            break;
+        case 'mention':
+        case 'new_mention':
+            message = `${actor} ได้กล่าวถึงคุณใน: **"${locationName || 'ความคิดเห็น'}"**`;
+            link = locationId;
+            targetId = commentId;
             break;
         default:
             break;
@@ -99,24 +113,27 @@ const formatNotification = (rawNotification) => {
         time: timeString, 
         is_read: is_read || false,
         link, 
+        targetId, // ส่งค่า targetId ออกไปด้วย
         payload: typeof payload === 'object' && payload !== null ? payload : {},
         original_created_at: created_at || new Date().toISOString(),
     };
 };
 
-// --- General Purpose Notification Component ---
+// --- General Purpose Notification Component (FIXED) ---
 const Notification = ({ notification, setNotification }) => {
-    if (!notification.message) return null;
-
     useEffect(() => {
-        const timer = setTimeout(() => {
-            setNotification({ message: '', type: '' });
-        }, 3000);
-        return () => clearTimeout(timer);
+        if (notification.message) {
+            const timer = setTimeout(() => {
+                setNotification({ message: '', type: '' });
+            }, 3000);
+            return () => clearTimeout(timer);
+        }
     }, [notification, setNotification]);
 
+    if (!notification.message) return null;
+
     const baseStyle =
-        'fixed top-5 right-5 z-[100] flex items-center p-4 rounded-lg shadow-xl text-white transition-all duration-300 transform';
+        'fixed top-5 right-5 z-[200] flex items-center p-4 rounded-lg shadow-xl text-white transition-all duration-300 transform'; // เพิ่ม z-index เป็น 200 เพื่อความแน่ใจ
     const typeStyle =
         notification.type === 'success'
             ? 'bg-gradient-to-r from-green-500 to-teal-500'
@@ -201,6 +218,9 @@ const App = () => {
     const [token, setToken] = useState(null);
     const [notifications, setNotifications] = useState([]);
     const [unreadCount, setUnreadCount] = useState(0);
+    
+    // ⭐ NEW: State สำหรับเก็บ ID ของคอมเมนต์ที่ต้องการเลื่อนไปหา
+    const [targetCommentId, setTargetCommentId] = useState(null);
 
     // --- Multi-Account Support ---
     const [savedAccounts, setSavedAccounts] = useState([]);
@@ -271,7 +291,7 @@ const App = () => {
                 return handleAuthError();
             }
             if (!response.ok) throw new Error(`Server responded with ${response.status}`);
-            const data = await response.json();
+            const data = await response.json(); 
             console.log('Fetched favorites:', data); 
             setFavorites(Array.isArray(data) ? data : []);
         } catch (error) {
@@ -334,6 +354,9 @@ const App = () => {
         let reconnectTimeout;
 
         const connectSSE = () => {
+            const currentToken = localStorage.getItem('token');
+            if (!currentToken) return;
+
             if (eventSource) {
                 console.log("SSE: Closing existing connection before reconnecting.");
                 eventSource.close();
@@ -344,8 +367,7 @@ const App = () => {
             }
 
             console.log(`SSE: Attempting to connect to ${API_BASE_URL}/api/events...`);
-            const sseUrl = `${API_BASE_URL}/api/events?token=${encodeURIComponent(token)}`;
-            console.log("SSE URL:", sseUrl); 
+            const sseUrl = `${API_BASE_URL}/api/events?token=${encodeURIComponent(currentToken)}`;
             eventSource = new EventSource(sseUrl);
 
             eventSource.onopen = () => console.log('✅ SSE Connection established.');
@@ -353,19 +375,14 @@ const App = () => {
             eventSource.onmessage = (event) => {
                 try {
                     const eventData = JSON.parse(event.data);
-                    console.log("SSE Message Received:", eventData.type); 
 
                     if (eventData.type === 'historic_notifications' && Array.isArray(eventData.data)) {
-                        // --- Fix: Handle historic notifications ---
                         const formattedData = eventData.data
                             .map(formatNotification)
                             .sort((a, b) => new Date(b.original_created_at) - new Date(a.original_created_at));
                         setNotifications(formattedData.slice(0, 50)); 
-                        console.log(`SSE: Loaded ${formattedData.length} historic notifications.`);
                     } else if (eventData.type === 'notification' && eventData.data) {
-                        // --- Fix: Handle live notifications ---
                         const newNotification = formatNotification(eventData.data);
-                        console.log("SSE: Received new notification:", newNotification);
                         setNotifications((prev) =>
                             [newNotification, ...prev]
                             .sort((a, b) => new Date(b.original_created_at) - new Date(a.original_created_at))
@@ -383,7 +400,6 @@ const App = () => {
                                         ? prev.map(item => item.id === newLocation.id ? newLocation : item)
                                         : [newLocation, ...prev]; 
                                 });
-                                 console.log(`SSE: Real-time update: Added/Updated location ${newLocation.id}`);
                             }
                         }
 
@@ -396,8 +412,8 @@ const App = () => {
             eventSource.onerror = (err) => {
                 console.error('❌ SSE EventSource failed:', err);
                 eventSource.close(); 
-                if (!reconnectTimeout) {
-                     console.log('SSE: Attempting reconnect in 5 seconds...');
+                
+                if (!reconnectTimeout && localStorage.getItem('token')) {
                      reconnectTimeout = setTimeout(() => {
                         reconnectTimeout = null; 
                         connectSSE();
@@ -409,7 +425,6 @@ const App = () => {
         connectSSE(); 
 
         return () => {
-            console.log('SSE: Closing Connection.');
             if (eventSource) {
                 eventSource.close();
                 eventSource = null; 
@@ -431,9 +446,9 @@ const App = () => {
     }, [theme]);
 
     // --- More Handlers ---
-    const handleSetCurrentPage = useCallback((page) => {
-        console.log(`Navigating to page: ${page}`); 
-        if (currentPage === page) {
+    const handleSetCurrentPage = useCallback((page, force = false) => {
+        console.log(`Navigating to page: ${page} (Force: ${force})`); 
+        if (currentPage === page && !force) {
             console.log("Already on this page, skipping transition.");
             return; 
         }
@@ -449,7 +464,6 @@ const App = () => {
 
     const handleMarkNotificationsAsRead = useCallback(async () => {
         if (unreadCount === 0 || !token) return;
-        console.log("Marking notifications as read...");
         const currentlyUnreadIds = notifications.filter(n => !n.is_read).map(n => n.id);
         setNotifications((prev) => prev.map((n) => currentlyUnreadIds.includes(n.id) ? { ...n, is_read: true } : n));
         setUnreadCount(0); 
@@ -460,27 +474,19 @@ const App = () => {
                 headers: { Authorization: `Bearer ${token}` },
             });
             if (!response.ok) {
-                console.error('Failed to mark notifications as read on server:', response.status);
                  setNotification({message: "ไม่สามารถอัปเดตสถานะแจ้งเตือนบนเซิร์ฟเวอร์", type: "error"});
                  setUnreadCount(currentlyUnreadIds.length); 
                  setNotifications((prev) => prev.map((n) => currentlyUnreadIds.includes(n.id) ? { ...n, is_read: false } : n)); 
-            } else {
-                console.log("Notifications marked as read on server.");
             }
         } catch (error) {
-           console.error('Error marking notifications as read:', error);
            setNotification({message: "เกิดข้อผิดพลาดในการเชื่อมต่อเพื่ออัปเดตแจ้งเตือน", type: "error"});
            setUnreadCount(currentlyUnreadIds.length); 
            setNotifications((prev) => prev.map((n) => currentlyUnreadIds.includes(n.id) ? { ...n, is_read: false } : n)); 
         }
     }, [unreadCount, token, notifications, setNotification]); 
 
-    // --- ⭐ NEW: Delete Notification Handler ---
     const handleDeleteNotification = useCallback(async (notificationId) => {
-        // Optimistic update: Remove from UI immediately
         setNotifications(prev => prev.filter(n => n.id !== notificationId));
-        
-        // If it has a real ID (not a temp one), delete from server
         if (notificationId && typeof notificationId === 'string') {
              try {
                 const token = localStorage.getItem('token');
@@ -495,12 +501,10 @@ const App = () => {
         }
     }, []);
 
-    // --- ⭐ NEW: Clear All Notifications Handler ---
     const handleClearAllNotifications = useCallback(async () => {
         if (notifications.length === 0) return;
         if (!window.confirm('คุณต้องการลบการแจ้งเตือนทั้งหมดใช่หรือไม่?')) return;
         
-        // Optimistic update
         setNotifications([]);
         setUnreadCount(0);
 
@@ -524,18 +528,21 @@ const App = () => {
         const locationId = notificationPayload.link;
         if (!locationId) { console.warn('Notification has no link.', notificationPayload); return; }
 
+        // ⭐ NEW: ถ้ามีการแจ้งเตือนที่ระบุ targetId (เช่น commentId) ให้เก็บลง State
+        if (notificationPayload.targetId) {
+            setTargetCommentId(notificationPayload.targetId);
+        }
+
         const allItems = [...attractions, ...foodShops];
         let location = allItems.find((item) => item.id === locationId);
 
         if (!location) { 
             console.warn(`Location ${locationId} not in state, fetching...`);
-            // Pass 'true' for silent fetch to avoid loading screen flash
             await fetchLocations(true); 
             try {
                 const response = await fetch(`${API_BASE_URL}/api/locations/${locationId}`);
                 if (!response.ok) throw new Error(`Failed to fetch ${locationId} (${response.status})`);
                 location = await response.json();
-                console.log("Fetched location from notification:", location);
             } catch(error) {
                 console.error("Error fetching location from notification:", error);
                 setNotification({ message: 'ไม่สามารถโหลดข้อมูลสถานที่ได้', type: 'error' });
@@ -545,7 +552,7 @@ const App = () => {
 
         if (location?.id) { 
             setSelectedItem(location);
-            handleSetCurrentPage('detail');
+            handleSetCurrentPage('detail', true); 
         } else {
             console.error("Invalid location data received after fetch from notification.");
             setNotification({ message: 'ได้รับข้อมูลสถานที่ที่ไม่ถูกต้อง', type: 'error' });
@@ -556,43 +563,34 @@ const App = () => {
 
     const handleToggleFavorite = useCallback(async (locationId) => {
         if (!currentUser) {
-            console.log("Toggle Favorite: User not logged in.");
             setNotification({ message: 'กรุณาเข้าสู่ระบบเพื่อบันทึกรายการโปรด', type: 'error' });
             return handleSetCurrentPage('login');
         }
         console.log(`Toggling favorite for location: ${locationId}`);
         const isCurrentlyFavorite = favorites.includes(locationId);
         setFavorites((prev) => (isCurrentlyFavorite ? prev.filter((id) => id !== locationId) : [...prev, locationId]));
-        console.log(`Optimistic UI: ${isCurrentlyFavorite ? 'Removed from' : 'Added to'} favorites.`);
+        
         try {
             const response = await fetch(`${API_BASE_URL}/api/favorites/toggle`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                 body: JSON.stringify({ locationId }),
             });
-            console.log('Toggle favorite response status:', response.status);
             if (response.status === 401 || response.status === 403) return handleAuthError();
             if (!response.ok) throw new Error('Failed to toggle favorite on server');
-            const data = await response.json(); 
-            console.log("Toggle favorite success:", data.status);
             
-            // Notification on success
             setNotification({ 
                 message: isCurrentlyFavorite ? 'ลบออกจากรายการโปรดแล้ว' : 'เพิ่มลงในรายการโปรดแล้ว', 
                 type: 'success' 
             });
 
         } catch (error) {
-            console.error('Error toggling favorite:', error);
             setNotification({ message: 'เกิดข้อผิดพลาดในการอัปเดตรายการโปรด', type: 'error' });
-            console.log("Reverting optimistic UI for favorites.");
             setFavorites((prev) => (isCurrentlyFavorite ? [...prev, locationId] : prev.filter((id) => id !== locationId)));
         }
     }, [currentUser, favorites, token, handleAuthError, handleSetCurrentPage, setNotification]); 
 
     const handleLogin = (userData, userToken) => {
-        console.log("LOGIN SUCCESSFUL - User ID:", userData?.id);
-        
         if (!userData || !userToken) {
             setNotification({ message: 'ข้อมูลการเข้าสู่ระบบไม่สมบูรณ์', type: 'error'});
             return; 
@@ -602,9 +600,7 @@ const App = () => {
             localStorage.setItem('user', JSON.stringify(userData));
             localStorage.setItem('token', userToken);
 
-            // --- Save to multi-session list ---
             setSavedAccounts(prev => {
-                // Filter out existing entry for this user to avoid duplicates
                 const otherAccounts = prev.filter(acc => acc.user.id !== userData.id);
                 const newAccounts = [...otherAccounts, { user: userData, token: userToken }];
                 localStorage.setItem('saved_accounts', JSON.stringify(newAccounts));
@@ -626,9 +622,6 @@ const App = () => {
 
 
     const handleLogout = () => {
-        console.log("Logging out user...");
-        
-        // --- Remove ONLY current user from saved list (Full Logout) ---
         if (currentUser) {
             const newSaved = savedAccounts.filter(acc => acc.user.id !== currentUser.id);
             setSavedAccounts(newSaved);
@@ -648,7 +641,6 @@ const App = () => {
 
     // --- Add Account (Go to login but keep session) ---
     const handleAddAccount = useCallback(() => {
-        // Clear active session in memory only, but DON'T remove from 'saved_accounts'
         setCurrentUser(null);
         setToken(null);
         localStorage.removeItem('user'); 
@@ -677,7 +669,6 @@ const App = () => {
     }, []);
 
     const handleProfileUpdate = (updatedUser, newToken) => {
-        console.log("Updating profile:", updatedUser);
         setCurrentUser(updatedUser);
         if (newToken) {
             setToken(newToken);
@@ -685,7 +676,6 @@ const App = () => {
         }
         localStorage.setItem('user', JSON.stringify(updatedUser));
         
-        // Update in saved accounts too
         setSavedAccounts(prev => {
             const newAccounts = prev.map(acc => 
                 acc.user.id === updatedUser.id 
@@ -700,28 +690,21 @@ const App = () => {
     };
 
     const handleDataRefresh = useCallback(async (updatedItemId) => {
-        console.log(`Refreshing data... ID: ${updatedItemId}`);
-        
-        // ⭐ FIX: Call with true to avoid loading spinner (silent update)
         await fetchLocations(true); 
 
-        // ⭐ FIX: String comparison to prevent bouncing
         if (updatedItemId && selectedItem && String(selectedItem.id) === String(updatedItemId) && currentPage === 'detail') {
             try {
                 const response = await fetch(`${API_BASE_URL}/api/locations/${updatedItemId}`);
                 if (response.ok) {
                     const freshItemData = await response.json();
                     setSelectedItem(freshItemData); 
-                    console.log("Updated selected item in place.");
                 }
             } catch (error) { console.error(error); }
         }
     }, [fetchLocations, selectedItem, currentPage]); 
 
     const handleUpdateItem = (updatedItem) => {
-        console.log("Handling item update in App.jsx:", updatedItem);
         const isFoodShop = ['ร้านอาหาร', 'คาเฟ่', 'ตลาด'].includes(updatedItem.category);
-        console.log(`Item ${updatedItem.id} is now in category: ${updatedItem.category}. Is FoodShop? ${isFoodShop}`);
 
         let itemFoundInAttractions = false;
         let itemFoundInFoodShops = false;
@@ -737,7 +720,6 @@ const App = () => {
                 })
                 .filter(Boolean); 
             if (!isFoodShop && !itemFoundInAttractions) {
-                console.log(`Adding ${updatedItem.id} to attractions list.`);
                 return [updatedItem, ...newState];
             }
             return newState;
@@ -754,14 +736,12 @@ const App = () => {
                 })
                 .filter(Boolean); 
             if (isFoodShop && !itemFoundInFoodShops) {
-                console.log(`Adding ${updatedItem.id} to foodShops list.`);
                 return [updatedItem, ...newState];
             }
             return newState;
         });
 
         if (selectedItem?.id === updatedItem.id) {
-            console.log(`Updating selected item view for ${updatedItem.id}`);
             setSelectedItem(updatedItem);
         }
         setIsEditModalOpen(false); 
@@ -772,13 +752,10 @@ const App = () => {
     const executeDelete = async () => {
         if (!itemToDelete) return; 
         const locationId = itemToDelete;
-        console.log(`Executing delete for location ID: ${locationId}`);
-
         setItemToDelete(null);
 
         const token = localStorage.getItem('token');
         if (!token) {
-            console.error("Delete cancelled: No token found.");
             return handleAuthError(); 
         }
 
@@ -787,20 +764,16 @@ const App = () => {
             const response = await fetch(`${API_BASE_URL}/api/locations/${locationId}`, {
                 method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` }
             });
-            console.log('Delete response status:', response.status);
 
             if (response.status === 401 || response.status === 403) {
-                console.log("Auth error during delete, calling handleAuthError.");
                 return handleAuthError(); 
             }
 
             if (response.ok || response.status === 204) { 
-                console.log(`Successfully deleted location ${locationId}`);
                 setNotification({ message: 'ลบสถานที่สำเร็จ', type: 'success' });
                 setAttractions(prev => prev.filter(item => item.id !== locationId));
                 setFoodShops(prev => prev.filter(item => item.id !== locationId));
                 if (selectedItem?.id === locationId) {
-                    console.log(`Selected item ${locationId} was deleted, navigating home.`);
                     setSelectedItem(null);
                     handleSetCurrentPage('home');
                 }
@@ -808,13 +781,10 @@ const App = () => {
                 let errorData = { error: `เกิดข้อผิดพลาดในการลบ (${response.status})` };
                 try {
                     errorData = await response.json(); 
-                } catch (e) {
-                    console.warn("Could not parse JSON error response during delete.");
-                }
+                } catch (e) { }
                 throw new Error(errorData.error || `Server responded with ${response.status}`);
             }
         } catch (error) {
-            console.error('Error deleting item:', error);
             setNotification({ message: error.message || 'ไม่สามารถลบข้อมูลได้', type: 'error' });
         } finally {
             setLoadingData(false); 
@@ -875,6 +845,10 @@ const App = () => {
                                 {...commonProps} 
                                 setNotification={setNotification}
                                 handleAuthError={handleAuthError}
+                                // ⭐ ส่ง targetCommentId ไปให้ DetailPage ใช้งาน
+                                targetCommentId={targetCommentId}
+                                // ⭐ ส่งฟังก์ชันเพื่อเคลียร์ ID เมื่อเลื่อนเสร็จแล้ว (ถ้า DetailPage รองรับ)
+                                clearTargetCommentId={() => setTargetCommentId(null)}
                             />;
                 }
                 console.warn("Detail page rendered without selectedItem, redirecting home.");
@@ -925,8 +899,8 @@ const App = () => {
                 savedAccounts={savedAccounts}
                 handleSelectAccount={handleSelectAccount}
                 handleRemoveAccount={handleRemoveAccount}
-                handleDeleteNotification={handleDeleteNotification} // เพิ่ม
-                handleClearAllNotifications={handleClearAllNotifications} // เพิ่ม
+                handleDeleteNotification={handleDeleteNotification} 
+                handleClearAllNotifications={handleClearAllNotifications} 
             />
 
             <div className="flex flex-1 p-4 gap-4"> 

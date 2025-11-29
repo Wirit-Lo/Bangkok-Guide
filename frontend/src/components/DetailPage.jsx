@@ -61,7 +61,7 @@ const Avatar = ({ src, alt, size = "md", className = "" }) => {
 // --- Helper: Parse Text with Mentions ---
 const renderContentWithMentions = (text) => {
     if (!text) return null;
-    const parts = text.split(/(@[\wก-๙.-]+)/g);
+    const parts = text.split(/(@[\wก-๙.-]+(?: [\wก-๙.-]+)?)/g); 
     
     return parts.map((part, index) => {
         if (part.startsWith('@')) {
@@ -75,44 +75,95 @@ const renderContentWithMentions = (text) => {
 const groupComments = (comments) => {
     if (!comments || comments.length === 0) return [];
 
-    // Clone objects to prevent mutation of the original state during re-renders
+    // Clone and Sort (Oldest first) with robust date handling
     const sorted = comments
         .map(c => ({ ...c, replies: [] })) 
-        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+        .sort((a, b) => {
+            const timeA = new Date(a.created_at).getTime();
+            const timeB = new Date(b.created_at).getTime();
+            
+            // Handle invalid dates by pushing them to the end
+            if (isNaN(timeA)) return 1;
+            if (isNaN(timeB)) return -1;
 
-    const roots = [];
-    const byAuthor = new Map();
+            if (timeA !== timeB) {
+                return timeA - timeB;
+            }
+            // If times are identical, sort by ID to ensure consistent order
+            return String(a.id).localeCompare(String(b.id));
+        });
 
+    const byId = new Map(); 
+    const byAuthor = new Map(); 
+
+    // --- Pass 1: Indexing (จดจำคอมเมนต์ทั้งหมดก่อน) ---
     sorted.forEach(comment => {
-        const match = comment.comment.match(/^@([\wก-๙.-]+)/);
-        const isReply = !!match;
-        let addedToParent = false;
+        const currentId = String(comment.id); // Convert to string for consistent lookup
+        byId.set(currentId, comment);
 
         if (!byAuthor.has(comment.author)) {
             byAuthor.set(comment.author, []);
         }
+        byAuthor.get(comment.author).push(comment);
+    });
 
-        if (isReply) {
-            const targetAuthor = match[1];
-            const targetComments = byAuthor.get(targetAuthor) || [];
-            
-            if (targetComments.length > 0) {
-                const parent = targetComments[targetComments.length - 1];
-                parent.replies.push(comment);
-                addedToParent = true;
+    const roots = [];
+
+    // --- Pass 2: Linking (จับคู่แม่ลูก) ---
+    sorted.forEach(comment => {
+        const currentId = String(comment.id);
+        let addedToParent = false;
+        
+        // 1. Try to find parent by ID first (Most Accurate)
+        // ตรวจสอบทุกฟิลด์ที่เป็นไปได้เผื่อ Backend ส่งมาหลายรูปแบบ
+        const rawParentId = comment.reply_to_id || comment.replyToId || comment.parent_id || comment.parentId || comment.replyId;
+        
+        if (rawParentId) {
+            const parentId = String(rawParentId); // Ensure string comparison
+            if (byId.has(parentId)) {
+                const parent = byId.get(parentId);
+                // Prevent self-loop
+                if (String(parent.id) !== currentId) {
+                    parent.replies.push(comment);
+                    addedToParent = true;
+                }
             }
         }
 
+        // 2. Fallback: Find parent by @Mention (Legacy/Text-based)
+        // ใช้เฉพาะตอนที่หาด้วย ID ไม่เจอ
+        if (!addedToParent) {
+            const content = comment.comment || "";
+            if (content.trim().startsWith('@')) {
+                const knownAuthors = Array.from(byAuthor.keys()).sort((a, b) => b.length - a.length);
+
+                for (const authorName of knownAuthors) {
+                    if (content.startsWith(`@${authorName}`)) {
+                        const potentialParents = byAuthor.get(authorName);
+                        const myTime = new Date(comment.created_at).getTime();
+
+                        // กรองหาคอมเมนต์ของคนที่เรากล่าวถึง ที่ "เกิดขึ้นก่อน" คอมเมนต์ของเรา และ "ใหม่ที่สุด" ในกลุ่มนั้น
+                        const targetParent = [...potentialParents]
+                            .reverse()
+                            .find(p => String(p.id) !== currentId && (!isNaN(myTime) ? new Date(p.created_at).getTime() <= myTime : true));
+                        
+                        if (targetParent) {
+                            targetParent.replies.push(comment);
+                            addedToParent = true;
+                            break; 
+                        }
+                    }
+                }
+            }
+        }
+
+        // ถ้าหาพ่อไม่เจอเลย ให้ถือว่าเป็นคอมเมนต์หลัก (Root)
         if (!addedToParent) {
             roots.push(comment);
         }
-
-        // Only track root comments as potential parents to keep threading simple
-        if (!addedToParent) { 
-             byAuthor.get(comment.author).push(comment);
-        }
     });
 
+    // เรียงลำดับ Root comments: ใหม่สุดอยู่บน (Newest First)
     return roots.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 };
 
@@ -122,14 +173,13 @@ const CommentItem = ({ comment, currentUser, onLike, onReply }) => {
     const hasReplies = comment.replies && comment.replies.length > 0;
 
     return (
-        <div className="flex gap-4 animate-fade-in-up">
+        <div className="flex gap-4 animate-fade-in-up" id={`comment-${comment.id}`}>
             <Avatar 
                 src={comment.author_profile_image_url || comment.authorProfileImageUrl} 
                 alt={comment.author || "User"} 
             />
 
             <div className="flex-1 min-w-0">
-                {/* Main Comment Box */}
                 <div className="bg-[#334155]/50 border border-slate-700 rounded-2xl px-4 py-3 relative group hover:border-slate-600 transition-all">
                     <div className="flex items-baseline justify-between mb-1">
                         <div className="flex items-center gap-2 flex-wrap">
@@ -152,7 +202,6 @@ const CommentItem = ({ comment, currentUser, onLike, onReply }) => {
                     </p>
                 </div>
 
-                {/* Action Bar */}
                 <div className="flex items-center gap-4 mt-1 ml-2 mb-2">
                     <button 
                         onClick={() => onLike(comment.id, comment.user_has_liked)}
@@ -170,7 +219,6 @@ const CommentItem = ({ comment, currentUser, onLike, onReply }) => {
                     </button>
                 </div>
 
-                {/* Replies Section (Collapsible) */}
                 {hasReplies && (
                     <div className="mt-2">
                         {!isExpanded ? (
@@ -183,7 +231,6 @@ const CommentItem = ({ comment, currentUser, onLike, onReply }) => {
                             </button>
                         ) : (
                             <div className="pl-4 sm:pl-8 relative space-y-4">
-                                {/* Vertical Line Connector */}
                                 <div className="absolute left-0 top-0 bottom-4 w-[2px] bg-slate-700 rounded-full"></div>
                                 
                                 <button 
@@ -194,7 +241,7 @@ const CommentItem = ({ comment, currentUser, onLike, onReply }) => {
                                 </button>
 
                                 {comment.replies.map(reply => (
-                                    <div key={reply.id} className="relative animate-fade-in">
+                                    <div key={reply.id} className="relative animate-fade-in" id={`comment-${reply.id}`}>
                                         <div className="flex gap-3">
                                             <Avatar 
                                                 src={reply.author_profile_image_url || reply.authorProfileImageUrl} 
@@ -222,7 +269,7 @@ const CommentItem = ({ comment, currentUser, onLike, onReply }) => {
                                                         {reply.likes_count || 0}
                                                     </button>
                                                     <button 
-                                                        onClick={() => onReply(comment)} // Reply to parent instead of child to keep 1 level depth
+                                                        onClick={() => onReply(comment)} // Reply to ROOT parent to keep nesting flat
                                                         className="text-[10px] text-slate-500 hover:text-blue-400 font-medium"
                                                     >
                                                         ตอบกลับ
@@ -242,11 +289,12 @@ const CommentItem = ({ comment, currentUser, onLike, onReply }) => {
 };
 
 // --- CommentSection Component ---
-const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthError, setNotification }) => {
+const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthError, setNotification, targetCommentId, clearTargetCommentId }) => {
     const [comments, setComments] = useState([]);
     const [newComment, setNewComment] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [replyingTo, setReplyingTo] = useState(null); 
+    const sectionRef = useRef(null);
     
     // Mention Logic
     const [showMentionList, setShowMentionList] = useState(false);
@@ -254,6 +302,26 @@ const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthErr
     const [cursorPosition, setCursorPosition] = useState(0);
     const inputRef = useRef(null);
     const [systemUsers, setSystemUsers] = useState([]);
+
+    // Scroll to Target Comment Effect
+    useEffect(() => {
+        if (targetCommentId && comments.length > 0) {
+            const element = document.getElementById(`comment-${targetCommentId}`);
+            if (element) {
+                element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // Add highlight effect
+                element.classList.add('ring-2', 'ring-blue-500', 'ring-offset-2', 'ring-offset-[#1e293b]');
+                setTimeout(() => {
+                    element.classList.remove('ring-2', 'ring-blue-500', 'ring-offset-2', 'ring-offset-[#1e293b]');
+                }, 3000);
+                
+                if (clearTargetCommentId) clearTargetCommentId();
+            } else if (sectionRef.current) {
+                // Fallback if specific comment not found (e.g. pagination)
+                sectionRef.current.scrollIntoView({ behavior: 'smooth' });
+            }
+        }
+    }, [targetCommentId, comments, clearTargetCommentId]);
 
     // Fetch System Users
     useEffect(() => {
@@ -289,7 +357,6 @@ const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthErr
             const response = await fetch(`${API_BASE_URL}/api/reviews/${locationId}${userIdQuery}`);
             const data = await response.json();
             
-            // Deduplicate to ensure unique keys
             const uniqueComments = Array.isArray(data) 
                 ? Array.from(new Map(data.map(item => [item.id, item])).values())
                 : [];
@@ -418,6 +485,14 @@ const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthErr
             const formData = new FormData();
             formData.append('comment', newComment);
             formData.append('rating', 5);
+            
+            if (replyingTo) {
+                // Ensure ID is sent as string just in case, check for id existence
+                if (replyingTo.id) {
+                    formData.append('reply_to_id', String(replyingTo.id));
+                }
+            }
+
             if (mentionedUserIds.length > 0) {
                 formData.append('mentionedUserIds', JSON.stringify(mentionedUserIds));
             }
@@ -448,7 +523,7 @@ const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthErr
     );
 
     return (
-        <div className="bg-[#1e293b] rounded-2xl p-6 shadow-xl border border-slate-700 text-slate-200">
+        <div ref={sectionRef} className="bg-[#1e293b] rounded-2xl p-6 shadow-xl border border-slate-700 text-slate-200">
             <h3 className="text-2xl font-bold mb-6 flex items-center gap-2 text-white">
                 รีวิวและความคิดเห็น
             </h3>
@@ -548,7 +623,7 @@ const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthErr
     );
 };
 
-// --- DetailPage Helper Components ---
+// ... existing helper components ...
 
 const ImageLightbox = ({ images, selectedIndex, onClose, onNext, onPrev }) => {
     if (!images || images.length === 0) return null;
@@ -717,7 +792,7 @@ const ProductModal = ({ product, locationId, onClose, onSave, setNotification, h
 };
 
 // --- Main Detail Page Component ---
-const DetailPage = ({ item, setCurrentPage, handleItemClick, currentUser, favorites, handleToggleFavorite, handleEditItem, setNotification, handleAuthError }) => {
+const DetailPage = ({ item, setCurrentPage, handleItemClick, currentUser, favorites, handleToggleFavorite, handleEditItem, setNotification, handleAuthError, targetCommentId, clearTargetCommentId }) => {
 
     // --- State for main page logic ---
     const [isLightboxOpen, setIsLightboxOpen] = useState(false);
@@ -941,9 +1016,11 @@ const DetailPage = ({ item, setCurrentPage, handleItemClick, currentUser, favori
                             <div className="relative z-20">
                                 <CommentSection 
                                     locationId={item.id} 
-                                    currentUser={currentUser}
-                                    handleAuthError={handleAuthError}
+                                    currentUser={currentUser} 
+                                    handleAuthError={handleAuthError} 
                                     setNotification={setNotification}
+                                    targetCommentId={targetCommentId}
+                                    clearTargetCommentId={clearTargetCommentId}
                                 />
                             </div>
                         </div>
