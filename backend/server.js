@@ -9,15 +9,22 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import 'dotenv/config';
 
-console.log('--- SERVER (UPDATED VERSION: Fix Missing Reply Notifications) LOADING ---');
+console.log('--- SERVER (FINAL FIXED VERSION + SSE FIX) LOADING ---');
 
-// --- Supabase Client Setup ---
-if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY || !process.env.JWT_SECRET) {
-    console.error('CRITICAL ERROR: .env variables missing');
-    process.exit(1);
+// --- 🔴 CONFIG: SUPABASE & JWT ---
+// ใช้ค่าจาก .env หรือค่า Hardcode (เพื่อให้รันได้แน่นอน)
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://fsbfiefjtyejfzgisjco.supabase.co';
+// ⚠️ สำคัญ: ต้องใช้ SERVICE_KEY เพื่อให้ Server มีสิทธิ์เขียนข้อมูล User ได้ (หาได้จาก Supabase > Settings > API)
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || 'sb_publishable_JD-RR-99MGcWZ768Gewbeg_8NclU-Tx'; 
+
+if (SUPABASE_SERVICE_KEY === 'sb_publishable_JD-RR-99MGcWZ768Gewbeg_8NclU-Tx') {
+    console.warn('⚠️ WARNING: Using placeholder Service Key. Some features (like Auto-Sync) might fail.');
 }
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+// Secret สำหรับถอดรหัส Token ของ Supabase (จากที่คุณให้มา)
+const SUPABASE_JWT_SECRET = 'TmVDE+mlHk4VsWVIYUqY8mNSCMCQzkGTunEZfX6KIcOSjveLAEXhCW9X37ehDunj+MbZgbgACYbBZaEuJRH9GA==';
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 const BUCKET_NAME = 'image-uploads';
 
 const app = express();
@@ -76,17 +83,87 @@ app.use((req, res, next) => {
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 
-// --- AUTHENTICATION MIDDLEWARE ---
+// --- 🔐 AUTHENTICATION MIDDLEWARE (UPDATED: SSE SUPPORT) ---
 const authenticateToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
-    let token = authHeader && authHeader.startsWith('Bearer ') && authHeader.split(' ')[1];
-    if (!token && req.query.token) token = req.query.token;
+    
+    // 1. ลองดึงจาก Header (สำหรับ API ปกติ)
+    let token = authHeader && authHeader.startsWith('Bearer ') 
+        ? authHeader.split(' ')[1] 
+        : authHeader; 
 
-    if (token == null) return res.status(401).json({ error: 'Unauthorized: Token is required.' });
+    // 2. ⭐ แก้ไข: ถ้าไม่มีใน Header ให้ลองดึงจาก Query Param (สำหรับ SSE /api/events)
+    if (!token && req.query && req.query.token) {
+        token = req.query.token;
+    }
 
-    jwt.verify(token, process.env.JWT_SECRET, (err, userPayload) => {
-        if (err) return res.status(403).json({ error: 'Forbidden: Token is not valid.' });
-        req.user = userPayload;
+    if (!token) {
+        return res.status(401).json({ error: 'Unauthorized: Token is required.' });
+    }
+
+    // ใช้ SUPABASE_JWT_SECRET ในการตรวจสอบ
+    jwt.verify(token, SUPABASE_JWT_SECRET, async (err, userPayload) => {
+        if (err) {
+            console.error("Token verification failed:", err.message);
+            // กรณี SSE ถ้า Token ผิดพลาด ให้ปิด Connection เงียบๆ เพื่อไม่ให้ Client พยายามต่อใหม่รัวๆ
+            if (req.path === '/api/events') {
+                return res.end(); 
+            }
+            return res.status(403).json({ error: 'Forbidden: Token is not valid.' });
+        }
+        
+        let userId = userPayload.sub || userPayload.userId;
+        const email = userPayload.email;
+
+        // --- 🟢 AUTO-SYNC & RECOVERY Logic ---
+        try {
+            // 1. เช็คด้วย ID ก่อน (กรณีปกติ)
+            let { data: existingUser } = await supabase.from('users').select('id').eq('id', userId).maybeSingle();
+            
+            // 2. ถ้าไม่เจอ ID แต่มี Email -> เช็คด้วย Email (กู้คืนข้อมูลเก่า)
+            if (!existingUser && email) {
+                const { data: userByEmail } = await supabase.from('users').select('id').eq('username', email).maybeSingle();
+                
+                if (userByEmail) {
+                    console.log(`🔄 User Recovery: Linking Login ID ${userId} to Old DB ID ${userByEmail.id}`);
+                    userId = userByEmail.id;
+                    existingUser = userByEmail;
+                }
+            }
+
+            // 3. ถ้ายังไม่เจอทั้ง ID และ Email -> สร้างใหม่ (Register ผู้ใช้ใหม่ลง Table users)
+            if (!existingUser) {
+                console.log(`👤 Auto-Sync: Creating new user ${userId} in public database...`);
+                const metadata = userPayload.user_metadata || {};
+                const safeEmail = email || `user_${userId.substr(0,8)}@example.com`;
+                
+                const { error: insertError } = await supabase.from('users').insert({
+                    id: userId,
+                    username: safeEmail,
+                    password: await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 10), 
+                    display_name: metadata.full_name || metadata.name || safeEmail.split('@')[0],
+                    profile_image_url: metadata.avatar_url || metadata.picture ? [metadata.avatar_url || metadata.picture] : [],
+                    role: 'user'
+                });
+
+                if (insertError) {
+                    console.error("❌ Auto-Sync Insert Error:", insertError.message);
+                }
+            }
+        } catch (syncError) {
+            console.error("⚠️ User Auto-Sync Warning:", syncError.message);
+        }
+        // --------------------------------------------------------------------------
+
+        // Map ข้อมูลจาก Token (หรือ ID ที่กู้คืนมาได้) เข้า req.user
+        req.user = {
+            ...userPayload,
+            userId: userId, // ID นี้จะถูกนำไปใช้ query ข้อมูลทั้งหมด (Favorites, Reviews)
+            displayName: userPayload.user_metadata?.full_name || userPayload.user_metadata?.name || userPayload.displayName,
+            profileImageUrl: userPayload.user_metadata?.avatar_url || userPayload.user_metadata?.picture || userPayload.profileImageUrl,
+            role: userPayload.app_metadata?.role || userPayload.role || 'user'
+        };
+        
         next();
     });
 };
@@ -163,7 +240,6 @@ const formatRowForFrontend = (row) => {
         comment: row.comment || '',
         category: row.category || 'อื่นๆ',
         
-        // ⭐ เพิ่มบรรทัดนี้: ส่ง reply_to_id กลับไปให้ Frontend ใช้จัด Group
         reply_to_id: row.reply_to_id || row.parent_id || null, 
 
         rating: isNaN(parseFloat(row.rating)) ? 0 : parseFloat(row.rating || 0),
@@ -221,7 +297,6 @@ async function createAndSendNotification({ type, actorId, actorName, actorProfil
             return; 
         }
 
-        // Ensure all fields are safe (null instead of undefined) to prevent JSON issues and React crashes
         const standardizedPayload = {
              locationId: payload.location?.id || null,
              locationName: payload.location?.name || null,
@@ -233,7 +308,6 @@ async function createAndSendNotification({ type, actorId, actorName, actorProfil
              commentSnippet: payload.commentSnippet || null
         };
 
-        // Do not send notification if locationId is missing. This prevents frontend crash.
         if (['new_review', 'new_reply', 'mention', 'new_comment_like', 'new_like', 'new_location'].includes(type) && !standardizedPayload.locationId) {
             console.error("🚫 Notification Aborted: Missing locationId. Payload:", standardizedPayload);
             return;
@@ -323,12 +397,8 @@ app.get('/api/events', authenticateToken, async (req, res) => {
             .limit(20);
 
         if (pastNotifications && pastNotifications.length > 0) {
-            // Filter out bad historic notifications to prevent Frontend "Internal React Error"
             const validNotifications = pastNotifications.filter(n => {
-                // Must have payload and must be object
                 if (!n.payload || typeof n.payload !== 'object') return false;
-                
-                // Filter out notifications that rely on location but don't have locationId (Broken data)
                 if (['new_review', 'new_reply', 'mention', 'new_like', 'new_comment_like', 'new_location'].includes(n.type)) {
                     if (!n.payload.locationId) return false;
                 }
@@ -428,12 +498,12 @@ app.put('/api/users/:userIdToUpdate', authenticateToken, upload.single('profileI
         }
         if (Object.keys(updateData).length === 0) {
             const formatted = formatRowForFrontend(user);
-            const token = jwt.sign({ userId: formatted.id, username: formatted.username, displayName: formatted.displayName, role: formatted.role, profileImageUrl: formatted.profileImageUrl }, process.env.JWT_SECRET, { expiresIn: '1d' });
+            const token = jwt.sign({ userId: formatted.id, username: formatted.username, displayName: formatted.displayName, role: formatted.role, profileImageUrl: formatted.profileImageUrl }, SUPABASE_JWT_SECRET, { expiresIn: '1d' });
             return res.json({ message: 'No changes', user: formatted, token });
         }
         const { data: updated } = await supabase.from('users').update(updateData).eq('id', userIdToUpdate).select().single();
         const formatted = formatRowForFrontend(updated);
-        const token = jwt.sign({ userId: formatted.id, username: formatted.username, displayName: formatted.displayName, role: formatted.role, profileImageUrl: formatted.profileImageUrl }, process.env.JWT_SECRET, { expiresIn: '1d' });
+        const token = jwt.sign({ userId: formatted.id, username: formatted.username, displayName: formatted.displayName, role: formatted.role, profileImageUrl: formatted.profileImageUrl }, SUPABASE_JWT_SECRET, { expiresIn: '1d' });
         res.json({ message: 'Updated', user: formatted, token });
     } catch (err) {
         if (newImageUrl) await deleteFromSupabase(newImageUrl);
@@ -707,12 +777,21 @@ app.delete('/api/locations/:id', authenticateToken, requireAdmin, async (req, re
 });
 
 // --- REVIEWS ---
+// 🟢 CLEANED ROUTE: Removed duplicate logic and nested middleware
 app.get('/api/reviews/:locationId', async (req, res) => {
     const { locationId } = req.params;
     const authHeader = req.headers['authorization'];
     let userId = null;
+    
+    // Optional User Check for "User has liked" logic
     if (authHeader) {
-        try { userId = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET).userId; } catch (e) {}
+        try { 
+            const token = authHeader.split(' ')[1];
+            // Decode without verify just to get ID quickly, or use verify if you want strictness
+            // Here we use the global secret if verifying
+            const decoded = jwt.verify(token, SUPABASE_JWT_SECRET);
+            userId = decoded.sub || decoded.userId;
+        } catch (e) {}
     }
 
     try {
@@ -725,7 +804,7 @@ app.get('/api/reviews/:locationId', async (req, res) => {
         
         if (!reviewsData) return res.json([]);
 
-        // 2. Fetch ALL Comments for these reviews (To allow Frontend grouping)
+        // 2. Fetch ALL Comments
         const reviewIds = reviewsData.map(r => r.id);
         let allComments = [];
         if (reviewIds.length > 0) {
@@ -733,14 +812,13 @@ app.get('/api/reviews/:locationId', async (req, res) => {
                 .from('review_comments')
                 .select(`*, user_profile:user_id ( profile_image_url )`)
                 .in('review_id', reviewIds)
-                .order('created_at', { ascending: true }); // Comments usually ordered asc
+                .order('created_at', { ascending: true });
             allComments = commentsData || [];
         }
 
         // 3. Count Comments & Likes
         let commentCounts = {};
         if (reviewIds.length) {
-            // Re-calculate counts just in case, or rely on client side array length
             commentCounts = allComments.reduce((acc, c) => { acc[c.review_id] = (acc[c.review_id] || 0) + 1; return acc; }, {});
         }
 
@@ -750,21 +828,16 @@ app.get('/api/reviews/:locationId', async (req, res) => {
             (likes || []).forEach(l => likedIds.add(l.review_id));
         }
 
-        // 4. Merge and Return Combined List (Roots + Children)
-        // Frontend's 'groupComments' expects a flat list containing both parent reviews and child comments.
-        // Child comments must have 'reply_to_id'. If they reply to the review itself, set reply_to_id = review_id.
-        
+        // 4. Merge
         const formattedReviews = reviewsData.map(r => ({
             ...formatRowForFrontend(r),
             comments_count: commentCounts[r.id] || 0,
             user_has_liked: likedIds.has(r.id),
-            // Explicitly set reply_to_id null for roots
             reply_to_id: null 
         }));
 
         const formattedComments = allComments.map(c => ({
             ...formatRowForFrontend(c),
-            // Ensure connection: If no specific reply_to_id (replying to review), point to review_id
             reply_to_id: c.reply_to_id || c.review_id 
         }));
 
@@ -816,8 +889,8 @@ app.post('/api/reviews/:locationId', authenticateToken, upload.array('reviewImag
 
             if (error) throw error;
             
-            // --- ADDED NOTIFICATION LOGIC (Fixing missing notifications here) ---
-            // 1. Get Location Details (Required for notification payload)
+            // --- ADDED NOTIFICATION LOGIC ---
+            // 1. Get Location Details
             let loc = null;
             const { data: r } = await supabase.from('reviews').select('location_id, user_id').eq('id', reviewId).single();
             if (r) {
@@ -825,19 +898,17 @@ app.post('/api/reviews/:locationId', authenticateToken, upload.array('reviewImag
                 if (!loc) ({ data: loc } = await supabase.from('foodShops').select('id, name, image_url').eq('id', r.location_id).maybeSingle());
                 
                 if (loc) {
-                    // 2. Determine Recipient (Parent Comment Owner OR Review Owner)
+                    // 2. Determine Recipient
                     let recipientId = null;
                     
-                    // Check if parent was a comment
                     const { data: parentComment } = await supabase.from('review_comments').select('user_id').eq('id', reply_to_id).maybeSingle();
                     if (parentComment) {
                         recipientId = parentComment.user_id;
                     } else {
-                        // Parent was the review itself (root reply)
                         recipientId = r.user_id;
                     }
 
-                    // 3. Send Notification (if not self)
+                    // 3. Send Notification
                     if (recipientId && String(recipientId) !== String(userId)) {
                          createAndSendNotification({
                             type: 'new_reply', 
@@ -855,7 +926,6 @@ app.post('/api/reviews/:locationId', authenticateToken, upload.array('reviewImag
                     }
                 }
             }
-            // -----------------------------------------------------------------
 
             return res.status(201).json(formatRowForFrontend({ ...inserted, user_profile: { profile_image_url: profileImageUrl } }));
         } catch(e) {
@@ -878,18 +948,15 @@ app.post('/api/reviews/:locationId', authenticateToken, upload.array('reviewImag
             await Promise.allSettled([supabase.from('attractions').update({ rating: avg }).eq('id', locationId), supabase.from('foodShops').update({ rating: avg }).eq('id', locationId)]);
         }
 
-        // Get Location Details with ID (Fixes Crash)
         let loc = null;
         ({ data: loc } = await supabase.from('attractions').select('id, name, image_url, user_id').eq('id', locationId).maybeSingle());
         if (!loc) ({ data: loc } = await supabase.from('foodShops').select('id, name, image_url, user_id').eq('id', locationId).maybeSingle());
         
         if (loc) {
-            // Notify Owner
             if (String(loc.user_id) !== String(req.user.userId)) {
                 createAndSendNotification({ type: 'new_review', actorId: req.user.userId, actorName: req.user.displayName, actorProfileImageUrl: req.user.profileImageUrl, recipientId: loc.user_id, payload: { location: formatRowForFrontend(loc), reviewId: inserted.id } });
             }
 
-            // Notify Mentions (ADDED HERE FOR REVIEWS)
             if (mentionedUserIds) {
                 try {
                     const targetIds = JSON.parse(mentionedUserIds);
@@ -1012,7 +1079,7 @@ app.get('/api/reviews/:reviewId/comments', async (req, res) => {
 // POST Comment (UPDATED: Supports reply_to_id)
 app.post('/api/reviews/:reviewId/comments', authenticateToken, async (req, res) => {
     const { reviewId } = req.params;
-    const { comment, mentionedUserIds, reply_to_id } = req.body; // ⭐ Added reply_to_id
+    const { comment, mentionedUserIds, reply_to_id } = req.body; 
     const { userId, displayName, profileImageUrl } = req.user;
 
     if (!comment) return res.status(400).json({ error: 'Empty comment' });
@@ -1026,7 +1093,7 @@ app.post('/api/reviews/:reviewId/comments', authenticateToken, async (req, res) 
             comment: comment.trim(), 
             likes_count: 0, 
             created_at: new Date().toISOString(),
-            reply_to_id: reply_to_id || null // ⭐ Saved to DB
+            reply_to_id: reply_to_id || null 
         }).select().single();
         
         if (error) throw error;
@@ -1047,10 +1114,9 @@ app.post('/api/reviews/:reviewId/comments', authenticateToken, async (req, res) 
                 });
             }
 
-            // --- ADDED: Notify Parent Comment Owner (Fixing missing notifications here too) ---
+            // --- ADDED: Notify Parent Comment Owner ---
             if (reply_to_id) {
                 const { data: parent } = await supabase.from('review_comments').select('user_id').eq('id', reply_to_id).maybeSingle();
-                // Check if parent exists AND parent owner is NOT the reviewer (avoid double notif) AND NOT self
                 if (parent && String(parent.user_id) !== String(userId) && String(parent.user_id) !== String(review.user_id)) {
                      createAndSendNotification({
                         type: 'new_reply', 
@@ -1067,16 +1133,14 @@ app.post('/api/reviews/:reviewId/comments', authenticateToken, async (req, res) 
                     });
                 }
             }
-            // ----------------------------------------------------------------------------------
 
-            // Notify Mentions (Using Explicit IDs from Frontend)
+            // Notify Mentions
             if (mentionedUserIds) {
                 try {
                     const targetIds = JSON.parse(mentionedUserIds);
                     if (Array.isArray(targetIds)) {
                         const notified = new Set();
                         targetIds.forEach(targetId => {
-                            // Prevent self-notification and duplicates
                             if (String(targetId) !== String(userId) && !notified.has(targetId)) {
                                 notified.add(targetId);
                                 console.log(`📢 Dispatching Mention Notification to ${targetId}`); 
@@ -1094,7 +1158,6 @@ app.post('/api/reviews/:reviewId/comments', authenticateToken, async (req, res) 
     } catch (e) { console.error(e); res.status(500).json({ error: 'Failed' }); }
 });
 
-// ... (PUT/DELETE Comment, Toggle Like Comment - Same as before) ...
 app.put('/api/comments/:commentId', authenticateToken, async (req, res) => {
     try {
         const { data: c } = await supabase.from('review_comments').select('user_id').eq('id', req.params.commentId).single();
@@ -1125,7 +1188,6 @@ app.post('/api/comments/:commentId/toggle-like', authenticateToken, async (req, 
                 const { data: r } = await supabase.from('reviews').select('location_id').eq('id', c.review_id).single();
                 if (r) {
                     let loc = null;
-                    // BUG FIX: Select ID
                     ({ data: loc } = await supabase.from('attractions').select('id, name, image_url').eq('id', r.location_id).maybeSingle());
                     if (!loc) ({ data: loc } = await supabase.from('foodShops').select('id, name, image_url').eq('id', r.location_id).maybeSingle());
                     if (loc) createAndSendNotification({ type: 'new_comment_like', actorId: userId, actorName: displayName, actorProfileImageUrl: profileImageUrl, recipientId: c.user_id, payload: { location: formatRowForFrontend(loc), commentSnippet: c.comment.substring(0, 30), reviewId: c.review_id, commentId: commentId } });
@@ -1144,7 +1206,7 @@ app.post('/api/login', async (req, res) => {
     const { data: user } = await supabase.from('users').select('*').eq('username', username).single();
     if (!user || !(await bcrypt.compare(password, user.password))) return res.status(401).json({ error: 'Invalid' });
     const formatted = formatRowForFrontend(user);
-    const token = jwt.sign({ userId: formatted.id, username: formatted.username, displayName: formatted.displayName, role: formatted.role, profileImageUrl: formatted.profileImageUrl }, process.env.JWT_SECRET, { expiresIn: '1d' });
+    const token = jwt.sign({ userId: formatted.id, username: formatted.username, displayName: formatted.displayName, role: formatted.role, profileImageUrl: formatted.profileImageUrl }, SUPABASE_JWT_SECRET, { expiresIn: '1d' });
     res.json({ message: 'Success', user: formatted, token });
 });
 app.post('/api/register', async (req, res) => {
@@ -1170,23 +1232,19 @@ app.post('/api/favorites/toggle', authenticateToken, async (req, res) => {
 });
 
 app.post('/api/auth/social-login', async (req, res) => {
-    const { email, displayName, photoUrl, provider } = req.body;
+    const { email, displayName, photoUrl, provider, uid } = req.body; // รับ uid จาก Supabase
 
-    // ถ้าไม่มีอีเมลส่งมา ให้แจ้ง Error
     if (!email) return res.status(400).json({ error: 'Email is required from provider' });
 
-    // ✅ FIX: แปลงเป็นตัวพิมพ์เล็กทั้งหมด เพื่อป้องกันปัญหา User ซ้ำ (เช่น Oak@... กับ oak@...)
     const normalizedEmail = email.toLowerCase();
 
     try {
-        // 1. ลองค้นหา User ด้วย Email (ตัวพิมพ์เล็ก) ในฐานข้อมูลเรา
         let { data: user } = await supabase
             .from('users')
             .select('*')
             .eq('username', normalizedEmail) 
             .maybeSingle(); 
 
-        // 2. ถ้าไม่มี User ให้สร้างใหม่ (Register อัตโนมัติ)
         if (!user) {
             let baseUsername = normalizedEmail; 
             
@@ -1196,8 +1254,8 @@ app.post('/api/auth/social-login', async (req, res) => {
             const { data: newUser, error: createError } = await supabase
                 .from('users')
                 .insert({
-                    id: crypto.randomUUID(),
-                    username: baseUsername, // บันทึกเป็นตัวพิมพ์เล็ก
+                    id: uid || crypto.randomUUID(), // ใช้ UID จาก Supabase ถ้ามี
+                    username: baseUsername, 
                     password: hashedPassword,
                     display_name: displayName || baseUsername.split('@')[0],
                     profile_image_url: photoUrl ? [photoUrl] : [],
@@ -1213,7 +1271,6 @@ app.post('/api/auth/social-login', async (req, res) => {
             user = newUser;
         }
 
-        // 4. สร้าง JWT Token
         const formatted = formatRowForFrontend(user);
         const token = jwt.sign(
             { 
@@ -1223,11 +1280,10 @@ app.post('/api/auth/social-login', async (req, res) => {
                 role: formatted.role, 
                 profileImageUrl: formatted.profileImageUrl 
             }, 
-            process.env.JWT_SECRET, 
+            SUPABASE_JWT_SECRET, 
             { expiresIn: '1d' }
         );
 
-        // 5. ส่งกลับไปให้ Frontend
         res.json({ message: 'Social Login Success', user: formatted, token });
 
     } catch (err) {
