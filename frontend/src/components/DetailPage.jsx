@@ -11,22 +11,21 @@ import { formatDistanceToNow } from 'date-fns';
 import { th } from 'date-fns/locale';
 
 // --- START: API URL Configuration ---
-// ✅ FIX: บังคับใช้ URL ของ Server จริง (Render) เพื่อให้ข้อมูลตรงกันเสมอ
-// (แม้จะรันในเครื่อง Local ก็จะไปดึงข้อมูลจาก Server จริงที่มี Key ถูกต้อง)
 const API_BASE_URL = 'https://bangkok-guide.onrender.com';
 // --- END: API URL Configuration ---
 
 // --- Helper Component: Avatar ---
 const Avatar = ({ src, alt, size = "md", className = "" }) => {
     const sizeClasses = { xs: "w-6 h-6", sm: "w-8 h-8", md: "w-10 h-10", lg: "w-12 h-12" };
-    const baseClass = `${sizeClasses[size] || sizeClasses.md} rounded-full object-cover border-2 border-slate-700 shadow-sm shrink-0 ${className}`;
+    // ✅ Fix: ปรับสีขอบและพื้นหลังให้รองรับธีม
+    const baseClass = `${sizeClasses[size] || sizeClasses.md} rounded-full object-cover border-2 border-white dark:border-slate-700 shadow-sm shrink-0 ${className}`;
 
     if (src && src !== 'null' && src !== 'undefined') {
         return (
             <img 
                 src={src} 
                 alt={alt} 
-                className={`${baseClass} bg-slate-800`}
+                className={`${baseClass} bg-gray-200 dark:bg-slate-800`}
                 onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }}
             />
         );
@@ -36,7 +35,7 @@ const Avatar = ({ src, alt, size = "md", className = "" }) => {
     const randomGradient = gradients[alt ? alt.length % gradients.length : 0];
 
     return (
-        <div className={`${baseClass} bg-gradient-to-br ${randomGradient} flex items-center justify-center text-white border-slate-700`}>
+        <div className={`${baseClass} bg-gradient-to-br ${randomGradient} flex items-center justify-center text-white`}>
             <User size={size === 'xs' ? 12 : (size === 'sm' ? 14 : 20)} strokeWidth={2.5} />
         </div>
     );
@@ -48,7 +47,7 @@ const renderContentWithMentions = (text) => {
     const parts = text.split(/(@[\wก-๙.-]+(?: [\wก-๙.-]+)?)/g); 
     return parts.map((part, index) => {
         if (part.startsWith('@')) {
-            return <span key={index} className="text-blue-400 font-semibold cursor-pointer hover:underline">{part}</span>;
+            return <span key={index} className="text-blue-600 dark:text-blue-400 font-semibold cursor-pointer hover:underline">{part}</span>;
         }
         return part;
     });
@@ -81,23 +80,24 @@ const CommentItem = ({ comment, currentUser, onLike, onReply }) => {
         <div className="flex gap-4 animate-fade-in-up" id={`comment-${comment.id}`}>
             <Avatar src={comment.author_profile_image_url || comment.authorProfileImageUrl} alt={comment.author || "User"} />
             <div className="flex-1 min-w-0">
-                <div className="bg-[#334155]/50 border border-slate-700 rounded-2xl px-4 py-3 relative group hover:border-slate-600 transition-all">
+                {/* ✅ Fix: ปรับสีพื้นหลังคอมเมนต์ */}
+                <div className="bg-gray-50 dark:bg-[#334155]/50 border border-gray-200 dark:border-slate-700 rounded-2xl px-4 py-3 relative group hover:border-gray-300 dark:hover:border-slate-600 transition-all">
                     <div className="flex items-baseline justify-between mb-1">
                         <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-bold text-white text-base truncate">{comment.author}</span>
-                            {comment.author === 'Admin' && <span className="bg-blue-500/20 text-blue-300 text-[10px] px-2 py-0.5 rounded-full border border-blue-500/30 font-semibold tracking-wider">ADMIN</span>}
+                            <span className="font-bold text-gray-900 dark:text-white text-base truncate">{comment.author}</span>
+                            {comment.author === 'Admin' && <span className="bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-300 text-[10px] px-2 py-0.5 rounded-full border border-blue-200 dark:border-blue-500/30 font-semibold tracking-wider">ADMIN</span>}
                         </div>
-                        <span className="text-xs text-slate-500 whitespace-nowrap ml-2">{comment.created_at ? formatDistanceToNow(new Date(comment.created_at), { addSuffix: true, locale: th }) : 'เมื่อสักครู่'}</span>
+                        <span className="text-xs text-gray-500 dark:text-slate-500 whitespace-nowrap ml-2">{comment.created_at ? formatDistanceToNow(new Date(comment.created_at), { addSuffix: true, locale: th }) : 'เมื่อสักครู่'}</span>
                     </div>
-                    <p className="text-slate-300 text-sm leading-relaxed break-words">{renderContentWithMentions(comment.comment)}</p>
+                    <p className="text-gray-700 dark:text-slate-300 text-sm leading-relaxed break-words">{renderContentWithMentions(comment.comment)}</p>
                 </div>
 
                 <div className="flex items-center gap-4 mt-1 ml-2 mb-2">
-                    <button onClick={() => onLike(comment.id, comment.user_has_liked)} className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${comment.user_has_liked ? 'text-pink-500' : 'text-slate-500 hover:text-pink-400'}`}>
+                    <button onClick={() => onLike(comment.id, comment.user_has_liked)} className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${comment.user_has_liked ? 'text-pink-500' : 'text-gray-500 dark:text-slate-500 hover:text-pink-500 dark:hover:text-pink-400'}`}>
                         <Heart size={14} fill={comment.user_has_liked ? "currentColor" : "none"} className={comment.user_has_liked ? "animate-pulse" : ""} />
                         <span>{comment.likes_count || 0} ถูกใจ</span>
                     </button>
-                    <button onClick={() => onReply(comment)} className="text-xs text-slate-500 hover:text-blue-400 transition-colors font-medium flex items-center gap-1">
+                    <button onClick={() => onReply(comment)} className="text-xs text-gray-500 dark:text-slate-500 hover:text-blue-500 dark:hover:text-blue-400 transition-colors font-medium flex items-center gap-1">
                         <MessageCircle size={14} /> ตอบกลับ
                     </button>
                 </div>
@@ -105,33 +105,34 @@ const CommentItem = ({ comment, currentUser, onLike, onReply }) => {
                 {hasReplies && (
                     <div className="mt-2">
                         {!isExpanded ? (
-                            <button onClick={() => setIsExpanded(true)} className="flex items-center gap-2 text-xs font-bold text-blue-400 hover:text-blue-300 transition-colors ml-2 bg-blue-500/10 px-3 py-1.5 rounded-full">
+                            <button onClick={() => setIsExpanded(true)} className="flex items-center gap-2 text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 transition-colors ml-2 bg-blue-50 dark:bg-blue-500/10 px-3 py-1.5 rounded-full">
                                 <CornerDownRight size={14} /> ดูการตอบกลับ {comment.replies.length} รายการ
                             </button>
                         ) : (
                             <div className="pl-4 sm:pl-8 relative space-y-4">
-                                <div className="absolute left-0 top-0 bottom-4 w-[2px] bg-slate-700 rounded-full"></div>
-                                <button onClick={() => setIsExpanded(false)} className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 mb-2 ml-2"><ChevronUp size={14} /> ซ่อนการตอบกลับ</button>
+                                <div className="absolute left-0 top-0 bottom-4 w-[2px] bg-gray-200 dark:bg-slate-700 rounded-full"></div>
+                                <button onClick={() => setIsExpanded(false)} className="flex items-center gap-1 text-xs text-gray-500 dark:text-slate-500 hover:text-gray-700 dark:hover:text-slate-300 mb-2 ml-2"><ChevronUp size={14} /> ซ่อนการตอบกลับ</button>
                                 {comment.replies.map(reply => (
                                     <div key={reply.id} className="relative animate-fade-in" id={`comment-${reply.id}`}>
-                                        <div className="flex gap-3">
-                                            <Avatar src={reply.author_profile_image_url || reply.authorProfileImageUrl} alt={reply.author} size="sm" />
-                                            <div className="flex-1 min-w-0">
-                                                <div className="bg-[#334155]/30 border border-slate-700/50 rounded-2xl px-3 py-2">
-                                                    <div className="flex items-baseline justify-between mb-1">
-                                                        <span className="font-bold text-white text-sm">{reply.author}</span>
-                                                        <span className="text-[10px] text-slate-500">{reply.created_at ? formatDistanceToNow(new Date(reply.created_at), { addSuffix: true, locale: th }) : ''}</span>
+                                            <div className="flex gap-3">
+                                                <Avatar src={reply.author_profile_image_url || reply.authorProfileImageUrl} alt={reply.author} size="sm" />
+                                                <div className="flex-1 min-w-0">
+                                                    {/* ✅ Fix: ปรับสีพื้นหลังตอบกลับ */}
+                                                    <div className="bg-gray-50 dark:bg-[#334155]/30 border border-gray-200 dark:border-slate-700/50 rounded-2xl px-3 py-2">
+                                                        <div className="flex items-baseline justify-between mb-1">
+                                                            <span className="font-bold text-gray-900 dark:text-white text-sm">{reply.author}</span>
+                                                            <span className="text-[10px] text-gray-500 dark:text-slate-500">{reply.created_at ? formatDistanceToNow(new Date(reply.created_at), { addSuffix: true, locale: th }) : ''}</span>
+                                                        </div>
+                                                        <p className="text-gray-700 dark:text-slate-300 text-xs leading-relaxed break-words">{renderContentWithMentions(reply.comment)}</p>
                                                     </div>
-                                                    <p className="text-slate-300 text-xs leading-relaxed break-words">{renderContentWithMentions(reply.comment)}</p>
-                                                </div>
-                                                <div className="flex items-center gap-3 mt-1 ml-2">
-                                                    <button onClick={() => onLike(reply.id, reply.user_has_liked)} className={`flex items-center gap-1 text-[10px] font-medium transition-colors ${reply.user_has_liked ? 'text-pink-500' : 'text-slate-500 hover:text-pink-400'}`}>
-                                                        <Heart size={12} fill={reply.user_has_liked ? "currentColor" : "none"} /> {reply.likes_count || 0}
-                                                    </button>
-                                                    <button onClick={() => onReply(comment)} className="text-[10px] text-slate-500 hover:text-blue-400 font-medium">ตอบกลับ</button>
+                                                    <div className="flex items-center gap-3 mt-1 ml-2">
+                                                        <button onClick={() => onLike(reply.id, reply.user_has_liked)} className={`flex items-center gap-1 text-[10px] font-medium transition-colors ${reply.user_has_liked ? 'text-pink-500' : 'text-gray-500 dark:text-slate-500 hover:text-pink-500 dark:hover:text-pink-400'}`}>
+                                                            <Heart size={12} fill={reply.user_has_liked ? "currentColor" : "none"} /> {reply.likes_count || 0}
+                                                        </button>
+                                                        <button onClick={() => onReply(comment)} className="text-[10px] text-gray-500 dark:text-slate-500 hover:text-blue-500 dark:hover:text-blue-400 font-medium">ตอบกลับ</button>
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
                                     </div>
                                 ))}
                             </div>
@@ -300,14 +301,15 @@ const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthErr
     const filteredCandidates = allMentionCandidates.filter(u => u.name.toLowerCase().includes(mentionQuery.toLowerCase()));
 
     return (
-        <div ref={sectionRef} className="bg-[#1e293b] rounded-2xl p-6 shadow-xl border border-slate-700 text-slate-200">
-            <h3 className="text-2xl font-bold mb-6 flex items-center gap-2 text-white">รีวิวและความคิดเห็น</h3>
+        // ✅ Fix: ปรับสีพื้นหลัง Container หลักของ Comment Section
+        <div ref={sectionRef} className="bg-white dark:bg-[#1e293b] rounded-2xl p-6 shadow-xl border border-gray-100 dark:border-slate-700 text-gray-800 dark:text-slate-200 transition-colors duration-300">
+            <h3 className="text-2xl font-bold mb-6 flex items-center gap-2 text-gray-900 dark:text-white">รีวิวและความคิดเห็น</h3>
             <div className="space-y-6 mb-8">
-                <div className="flex items-center gap-2 text-blue-400 mb-4 font-semibold">
+                <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 mb-4 font-semibold">
                     <MessageSquare size={20} /><span>ความคิดเห็น ({comments.length})</span>
                 </div>
                 {comments.length === 0 ? (
-                    <div className="text-center py-8 text-slate-500 bg-slate-800/50 rounded-xl border border-slate-700 border-dashed">ยังไม่มีความคิดเห็น เป็นคนแรกที่แสดงความคิดเห็นสิ!</div>
+                    <div className="text-center py-8 text-gray-500 dark:text-slate-500 bg-gray-50 dark:bg-slate-800/50 rounded-xl border border-gray-200 dark:border-slate-700 border-dashed">ยังไม่มีความคิดเห็น เป็นคนแรกที่แสดงความคิดเห็นสิ!</div>
                 ) : (
                     organizedComments.map(rootComment => (
                         <CommentItem key={rootComment.id} comment={rootComment} currentUser={currentUser} onLike={handleLike} onReply={handleReplyClick} />
@@ -315,19 +317,20 @@ const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthErr
                 )}
             </div>
 
-            <div className={`bg-[#334155] p-4 rounded-xl border ${replyingTo ? 'border-blue-500/50 ring-1 ring-blue-500/20' : 'border-slate-600'} relative transition-all duration-300`}>
+            {/* ✅ Fix: ปรับสีส่วน Input ตอบกลับ */}
+            <div className={`bg-gray-50 dark:bg-[#334155] p-4 rounded-xl border ${replyingTo ? 'border-blue-500/50 ring-1 ring-blue-500/20' : 'border-gray-200 dark:border-slate-600'} relative transition-all duration-300`}>
                 {replyingTo && (
-                    <div className="flex items-center justify-between mb-3 bg-blue-500/10 px-3 py-2 rounded-lg border border-blue-500/20 animate-fade-in">
-                        <div className="flex items-center gap-2 text-sm text-blue-300"><CornerDownRight size={16} /><span>กำลังตอบกลับ <b>{replyingTo.author}</b></span></div>
-                        <button onClick={handleCancelReply} className="text-slate-400 hover:text-white bg-slate-700/50 p-1 rounded-full"><X size={14} /></button>
+                    <div className="flex items-center justify-between mb-3 bg-blue-100 dark:bg-blue-500/10 px-3 py-2 rounded-lg border border-blue-200 dark:border-blue-500/20 animate-fade-in">
+                        <div className="flex items-center gap-2 text-sm text-blue-700 dark:text-blue-300"><CornerDownRight size={16} /><span>กำลังตอบกลับ <b>{replyingTo.author}</b></span></div>
+                        <button onClick={handleCancelReply} className="text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white bg-gray-200 dark:bg-slate-700/50 p-1 rounded-full"><X size={14} /></button>
                     </div>
                 )}
                 {showMentionList && filteredCandidates.length > 0 && (
-                    <div className="absolute bottom-full left-0 mb-2 w-64 bg-slate-800 border border-slate-600 rounded-lg shadow-2xl overflow-hidden z-30 animate-fade-in-up">
-                        <div className="p-2 bg-slate-900/80 text-xs text-slate-400 font-semibold border-b border-slate-700">แนะนำ (Mention)</div>
+                    <div className="absolute bottom-full left-0 mb-2 w-64 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg shadow-2xl overflow-hidden z-30 animate-fade-in-up">
+                        <div className="p-2 bg-gray-50 dark:bg-slate-900/80 text-xs text-gray-500 dark:text-slate-400 font-semibold border-b border-gray-200 dark:border-slate-700">แนะนำ (Mention)</div>
                         <div className="max-h-48 overflow-y-auto">
                             {filteredCandidates.map((user, idx) => (
-                                <button key={idx} onClick={() => insertMention(user.name)} className="w-full text-left px-4 py-2.5 text-sm text-slate-200 hover:bg-slate-700 flex items-center gap-3 transition-colors border-b border-slate-700/50 last:border-0">
+                                <button key={idx} onClick={() => insertMention(user.name)} className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-slate-200 hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-3 transition-colors border-b border-gray-100 dark:border-slate-700/50 last:border-0">
                                     <Avatar src={user.avatar} alt={user.name} size="xs" />{user.name}
                                 </button>
                             ))}
@@ -337,7 +340,8 @@ const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthErr
                 <form onSubmit={handleSubmit} className="flex gap-3 items-end">
                     <div className="hidden sm:block pb-1"><Avatar src={currentUser?.profileImageUrl || currentUser?.profileImage} alt={currentUser?.username || "Me"} /></div>
                     <div className="flex-1 relative">
-                        <textarea ref={inputRef} value={newComment} onChange={handleInputChange} onKeyDown={handleKeyDown} placeholder={currentUser ? (replyingTo ? "พิมพ์ข้อความตอบกลับ..." : "แสดงความคิดเห็น... (พิมพ์ @ เพื่อกล่าวถึง)") : "กรุณาเข้าสู่ระบบเพื่อแสดงความคิดเห็น"} disabled={isLoading} rows={1} style={{ minHeight: '44px', maxHeight: '120px' }} className="w-full bg-slate-900/50 border border-slate-600 text-slate-200 text-sm rounded-2xl py-3 px-4 pr-12 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-slate-500 shadow-inner resize-none overflow-hidden" onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }} />
+                        {/* ✅ Fix: ปรับสี Textarea */}
+                        <textarea ref={inputRef} value={newComment} onChange={handleInputChange} onKeyDown={handleKeyDown} placeholder={currentUser ? (replyingTo ? "พิมพ์ข้อความตอบกลับ..." : "แสดงความคิดเห็น... (พิมพ์ @ เพื่อกล่าวถึง)") : "กรุณาเข้าสู่ระบบเพื่อแสดงความคิดเห็น"} disabled={isLoading} rows={1} style={{ minHeight: '44px', maxHeight: '120px' }} className="w-full bg-white dark:bg-slate-900/50 border border-gray-300 dark:border-slate-600 text-gray-900 dark:text-slate-200 text-sm rounded-2xl py-3 px-4 pr-12 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-gray-400 dark:placeholder:text-slate-500 shadow-inner resize-none overflow-hidden" onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }} />
                         <button type="submit" disabled={!newComment.trim() || isLoading} className="absolute right-2 bottom-2 p-1.5 bg-blue-600 text-white rounded-full hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600 transition-all shadow-lg shadow-blue-900/30 flex items-center justify-center">
                             <Send size={16} className={isLoading ? "animate-spin" : "ml-0.5"} />
                         </button>
