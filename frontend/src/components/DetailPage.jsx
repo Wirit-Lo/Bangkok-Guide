@@ -11,13 +11,9 @@ import { formatDistanceToNow } from 'date-fns';
 import { th } from 'date-fns/locale';
 
 // --- START: API URL Configuration ---
-const getApiBaseUrl = () => {
-    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-        return 'http://localhost:5000';
-    }
-    return 'https://bangkok-guide.onrender.com';
-};
-const API_BASE_URL = getApiBaseUrl();
+// ✅ FIX: บังคับใช้ URL ของ Server จริง (Render) เพื่อให้ข้อมูลตรงกันเสมอ
+// (แม้จะรันในเครื่อง Local ก็จะไปดึงข้อมูลจาก Server จริงที่มี Key ถูกต้อง)
+const API_BASE_URL = 'https://bangkok-guide.onrender.com';
 // --- END: API URL Configuration ---
 
 // --- Helper Component: Avatar ---

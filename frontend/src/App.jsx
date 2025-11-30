@@ -19,6 +19,7 @@ import FavoritesPage from './components/FavoritesPage.jsx';
 import UserProfilePage from './components/UserProfilePage.jsx';
 import ManageProductsPage from './components/ManageProductsPage.jsx';
 import ApproveDeletionsPage from './components/ApproveDeletionsPage.jsx';
+import ApproveNewLocationsPage from './components/ApproveNewLocationsPage.jsx'; // ✅ เพิ่ม Import หน้าอนุมัติสถานที่
 
 // --- Global API Configuration ---
 const getApiBaseUrl = () => {
@@ -30,7 +31,7 @@ const getApiBaseUrl = () => {
 const API_BASE_URL = getApiBaseUrl();
 
 // --- 🔴 ตั้งค่า SUPABASE ---
-// ⚠️ ใส่ KEY ของคุณที่นี่อีกครั้งครับ (เพื่อความชัวร์)
+// ⚠️ ตรวจสอบ KEY ของคุณให้ถูกต้อง
 const supabaseUrl = 'https://fsbfiefjtyejfzgisjco.supabase.co'; 
 const supabaseAnonKey = 'sb_publishable_JD-RR-99MGcWZ768Gewbeg_8NclU-Tx';
 
@@ -279,7 +280,7 @@ const App = () => {
         setToken(userToken);
         setNotification({ message: `ยินดีต้อนรับ, ${userData.displayName || userData.username}!`, type: 'success' });
         
-        // 🚀 เพิ่มบรรทัดนี้: สั่งให้แอปเปลี่ยนไปหน้า Home ทันทีหลัง Login สำเร็จ
+        // 🚀 สั่งให้แอปเปลี่ยนไปหน้า Home ทันทีหลัง Login สำเร็จ
         handleSetCurrentPage('home', true);
     }, [setNotification, handleSetCurrentPage]); 
 
@@ -466,7 +467,7 @@ const App = () => {
                       reconnectTimeout = setTimeout(() => { reconnectTimeout = null; connectSSE(); }, 5000); 
                 }
             };
-        };
+        }
         connectSSE(); 
         return () => {
             if (eventSource) { eventSource.close(); }
@@ -642,6 +643,17 @@ const App = () => {
         }
     }, [fetchLocations, selectedItem, currentPage]); 
 
+    // ✅ ฟังก์ชันใหม่: สำหรับอัปเดตสถานะของ Item ในรายการหลักทันที (Merged)
+    const handleItemStatusUpdate = useCallback((itemId, newStatus) => {
+        setAttractions(prev => prev.map(item => item.id === itemId ? { ...item, status: newStatus } : item));
+        setFoodShops(prev => prev.map(item => item.id === itemId ? { ...item, status: newStatus } : item));
+        
+        // อัปเดต selectedItem ด้วยถ้ากำลังเปิดอยู่
+        if (selectedItem && selectedItem.id === itemId) {
+            setSelectedItem(prev => ({ ...prev, status: newStatus }));
+        }
+    }, [selectedItem]);
+
     const handleUpdateItem = (updatedItem) => {
         const isFoodShop = ['ร้านอาหาร', 'คาเฟ่', 'ตลาด'].includes(updatedItem.category);
         let itemFoundInAttractions = false;
@@ -695,13 +707,23 @@ const App = () => {
 
     const filteredAttractions = useMemo(() => {
         if (!Array.isArray(attractions)) return [];
-        return selectedCategory === 'ทั้งหมด' ? attractions : attractions.filter(item => item.category === selectedCategory);
-    }, [attractions, selectedCategory]);
+        // ✅ กรองเฉพาะที่อนุมัติแล้ว (User) หรือทั้งหมด (Admin)
+        let visibleItems = attractions;
+        if (currentUser?.role !== 'admin') {
+            visibleItems = attractions.filter(item => item.status === 'approved');
+        }
+        return selectedCategory === 'ทั้งหมด' ? visibleItems : visibleItems.filter(item => item.category === selectedCategory);
+    }, [attractions, selectedCategory, currentUser]);
 
     const filteredFoodShops = useMemo(() => {
         if (!Array.isArray(foodShops)) return [];
-        return selectedCategory === 'ทั้งหมด' ? foodShops : foodShops.filter(item => item.category === selectedCategory);
-    }, [foodShops, selectedCategory]);
+        // ✅ กรองเฉพาะที่อนุมัติแล้ว (User) หรือทั้งหมด (Admin)
+        let visibleItems = foodShops;
+        if (currentUser?.role !== 'admin') {
+            visibleItems = foodShops.filter(item => item.status === 'approved');
+        }
+        return selectedCategory === 'ทั้งหมด' ? visibleItems : visibleItems.filter(item => item.category === selectedCategory);
+    }, [foodShops, selectedCategory, currentUser]);
 
     const favoriteItems = useMemo(() => {
         const allItems = [...attractions, ...foodShops];
@@ -723,7 +745,9 @@ const App = () => {
             handleItemClick: (item) => { setSelectedItem(item); handleSetCurrentPage('detail'); },
             currentUser, favorites, handleToggleFavorite,
             handleEditItem: (item) => { setItemToEdit(item); setIsEditModalOpen(true); }, 
-            handleDeleteItem: (locationId) => { setItemToDelete(locationId); }, 
+            handleDeleteItem: (locationId) => { setItemToDelete(locationId); },
+            // ✅ ส่งฟังก์ชันนี้เข้าไปด้วย (Merged)
+            onItemStatusUpdate: handleItemStatusUpdate 
         };
 
         switch (currentPage) {
@@ -735,13 +759,26 @@ const App = () => {
             case 'profile':      return <UserProfilePage currentUser={currentUser} onProfileUpdate={handleProfileUpdate} handleAuthError={handleAuthError} handleLogout={handleLogout} setNotification={setNotification} />;
             case 'manage-products': return <ManageProductsPage setNotification={setNotification} handleAuthError={handleAuthError} />;
             case 'deletion-requests': return <ApproveDeletionsPage setNotification={setNotification} handleAuthError={handleAuthError} handleItemClick={commonProps.handleItemClick} />;
+            // ✅ Route ใหม่สำหรับหน้าอนุมัติ
+            case 'approve-new-locations': 
+                return (
+                    <ApproveNewLocationsPage 
+                        setNotification={setNotification} 
+                        handleAuthError={handleAuthError} 
+                        // ส่ง handleDataRefresh ให้ทำงานหลังจากอนุมัติ เพื่อดึงข้อมูลใหม่มาแสดงทันที
+                        onItemStatusUpdate={async (id, status) => {
+                            handleItemStatusUpdate(id, status);
+                            await handleDataRefresh(); 
+                        }} 
+                    />
+                );
             case 'detail':
                 if (selectedItem) {
                     return <DetailPage
                                 item={selectedItem}
                                 setCurrentPage={handleSetCurrentPage}
                                 onReviewSubmitted={() => handleDataRefresh(selectedItem.id)}
-                                {...commonProps} 
+                                {...commonProps} // commonProps มี onItemStatusUpdate อยู่แล้ว
                                 setNotification={setNotification}
                                 handleAuthError={handleAuthError}
                                 targetCommentId={targetCommentId}

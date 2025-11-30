@@ -2,7 +2,7 @@ import React, { memo } from 'react';
 import {
     LayoutGrid, Landmark, Coffee, ShoppingBag, Utensils, Store,
     User, Heart, LogIn, LogOut, PlusCircle, Wrench, ShieldCheck,
-    ChevronLeft, Menu, X, MapPin
+    ChevronLeft, Menu, X, MapPin, CheckCircle // ✅ เพิ่ม CheckCircle สำหรับไอคอนอนุมัติ
 } from 'lucide-react';
 
 // --- Helper Function for Image Logic (From Code 2 - Better Logic) ---
@@ -159,6 +159,14 @@ const Sidebar = memo(({
                                 />
                                 {currentUser.role === 'admin' && (
                                     <>
+                                        {/* ✅ เมนูสำหรับอนุมัติสถานที่ใหม่ */}
+                                        <NavItem
+                                            icon={<CheckCircle size={22} />}
+                                            text="อนุมัติสถานที่ใหม่"
+                                            isOpen={isSidebarOpen}
+                                            onClick={() => setCurrentPage('approve-new-locations')}
+                                            color="text-indigo-500"
+                                        />
                                         <NavItem
                                             icon={<Wrench size={22} />}
                                             text="จัดการของขึ้นชื่อ"
