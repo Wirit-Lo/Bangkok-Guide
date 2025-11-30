@@ -19,7 +19,7 @@ import FavoritesPage from './components/FavoritesPage.jsx';
 import UserProfilePage from './components/UserProfilePage.jsx';
 import ManageProductsPage from './components/ManageProductsPage.jsx';
 import ApproveDeletionsPage from './components/ApproveDeletionsPage.jsx';
-import ApproveNewLocationsPage from './components/ApproveNewLocationsPage.jsx'; // ✅ เพิ่ม Import หน้าอนุมัติสถานที่
+import ApproveNewLocationsPage from './components/ApproveNewLocationsPage.jsx'; 
 
 // --- Global API Configuration ---
 const getApiBaseUrl = () => {
@@ -31,7 +31,6 @@ const getApiBaseUrl = () => {
 const API_BASE_URL = getApiBaseUrl();
 
 // --- 🔴 ตั้งค่า SUPABASE ---
-// ⚠️ ตรวจสอบ KEY ของคุณให้ถูกต้อง
 const supabaseUrl = 'https://fsbfiefjtyejfzgisjco.supabase.co'; 
 const supabaseAnonKey = 'sb_publishable_JD-RR-99MGcWZ768Gewbeg_8NclU-Tx';
 
@@ -202,6 +201,9 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message }) => {
 
 // --- Main App Component ---
 const App = () => {
+    // ✅ State สำหรับการค้นหา
+    const [searchTerm, setSearchTerm] = useState('');
+
     const [currentPage, setCurrentPage] = useState('home');
     const [selectedItem, setSelectedItem] = useState(null);
     const [selectedCategory, setSelectedCategory] = useState('ทั้งหมด');
@@ -280,11 +282,9 @@ const App = () => {
         setToken(userToken);
         setNotification({ message: `ยินดีต้อนรับ, ${userData.displayName || userData.username}!`, type: 'success' });
         
-        // 🚀 สั่งให้แอปเปลี่ยนไปหน้า Home ทันทีหลัง Login สำเร็จ
         handleSetCurrentPage('home', true);
     }, [setNotification, handleSetCurrentPage]); 
 
-    // --- 🟢 Fix: ไม่สั่ง Logout เมื่อเกิด Error 403 จาก Favorites ---
     const fetchFavorites = useCallback(async (userToken) => {
         if (!userToken) { setFavorites([]); return; } 
         try {
@@ -292,8 +292,6 @@ const App = () => {
                 headers: { Authorization: `Bearer ${userToken}` },
             });
             
-            // ถ้า Backend ตอบกลับ 403 หรือ 401 เราแค่ Log Error แต่ "ไม่ Logout"
-            // เพื่อป้องกัน Infinite Loop ที่เกิดจาก Backend ไม่รับ Token แต่ Supabase รับ
             if (response.status === 401 || response.status === 403) {
                 console.warn("Backend rejected token (403/401). Favorites will be empty, but staying logged in.");
                 return; 
@@ -305,7 +303,7 @@ const App = () => {
         } catch (error) {
             console.error('Error fetching favorites:', error.message);
         }
-    }, []); // เอา handleAuthError ออกจาก dependency
+    }, []); 
 
     const fetchLocations = useCallback(async (silent = false) => {
         if (!silent) setLoadingData(true);
@@ -643,12 +641,10 @@ const App = () => {
         }
     }, [fetchLocations, selectedItem, currentPage]); 
 
-    // ✅ ฟังก์ชันใหม่: สำหรับอัปเดตสถานะของ Item ในรายการหลักทันที (Merged)
     const handleItemStatusUpdate = useCallback((itemId, newStatus) => {
         setAttractions(prev => prev.map(item => item.id === itemId ? { ...item, status: newStatus } : item));
         setFoodShops(prev => prev.map(item => item.id === itemId ? { ...item, status: newStatus } : item));
         
-        // อัปเดต selectedItem ด้วยถ้ากำลังเปิดอยู่
         if (selectedItem && selectedItem.id === itemId) {
             setSelectedItem(prev => ({ ...prev, status: newStatus }));
         }
@@ -705,25 +701,60 @@ const App = () => {
         } finally { setLoadingData(false); }
     };
 
+    // --- ✅ FILTERED DATA WITH SEARCH LOGIC ---
     const filteredAttractions = useMemo(() => {
         if (!Array.isArray(attractions)) return [];
-        // ✅ กรองเฉพาะที่อนุมัติแล้ว (User) หรือทั้งหมด (Admin)
         let visibleItems = attractions;
+        
+        // 1. Role Filter
         if (currentUser?.role !== 'admin') {
             visibleItems = attractions.filter(item => item.status === 'approved');
         }
-        return selectedCategory === 'ทั้งหมด' ? visibleItems : visibleItems.filter(item => item.category === selectedCategory);
-    }, [attractions, selectedCategory, currentUser]);
+
+        // 2. Category Filter
+        if (selectedCategory !== 'ทั้งหมด') {
+            visibleItems = visibleItems.filter(item => item.category === selectedCategory);
+        }
+
+        // 3. ✅ Search Term Filter
+        if (searchTerm) {
+            const lowerTerm = searchTerm.toLowerCase();
+            visibleItems = visibleItems.filter(item => 
+                item.name?.toLowerCase().includes(lowerTerm) || 
+                item.description?.toLowerCase().includes(lowerTerm) ||
+                item.category?.toLowerCase().includes(lowerTerm)
+            );
+        }
+
+        return visibleItems;
+    }, [attractions, selectedCategory, currentUser, searchTerm]); // ✅ Add searchTerm dependency
 
     const filteredFoodShops = useMemo(() => {
         if (!Array.isArray(foodShops)) return [];
-        // ✅ กรองเฉพาะที่อนุมัติแล้ว (User) หรือทั้งหมด (Admin)
         let visibleItems = foodShops;
+        
+        // 1. Role Filter
         if (currentUser?.role !== 'admin') {
             visibleItems = foodShops.filter(item => item.status === 'approved');
         }
-        return selectedCategory === 'ทั้งหมด' ? visibleItems : visibleItems.filter(item => item.category === selectedCategory);
-    }, [foodShops, selectedCategory, currentUser]);
+
+        // 2. Category Filter
+        if (selectedCategory !== 'ทั้งหมด') {
+            visibleItems = visibleItems.filter(item => item.category === selectedCategory);
+        }
+
+        // 3. ✅ Search Term Filter
+        if (searchTerm) {
+            const lowerTerm = searchTerm.toLowerCase();
+            visibleItems = visibleItems.filter(item => 
+                item.name?.toLowerCase().includes(lowerTerm) || 
+                item.description?.toLowerCase().includes(lowerTerm) ||
+                item.category?.toLowerCase().includes(lowerTerm)
+            );
+        }
+
+        return visibleItems;
+    }, [foodShops, selectedCategory, currentUser, searchTerm]); // ✅ Add searchTerm dependency
 
     const favoriteItems = useMemo(() => {
         const allItems = [...attractions, ...foodShops];
@@ -746,26 +777,25 @@ const App = () => {
             currentUser, favorites, handleToggleFavorite,
             handleEditItem: (item) => { setItemToEdit(item); setIsEditModalOpen(true); }, 
             handleDeleteItem: (locationId) => { setItemToDelete(locationId); },
-            // ✅ ส่งฟังก์ชันนี้เข้าไปด้วย (Merged)
             onItemStatusUpdate: handleItemStatusUpdate 
         };
 
         switch (currentPage) {
+            // ✅ หน้าเหล่านี้จะได้รับข้อมูลที่กรองแล้วโดยอัตโนมัติ
             case 'attractions': return <AttractionsPage attractions={filteredAttractions} {...commonProps} selectedCategory={selectedCategory} />;
             case 'foodshops':   return <FoodShopsPage foodShops={filteredFoodShops} {...commonProps} selectedCategory={selectedCategory} />;
+            
             case 'add-location': return <AddLocationPage setCurrentPage={handleSetCurrentPage} onLocationAdded={handleDataRefresh} setNotification={setNotification} handleAuthError={handleAuthError} />;
             case 'login':        return <LoginPage onAuthSuccess={handleLogin} setNotification={setNotification} API_BASE_URL={API_BASE_URL} />;
             case 'favorites':    return <FavoritesPage favoriteItems={favoriteItems} {...commonProps} />;
             case 'profile':      return <UserProfilePage currentUser={currentUser} onProfileUpdate={handleProfileUpdate} handleAuthError={handleAuthError} handleLogout={handleLogout} setNotification={setNotification} />;
             case 'manage-products': return <ManageProductsPage setNotification={setNotification} handleAuthError={handleAuthError} />;
             case 'deletion-requests': return <ApproveDeletionsPage setNotification={setNotification} handleAuthError={handleAuthError} handleItemClick={commonProps.handleItemClick} />;
-            // ✅ Route ใหม่สำหรับหน้าอนุมัติ
             case 'approve-new-locations': 
                 return (
                     <ApproveNewLocationsPage 
                         setNotification={setNotification} 
                         handleAuthError={handleAuthError} 
-                        // ส่ง handleDataRefresh ให้ทำงานหลังจากอนุมัติ เพื่อดึงข้อมูลใหม่มาแสดงทันที
                         onItemStatusUpdate={async (id, status) => {
                             handleItemStatusUpdate(id, status);
                             await handleDataRefresh(); 
@@ -778,7 +808,7 @@ const App = () => {
                                 item={selectedItem}
                                 setCurrentPage={handleSetCurrentPage}
                                 onReviewSubmitted={() => handleDataRefresh(selectedItem.id)}
-                                {...commonProps} // commonProps มี onItemStatusUpdate อยู่แล้ว
+                                {...commonProps} 
                                 setNotification={setNotification}
                                 handleAuthError={handleAuthError}
                                 targetCommentId={targetCommentId}
@@ -788,7 +818,14 @@ const App = () => {
                 setTimeout(() => handleSetCurrentPage('home'), 0);
                 return null; 
             default: 
-                return <HomePage attractions={attractions} foodShops={foodShops} setCurrentPage={handleSetCurrentPage} {...commonProps} />;
+                return <HomePage 
+                            attractions={attractions} 
+                            foodShops={foodShops} 
+                            setCurrentPage={handleSetCurrentPage} 
+                            searchTerm={searchTerm} 
+                            setSearchTerm={setSearchTerm}
+                            {...commonProps} 
+                        />;
         }
     };
 
@@ -821,7 +858,9 @@ const App = () => {
                 handleSelectAccount={handleSelectAccount}
                 handleRemoveAccount={handleRemoveAccount}
                 handleDeleteNotification={handleDeleteNotification} 
-                handleClearAllNotifications={handleClearAllNotifications} 
+                handleClearAllNotifications={handleClearAllNotifications}
+                searchTerm={searchTerm}
+                setSearchTerm={setSearchTerm}
             />
 
             <div className="flex flex-1 p-4 gap-4"> 

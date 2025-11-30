@@ -1,11 +1,8 @@
 import React, { useState, useEffect, useRef, memo } from 'react';
 import { 
-    Sun, Moon, Bell, User, X, MapPin, MessageSquare, ThumbsUp, BellOff, 
-    Settings, Heart, LogOut, LogIn, Menu, Home as HomeIcon, Utensils, 
-    PlusCircle, Users, Trash2 // Import Trash2 สำหรับไอคอนถังขยะ
+    Sun, Moon, Bell, User, X, MapPin, LogOut, LogIn, Menu, 
+    Home as HomeIcon, Utensils, PlusCircle, Trash2, Search, Heart, Settings
 } from 'lucide-react';
-import { NotificationDropdown } from '../components/NotificationDropdown';
-
 
 // --- Reusable NavLink Component ---
 const NavLink = memo(({ icon, text, page, setCurrentPage, isActive }) => (
@@ -23,15 +20,14 @@ const NavLink = memo(({ icon, text, page, setCurrentPage, isActive }) => (
     </button>
 ));
 
-// --- Notification Item Component (เพิ่มปุ่มลบ) ---
+// --- Notification Item Component ---
 const NotificationItem = memo(({ notification, onNotificationClick, onDelete }) => {
-    
     const handleItemClick = (e) => {
         onNotificationClick(notification);
     };
 
     const handleDeleteClick = (e) => {
-        e.stopPropagation(); // ป้องกันไม่ให้ไปกดลิงก์แจ้งเตือนตอนกดลบ
+        e.stopPropagation(); 
         onDelete(notification.id);
     };
 
@@ -51,7 +47,7 @@ const NotificationItem = memo(({ notification, onNotificationClick, onDelete }) 
                         <span className="absolute bottom-0 right-0 w-3 h-3 bg-blue-500 border-2 border-white dark:border-gray-800 rounded-full"></span>
                     )}
                 </div>
-                <div className="flex-1 overflow-hidden pr-8"> {/* เพิ่ม padding ขวาเผื่อปุ่มลบ */}
+                <div className="flex-1 overflow-hidden pr-8"> 
                     <p className="text-sm text-gray-800 dark:text-gray-200 line-clamp-2 leading-snug" dangerouslySetInnerHTML={{ __html: notification.message.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') }}></p>
                     <p className="text-xs text-blue-500 dark:text-blue-400 font-medium mt-1">
                         {notification.time}
@@ -59,7 +55,6 @@ const NotificationItem = memo(({ notification, onNotificationClick, onDelete }) 
                 </div>
             </div>
 
-            {/* ปุ่มลบ (แสดงตลอด เพื่อให้เห็นชัดเจน) */}
             <button 
                 onClick={handleDeleteClick}
                 className="absolute right-2 top-3 p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-full transition-all duration-200 z-10"
@@ -71,8 +66,7 @@ const NotificationItem = memo(({ notification, onNotificationClick, onDelete }) 
     );
 });
 
-
-// --- Notification Panel Component (เพิ่มปุ่มล้างทั้งหมด) ---
+// --- Notification Panel Component ---
 const NotificationPanel = ({ isOpen, notifications, onNotificationClick, onClose, onDelete, onClearAll }) => {
     if (!isOpen) return null;
     return (
@@ -98,7 +92,7 @@ const NotificationPanel = ({ isOpen, notifications, onNotificationClick, onClose
                             key={notif.id} 
                             notification={notif} 
                             onNotificationClick={onNotificationClick} 
-                            onDelete={onDelete} // ส่งฟังก์ชันลบไปที่ Item
+                            onDelete={onDelete}
                         />
                     ))
                 ) : (
@@ -115,9 +109,6 @@ const NotificationPanel = ({ isOpen, notifications, onNotificationClick, onClose
     );
 };
 
-
-
-
 // --- Main Header Component ---
 const Header = ({ 
     currentPage, 
@@ -131,28 +122,33 @@ const Header = ({
     handleMarkNotificationsAsRead,
     onNotificationClick,
     
-    // Props สำหรับจัดการบัญชีและแจ้งเตือน
+    // Props จัดการบัญชี
     handleAddAccount,
     savedAccounts = [],
     handleSelectAccount,
     handleRemoveAccount,
-    handleDeleteNotification, // รับฟังก์ชันลบรายตัว
-    handleClearAllNotifications // รับฟังก์ชันล้างทั้งหมด
+    handleDeleteNotification,
+    handleClearAllNotifications,
+
+    // --- Props ใหม่ที่รับมาจาก App.jsx ---
+    toggleSidebar, 
+    searchTerm,    // ✅ รับค่าคำค้นหา
+    setSearchTerm  // ✅ รับฟังก์ชันเปลี่ยนคำค้นหา
 }) => {
     const [scrolled, setScrolled] = useState(false);
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
     const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
+    const [isSearchFocused, setIsSearchFocused] = useState(false); 
+    
     const userMenuRef = useRef(null);
     const notificationPanelRef = useRef(null);
 
-    // Effect for handling scroll to change header style
     useEffect(() => {
         const handleScroll = () => setScrolled(window.scrollY > 10);
         window.addEventListener('scroll', handleScroll);
         return () => window.removeEventListener('scroll', handleScroll);
     }, []);
 
-    // Effect for closing menus when clicking outside
     useEffect(() => {
         const handleClickOutside = (event) => {
             if (userMenuRef.current && !userMenuRef.current.contains(event.target)) setIsUserMenuOpen(false);
@@ -174,6 +170,7 @@ const Header = ({
         if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             setCurrentPage('home');
+            if(setSearchTerm) setSearchTerm(''); 
         }
     };
 
@@ -186,38 +183,79 @@ const Header = ({
         navLinks.push({ icon: <PlusCircle size={20} />, text: "เพิ่มสถานที่", page: "add-location" });
     }
 
-    // Filter accounts to show only OTHER accounts
     const otherAccounts = savedAccounts.filter(acc => acc.user.id !== currentUser?.id);
     
     return (
-        <header className={`sticky top-0 z-40 transition-all duration-300 ${scrolled ? 'bg-white/95 dark:bg-gray-800/95 shadow-md backdrop-blur-sm border-b border-gray-200 dark:border-gray-700' : 'bg-transparent'}`}>
-            <div className="container mx-auto flex items-center justify-between p-5">
-                <div 
-                    className="flex items-center gap-3 cursor-pointer group" 
-                    onClick={() => setCurrentPage('home')}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={handleLogoKeyDown}
-                >
-                    <MapPin className={`transition-all duration-300 text-blue-600 dark:text-blue-400 group-hover:animate-pulse group-hover:drop-shadow-lg`} size={36} />
-                    <span className="text-3xl font-extrabold">
-                        <span className="bg-gradient-to-r from-sky-400 via-violet-500 to-pink-500 bg-clip-text text-transparent transition-all duration-300 group-hover:tracking-wide group-hover:brightness-110" style={{ filter: 'drop-shadow(0 2px 3px rgba(0,0,0,0.3))' }}>Bangkok Guide</span>
-                    </span>
+        <header className={`sticky top-0 z-40 transition-all duration-300 ${scrolled ? 'bg-white/95 dark:bg-gray-800/95 shadow-md backdrop-blur-sm border-b border-gray-200 dark:border-gray-700' : 'bg-gray-900 text-white border-b border-gray-800'}`}>
+            <div className="container mx-auto flex items-center justify-between p-3 sm:p-5 gap-4">
+                
+                {/* --- Left Side: Sidebar Toggle & Logo --- */}
+                <div className="flex items-center gap-3">
+                    <button 
+                        onClick={toggleSidebar}
+                        className="p-2 md:hidden rounded-lg hover:bg-white/10 text-inherit transition-colors"
+                    >
+                        <Menu size={24} />
+                    </button>
+
+                    <div 
+                        className="flex items-center gap-3 cursor-pointer group" 
+                        onClick={() => { setCurrentPage('home'); if(setSearchTerm) setSearchTerm(''); }}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={handleLogoKeyDown}
+                    >
+                        <MapPin className={`transition-all duration-300 text-blue-500 group-hover:animate-pulse group-hover:drop-shadow-lg hidden sm:block`} size={36} />
+                        <MapPin className={`transition-all duration-300 text-blue-500 group-hover:animate-pulse group-hover:drop-shadow-lg sm:hidden`} size={28} />
+                        
+                        <span className="text-2xl sm:text-3xl font-extrabold truncate">
+                            <span className="bg-gradient-to-r from-sky-400 via-violet-500 to-pink-500 bg-clip-text text-transparent transition-all duration-300 group-hover:tracking-wide group-hover:brightness-110" style={{ filter: 'drop-shadow(0 2px 3px rgba(0,0,0,0.3))' }}>Bangkok Guide</span>
+                        </span>
+                    </div>
                 </div>
 
-                <nav className="hidden md:flex items-center gap-2 bg-white/50 dark:bg-gray-700/50 p-1 rounded-full shadow-inner">
-                    {navLinks.map(link => <NavLink key={link.page} {...link} setCurrentPage={setCurrentPage} isActive={currentPage === link.page} />)}
-                </nav>
+                {/* --- Middle: Nav Links & Search Bar --- */}
+                <div className="flex items-center flex-1 justify-center lg:justify-end xl:justify-center gap-4">
+                    <nav className={`hidden lg:flex items-center gap-1 p-1 rounded-full shadow-inner mr-2 ${scrolled ? 'bg-white/50 dark:bg-gray-700/50' : 'bg-gray-800/50'}`}>
+                        {navLinks.map(link => <NavLink key={link.page} {...link} setCurrentPage={setCurrentPage} isActive={currentPage === link.page} />)}
+                    </nav>
 
-                <div className="hidden md:flex items-center gap-4">
-                    <button onClick={toggleTheme} className="p-2 rounded-full text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors" aria-label="Toggle theme">
+                    {/* --- ✅ SEARCH BAR (ต้องใช้ props ที่รับมา) --- */}
+                    <div className={`relative hidden md:flex items-center transition-all duration-300 ${isSearchFocused ? 'w-64' : 'w-48 lg:w-56'}`}>
+                        <div className={`absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none transition-colors ${isSearchFocused ? 'text-blue-500' : 'text-gray-400'}`}>
+                            <Search size={18} />
+                        </div>
+                        <input
+                            type="text"
+                            placeholder="ค้นหาสถานที่..."
+                            value={searchTerm || ''} // ✅ เชื่อมกับ State
+                            onChange={(e) => setSearchTerm && setSearchTerm(e.target.value)} // ✅ อัปเดต State กลับไปที่ App
+                            onFocus={() => setIsSearchFocused(true)}
+                            onBlur={() => setIsSearchFocused(false)}
+                            className={`block w-full pl-10 pr-8 py-2 border-none rounded-full leading-5 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all shadow-inner sm:text-sm ${scrolled ? 'bg-gray-100 dark:bg-gray-700/50 text-gray-900 dark:text-gray-100 focus:bg-white dark:focus:bg-gray-700' : 'bg-gray-800 text-white focus:bg-gray-700'}`}
+                        />
+                        {searchTerm && (
+                            <button 
+                                onClick={() => setSearchTerm && setSearchTerm('')}
+                                className="absolute inset-y-0 right-0 pr-2 flex items-center text-gray-400 hover:text-gray-200 cursor-pointer"
+                            >
+                                <X size={14} />
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                {/* --- Right Side: Actions --- */}
+                <div className="flex items-center gap-2 sm:gap-4">
+                    <button onClick={toggleTheme} className={`p-2 rounded-full transition-colors ${scrolled ? 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700' : 'text-gray-300 hover:bg-white/10'}`} aria-label="Toggle theme">
                         {theme === 'light' ? <Moon size={22} /> : <Sun size={22} />}
                     </button>
+                    
                     {currentUser && (
                         <div className="relative" ref={notificationPanelRef}>
                             <button 
                                 onClick={toggleNotificationPanel} 
-                                className={`p-2 rounded-full transition-all duration-200 ${isNotificationPanelOpen ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+                                className={`p-2 rounded-full transition-all duration-200 ${isNotificationPanelOpen ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400' : scrolled ? 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700' : 'text-gray-300 hover:bg-white/10'}`}
                                 aria-label="Toggle notifications"
                             >
                                 <div className="relative">
@@ -237,30 +275,30 @@ const Header = ({
                                     setIsNotificationPanelOpen(false);
                                 }}
                                 onClose={() => setIsNotificationPanelOpen(false)}
-                                // --- ⭐ ส่งฟังก์ชันจัดการการลบไปที่ Panel ---
                                 onDelete={handleDeleteNotification}
                                 onClearAll={handleClearAllNotifications}
                             />
                         </div>
                     )}
+
                     {currentUser ? (
                         <div className="relative" ref={userMenuRef}>
-                            <button onClick={() => setIsUserMenuOpen(!isUserMenuOpen)} className="flex items-center gap-3 pl-2 pr-4 py-2 rounded-full bg-gradient-to-r from-green-400 to-teal-500 text-white shadow-lg hover:shadow-green-500/50 transition-all">
+                            <button onClick={() => setIsUserMenuOpen(!isUserMenuOpen)} className="flex items-center gap-2 sm:gap-3 pl-1 pr-1 sm:pl-2 sm:pr-4 py-1 sm:py-2 rounded-full bg-gradient-to-r from-green-400 to-teal-500 text-white shadow-lg hover:shadow-green-500/50 transition-all">
                                  <div className="w-8 h-8 bg-white/30 rounded-full flex items-center justify-center overflow-hidden">
                                      {currentUser.profileImageUrl || currentUser.profileImage ? 
                                         <img src={currentUser.profileImageUrl || currentUser.profileImage} alt="Profile" className="w-full h-full rounded-full object-cover" /> 
                                         : <User size={18} />}
                                  </div>
-                                <span className="font-semibold text-base">{currentUser.displayName || currentUser.username}</span>
+                                <span className="font-semibold text-base hidden sm:block">{currentUser.displayName || currentUser.username}</span>
                             </button>
                             
                             {/* User Dropdown Menu */}
                             <div className={`absolute right-0 top-full mt-2 w-64 bg-white dark:bg-gray-700 rounded-lg shadow-xl transition-all duration-200 z-50 ${isUserMenuOpen ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2 pointer-events-none'}`}>
-                                <div className="p-2">
-                                    <button onClick={() => { setCurrentPage('profile'); setIsUserMenuOpen(false); }} className="w-full text-left flex items-center px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-md">
+                                <div className="p-2 text-gray-800 dark:text-white">
+                                    <button onClick={() => { setCurrentPage('profile'); setIsUserMenuOpen(false); }} className="w-full text-left flex items-center px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-600 rounded-md">
                                         <Settings size={16} className="mr-2" /> แก้ไขโปรไฟล์
                                     </button>
-                                    <button onClick={() => { setCurrentPage('favorites'); setIsUserMenuOpen(false); }} className="w-full text-left flex items-center px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-md">
+                                    <button onClick={() => { setCurrentPage('favorites'); setIsUserMenuOpen(false); }} className="w-full text-left flex items-center px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-600 rounded-md">
                                         <Heart size={16} className="mr-2" /> รายการโปรด
                                     </button>
                                     
@@ -304,7 +342,7 @@ const Header = ({
                                         </div>
                                     )}
 
-                                    <button onClick={() => { handleAddAccount(); setIsUserMenuOpen(false); }} className="w-full text-left flex items-center px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-md">
+                                    <button onClick={() => { handleAddAccount(); setIsUserMenuOpen(false); }} className="w-full text-left flex items-center px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-600 rounded-md">
                                         <PlusCircle size={16} className="mr-2" /> เพิ่มบัญชีอื่น
                                     </button>
 
@@ -317,17 +355,12 @@ const Header = ({
                             </div>
                         </div>
                     ) : (
-                        <button onClick={() => setCurrentPage('login')} className="flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-full hover:shadow-lg hover:shadow-blue-500/50 transition-all shadow-md"><LogIn size={18} /><span className="text-base font-bold">เข้าสู่ระบบ</span></button>
+                        <button onClick={() => setCurrentPage('login')} className="flex items-center gap-2 px-3 py-2 sm:px-5 sm:py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-full hover:shadow-lg hover:shadow-blue-500/50 transition-all shadow-md text-sm sm:text-base"><LogIn size={18} /><span className="font-bold hidden sm:inline">เข้าสู่ระบบ</span></button>
                     )}
-                </div>
-
-                <div className="md:hidden flex items-center gap-2">
-                     {/* You can implement mobile menu toggle logic here if needed */}
                 </div>
             </div>
         </header>
     );
 };
-
 
 export default Header;
