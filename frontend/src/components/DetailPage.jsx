@@ -4,7 +4,8 @@ import {
     X, Edit, Trash2, Heart, ChevronRight, Gift, Plus, 
     Image as ImageIcon, Save, AlertTriangle,
     MessageSquare, Send, User, CornerDownRight,
-    MessageCircle, ChevronDown, ChevronUp, ThumbsUp, Loader2
+    MessageCircle, ChevronDown, ChevronUp, ThumbsUp, Loader2,
+    Info, AlertCircle 
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { th } from 'date-fns/locale';
@@ -338,7 +339,7 @@ const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthErr
                     </div>
                 )}
                 <form onSubmit={handleSubmit} className="flex gap-3 items-end">
-                    <div className="hidden sm:block pb-1"><Avatar src={currentUser?.profileImageUrl} alt={currentUser?.username || "Me"} /></div>
+                    <div className="hidden sm:block pb-1"><Avatar src={currentUser?.profileImageUrl || currentUser?.profileImage} alt={currentUser?.username || "Me"} /></div>
                     <div className="flex-1 relative">
                         <textarea ref={inputRef} value={newComment} onChange={handleInputChange} onKeyDown={handleKeyDown} placeholder={currentUser ? (replyingTo ? "พิมพ์ข้อความตอบกลับ..." : "แสดงความคิดเห็น... (พิมพ์ @ เพื่อกล่าวถึง)") : "กรุณาเข้าสู่ระบบเพื่อแสดงความคิดเห็น"} disabled={isLoading} rows={1} style={{ minHeight: '44px', maxHeight: '120px' }} className="w-full bg-slate-900/50 border border-slate-600 text-slate-200 text-sm rounded-2xl py-3 px-4 pr-12 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-slate-500 shadow-inner resize-none overflow-hidden" onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }} />
                         <button type="submit" disabled={!newComment.trim() || isLoading} className="absolute right-2 bottom-2 p-1.5 bg-blue-600 text-white rounded-full hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600 transition-all shadow-lg shadow-blue-900/30 flex items-center justify-center">
@@ -492,6 +493,29 @@ const DetailPage = ({ item, setCurrentPage, handleItemClick, currentUser, favori
     const [editingProduct, setEditingProduct] = useState(null);
     const [isRequestingDelete, setIsRequestingDelete] = useState(false);
     const [confirmState, setConfirmState] = useState({ isOpen: false, title: '', message: '', onConfirm: () => {} });
+    
+    // ✅ NEW: Local state to track item status (defaults to item status)
+    const [currentStatus, setCurrentStatus] = useState(item?.status || 'approved');
+
+    // ✅ FORCE FETCH STATUS: ดึงข้อมูลสถานะล่าสุดจาก Server เสมอ (แก้ไขปัญหา Cache หรือข้อมูลไม่อัปเดต)
+    useEffect(() => {
+        const fetchLatestStatus = async () => {
+            if (!item?.id) return;
+            try {
+                // เพิ่ม ?t=... เพื่อป้องกันการ Cache ของ Browser
+                const response = await fetch(`${API_BASE_URL}/api/locations/${item.id}?t=${new Date().getTime()}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data && data.status) {
+                        setCurrentStatus(data.status);
+                    }
+                }
+            } catch (error) {
+                console.error("Error fetching latest status:", error);
+            }
+        };
+        fetchLatestStatus();
+    }, [item?.id]);
 
     // ✅ Wrapper function for Favorites to check Auth
     const onFavoriteClick = () => {
@@ -611,12 +635,10 @@ const DetailPage = ({ item, setCurrentPage, handleItemClick, currentUser, favori
                 throw new Error(data.error || 'เกิดข้อผิดพลาดในการส่งคำขอ');
             }
 
-            // ✅ แสดงข้อความสำเร็จเป็นภาษาไทย
-            setNotification({ message: 'ส่งคำขอลบเรียบร้อยแล้ว รอการตรวจสอบจากผู้ดูแลระบบ', type: 'success' });
+            // ✅ แสดงข้อความสำเร็จ และอัปเดตสถานะบนหน้าจอทันที (ไม่เปลี่ยนหน้า)
+            setNotification({ message: 'ส่งคำขอลบเรียบร้อยแล้ว สถานะเปลี่ยนเป็น "รอการตรวจสอบ"', type: 'success' });
+            setCurrentStatus('pending_deletion'); // Update local UI state immediately
             
-            const isFoodShop = ['ร้านอาหาร', 'คาเฟ่', 'ตลาด'].includes(item.category);
-            const returnPage = isFoodShop ? 'foodshops' : 'attractions';
-            setTimeout(() => { setCurrentPage(returnPage); }, 2000);
         } catch (error) { 
             setNotification({ message: error.message, type: 'error' }); 
         }
@@ -639,7 +661,16 @@ const DetailPage = ({ item, setCurrentPage, handleItemClick, currentUser, favori
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 <div className="flex flex-col lg:flex-row lg:gap-12">
                     <main className="lg:w-2/3 w-full">
-                        {item.status === 'pending_deletion' && (<div className="p-4 mb-6 bg-yellow-100 dark:bg-yellow-900/30 border-l-4 border-yellow-500 text-yellow-800 dark:text-yellow-200 rounded-r-lg"><p className="font-bold">สถานะ: รอการอนุมัติลบ</p><p>สถานที่นี้ถูกส่งคำขอลบแล้ว และกำลังรอการตรวจสอบจากผู้ดูแลระบบ</p></div>)}
+                        {/* ✅ Status Banner: Shown when pending deletion (Using local state) */}
+                        {currentStatus === 'pending_deletion' && (
+                            <div className="p-4 mb-6 bg-red-50 dark:bg-red-900/20 border-l-4 border-red-500 rounded-r-lg flex items-start gap-3 animate-fade-in shadow-sm">
+                                <AlertCircle className="text-red-500 mt-0.5 shrink-0" size={24} />
+                                <div>
+                                    <p className="font-bold text-red-700 dark:text-red-300 text-lg">สถานะ: รอการอนุมัติลบ</p>
+                                    <p className="text-red-600 dark:text-red-200">สถานที่นี้ถูกส่งคำขอลบแล้ว และกำลังอยู่ระหว่างการตรวจสอบจากผู้ดูแลระบบ</p>
+                                </div>
+                            </div>
+                        )}
                         
                         <div className="p-4 sm:p-8 bg-white dark:bg-gray-800 rounded-2xl shadow-xl animate-fade-in-up relative overflow-visible z-10">
                             <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
@@ -649,7 +680,10 @@ const DetailPage = ({ item, setCurrentPage, handleItemClick, currentUser, favori
                                     {canModifyLocation && (
                                         <>
                                             <button onClick={() => item && handleEditItem(item)} className="flex items-center gap-2 px-4 py-2 border rounded-full text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"><Edit size={16} /><span className="font-semibold hidden sm:inline">แก้ไข</span></button>
-                                            {item?.status !== 'pending_deletion' && (<button onClick={confirmRequestDeletion} disabled={isRequestingDelete} className="flex items-center gap-2 px-4 py-2 border rounded-full text-red-600 border-red-200 dark:border-red-500/50 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors disabled:opacity-50"><Trash2 size={16} /><span className="font-semibold hidden sm:inline">{isRequestingDelete ? 'กำลังส่ง...' : 'ร้องขอลบ'}</span></button>)}
+                                            {/* Hide delete button if already pending */}
+                                            {currentStatus !== 'pending_deletion' && (
+                                                <button onClick={confirmRequestDeletion} disabled={isRequestingDelete} className="flex items-center gap-2 px-4 py-2 border rounded-full text-red-600 border-red-200 dark:border-red-500/50 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors disabled:opacity-50"><Trash2 size={16} /><span className="font-semibold hidden sm:inline">{isRequestingDelete ? 'กำลังส่ง...' : 'ร้องขอลบ'}</span></button>
+                                            )}
                                         </>
                                     )}
                                 </div>

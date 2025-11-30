@@ -5,7 +5,17 @@ import {
     ChevronLeft, Menu, X, MapPin
 } from 'lucide-react';
 
-// --- Reusable Navigation Item Component ---
+// --- Helper Function for Image Logic (From Code 2 - Better Logic) ---
+const getUserImage = (user) => {
+    if (!user) return null;
+    if (Array.isArray(user.profileImageUrl) && user.profileImageUrl.length > 0) return user.profileImageUrl[0];
+    if (typeof user.profileImageUrl === 'string') return user.profileImageUrl;
+    if (user.profileImage) return user.profileImage;
+    if (user.user_metadata?.avatar_url) return user.user_metadata.avatar_url;
+    return null;
+};
+
+// --- Reusable Navigation Item Component (From Code 1 - Better UI) ---
 const NavItem = ({ icon, text, onClick, isSelected, isOpen, color }) => (
     <button
         onClick={onClick}
@@ -20,7 +30,7 @@ const NavItem = ({ icon, text, onClick, isSelected, isOpen, color }) => (
         <div className={isSelected ? 'text-white' : `${color || 'text-gray-500 dark:text-gray-400'} transition-colors group-hover:opacity-90`}>
             {React.cloneElement(icon, { strokeWidth: isSelected ? 2.5 : 2 })}
         </div>
-        <span className={`font-semibold whitespace-nowrap transition-all duration-200 ${isOpen ? 'ml-4 opacity-100' : 'w-0 opacity-0'}`}>
+        <span className={`font-semibold whitespace-nowrap transition-all duration-200 ${isOpen ? 'ml-4 opacity-100' : 'w-0 opacity-0 overflow-hidden'}`}>
             {text}
         </span>
     </button>
@@ -41,10 +51,13 @@ const Sidebar = memo(({
     setSelectedCategory, 
     setCurrentPage, 
     currentUser, 
-    handleLogout, // ⚠️ ต้องแน่ใจว่าฟังก์ชันนี้ใน App.jsx มีการสั่ง supabase.auth.signOut() แล้วนะครับ
+    handleLogout, 
     isSidebarOpen, 
     toggleSidebar 
 }) => {
+
+    // ใช้ Logic ใหม่ในการดึงรูปภาพ
+    const userProfileImage = getUserImage(currentUser);
 
     const handleCategoryClick = (category) => {
         setSelectedCategory(category.name);
@@ -59,7 +72,6 @@ const Sidebar = memo(({
         }
     };
     
-    // --- ฟังก์ชันสำหรับคลิกโลโก้ ---
     const handleLogoClick = () => {
         setCurrentPage('home');
         setSelectedCategory('ทั้งหมด'); 
@@ -81,12 +93,12 @@ const Sidebar = memo(({
             {isSidebarOpen && (
                 <div
                     onClick={toggleSidebar}
-                    className="fixed inset-0 bg-black/50 z-30 md:hidden" 
+                    className="fixed inset-0 bg-black/50 z-30 md:hidden transition-opacity" 
                     aria-hidden="true"
                 ></div>
             )}
 
-            <aside className={`${sidebarContainerClasses} relative ml-4 my-4`}>
+            <aside className={`${sidebarContainerClasses} relative ml-0 md:ml-4 md:my-4`}>
                 {/* Toggle Button */}
                 <button 
                     onClick={toggleSidebar} 
@@ -180,15 +192,19 @@ const Sidebar = memo(({
                                 aria-label={`View profile for ${currentUser.displayName || currentUser.username}`}
                             >
                                 <div className="w-11 h-11 bg-slate-200 dark:bg-gray-600 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden border-2 border-white dark:border-gray-700 shadow-sm">
-                                    {currentUser.profileImageUrl ? (
-                                        <img src={currentUser.profileImageUrl} alt="User profile" className="w-full h-full object-cover" />
+                                    {userProfileImage ? (
+                                        <img src={userProfileImage} alt="User profile" className="w-full h-full object-cover" />
                                     ) : (
-                                        <User size={24} className="text-slate-500 dark:text-slate-300" />
+                                        <div className="w-full h-full bg-gradient-to-tr from-blue-500 to-teal-400 flex items-center justify-center text-white font-bold">
+                                             {currentUser.displayName?.charAt(0).toUpperCase() || <User size={24} />}
+                                        </div>
                                     )}
                                 </div>
                                 <div className={`overflow-hidden transition-all duration-200 ${isSidebarOpen ? 'ml-3 w-auto opacity-100' : 'w-0 opacity-0'}`}>
                                     <p className="font-semibold text-sm text-gray-800 dark:text-gray-100 truncate">{currentUser.displayName || currentUser.username}</p>
-                                    <p className="text-xs text-gray-500 dark:text-gray-400">ดูโปรไฟล์</p>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                                        {currentUser.role === 'admin' ? 'Administrator' : 'ดูโปรไฟล์'}
+                                    </p>
                                 </div>
                             </button>
                             <NavItem icon={<LogOut size={22} />} text="ออกจากระบบ" isOpen={isSidebarOpen} onClick={handleLogout} color="text-red-500" />
