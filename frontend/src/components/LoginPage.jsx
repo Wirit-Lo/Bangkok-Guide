@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Lock, LogIn, UserPlus, Loader2, Eye, EyeOff } from 'lucide-react';
-
-// ใช้แบบ CDN เพื่อความชัวร์ใน Environment นี้
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from '@supabase/supabase-js'; // ✅ เปลี่ยนกลับเป็นแบบมาตรฐาน (ดีกว่า CDN ใน Vite)
 
 // --- Supabase Configuration ---
 const SUPABASE_URL = 'https://fsbfiefjtyejfzgisjco.supabase.co';
@@ -10,10 +8,12 @@ const SUPABASE_ANON_KEY = 'sb_publishable_JD-RR-99MGcWZ768Gewbeg_8NclU-Tx';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// --- 🔧 URL ของ Server Backend ---
-const BACKEND_URL = 'http://localhost:5000'; 
+// ⚠️ รับ prop API_BASE_URL มาจาก App.jsx
+const LoginPage = ({ onAuthSuccess, setNotification, API_BASE_URL }) => {
+  
+  // ✅ ใช้ URL ที่ส่งมา หรือถ้าไม่มีให้ใช้ Production URL เป็นค่า Default
+  const SERVER_URL = API_BASE_URL || 'https://bangkok-guide.onrender.com';
 
-const LoginPage = ({ onAuthSuccess, setNotification }) => {
   // ⚡ Check URL: ดูว่าเป็นการ Redirect กลับมาจาก Google หรือไม่
   const isRedirecting = window.location.hash.includes('access_token') || 
                         window.location.search.includes('code=');
@@ -90,7 +90,8 @@ const LoginPage = ({ onAuthSuccess, setNotification }) => {
 
     try {
         console.log("⚡ Syncing with backend for:", session.user.email);
-        
+        console.log("🎯 Target Backend:", SERVER_URL); // Debug URL
+
         const socialUser = {
             id: session.user.id,
             email: session.user.email,
@@ -99,8 +100,8 @@ const LoginPage = ({ onAuthSuccess, setNotification }) => {
             provider: session.user.app_metadata.provider || 'social'
         };
 
-        // ยิง Backend เงียบๆ
-        fetch(`${BACKEND_URL}/api/auth/social-login`, {
+        // ✅ ใช้ SERVER_URL แทน BACKEND_URL ที่เป็น localhost
+        fetch(`${SERVER_URL}/api/auth/social-login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -178,7 +179,9 @@ const LoginPage = ({ onAuthSuccess, setNotification }) => {
     
     try {
         const endpoint = isRegisterMode ? '/api/register' : '/api/login';
-        const response = await fetch(`${BACKEND_URL}${endpoint}`, {
+        
+        // ✅ ใช้ SERVER_URL แทน localhost
+        const response = await fetch(`${SERVER_URL}${endpoint}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password }),
