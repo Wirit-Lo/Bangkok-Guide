@@ -209,8 +209,8 @@ const ApproveNewLocationsPage = ({ setNotification, handleAuthError, onItemStatu
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {pendingItems.map((item) => (
                         <div key={item.id} className="bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden border border-gray-200 dark:border-gray-700 flex flex-col hover:shadow-xl transition-shadow duration-300">
-                            {/* Image Section */}
-                            <div className="relative h-48 bg-gray-200 group">
+                            {/* Image Section - แก้ไข: เพิ่ม overflow-hidden เพื่อป้องกันรูปลอยออกนอกกรอบ */}
+                            <div className="relative h-48 bg-gray-200 group overflow-hidden">
                                 <img
                                     src={item.imageUrl || item.image_url || 'https://placehold.co/600x400?text=No+Image'}
                                     alt={item.name}
