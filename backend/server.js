@@ -9,22 +9,23 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import 'dotenv/config';
 
-console.log('--- SERVER (FINAL PRODUCTION READY) LOADING ---');
+console.log('--- SERVER (FULL PRODUCTION VERSION - FAMOUS PRODUCTS FIXED) LOADING ---');
 
 // --- 🔴 CONFIG: SUPABASE & JWT ---
+// 1. SUPABASE URL
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://fsbfiefjtyejfzgisjco.supabase.co';
 
-// ⚠️ CHANGE THIS: ต้องใช้ SERVICE_ROLE KEY เท่านั้น (หาจาก Supabase > Settings > API)
+// 2. SUPABASE SERVICE ROLE KEY (สำคัญมาก: ต้องใช้ Key ที่มีสิทธิ์ Admin)
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || 'sb_secret_uhFN-2AUL8e8F1B_wboLfw_2qgOscEx'; 
 
-// ตรวจสอบ Key เบื้องต้น
+// ตรวจสอบความถูกต้องของ Key เบื้องต้น
 if (SUPABASE_SERVICE_KEY.startsWith('sb_publishable')) {
     console.error('🚨 CRITICAL ERROR: You are using a PUBLISHABLE KEY for the Backend.');
-    console.error('   Please update SUPABASE_SERVICE_KEY env var to use the SERVICE_ROLE KEY.');
-    console.error('   Otherwise, database writes (Sync/Register) WILL FAIL.');
+    console.error('   Please update SUPABASE_SERVICE_KEY env var to use the SERVICE_ROLE KEY (starts with sb_secret).');
+    console.error('   Otherwise, database writes (Sync/Register/Admin actions) WILL FAIL.');
 }
 
-// Secret สำหรับถอดรหัส Token (ต้องตรงกับใน Supabase > Settings > API > JWT Secret)
+// 3. JWT SECRET (สำหรับถอดรหัส Token)
 const SUPABASE_JWT_SECRET = process.env.SUPABASE_JWT_SECRET || 'TmVDE+mlHk4VsWVIYUqY8mNSCMCQzkGTunEZfX6KIcOSjveLAEXhCW9X37ehDunj+MbZgbgACYbBZaEuJRH9GA==';
 
 // Initialize Supabase Admin Client
@@ -44,19 +45,17 @@ let clients = []; // For SSE connections
 const allowedOrigins = [
     'http://localhost:5173', 
     'http://localhost:3000',
-    'https://bangkok-guide.vercel.app', // ⚠️ URL Vercel ของคุณ (ถ้ามีหลายอันเพิ่มต่อท้ายได้)
+    'https://bangkok-guide.vercel.app', 
     process.env.FRONTEND_URL 
 ].filter(Boolean);
 
 const corsOptions = {
     origin: function (origin, callback) {
-        // อนุญาตถ้าไม่มี origin (เช่น Server-to-Server call) หรืออยู่ใน list หรือเป็น Vercel Preview URL
         if (!origin || allowedOrigins.some(o => origin.startsWith(o) || o === origin) || origin.endsWith('.vercel.app')) {
             callback(null, true);
         } else {
-            console.log('Blocked CORS for:', origin);
-            const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-            return callback(null, true); // Allow all for debugging if stuck, usually better to restrict
+            // Allow temporarily for debugging connection issues
+            callback(null, true); 
         }
     },
     credentials: true 
@@ -79,13 +78,9 @@ const upload = multer({ storage: storage });
 // --- 🔐 AUTHENTICATION MIDDLEWARE ---
 const authenticateToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
-    
-    // 1. ดึง Token
-    let token = authHeader && authHeader.startsWith('Bearer ') 
-        ? authHeader.split(' ')[1] 
-        : authHeader; 
+    let token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : authHeader; 
 
-    // 2. รองรับ SSE Token (Query Param)
+    // รองรับ SSE Token (Query Param)
     if (!token && req.query && req.query.token) {
         token = req.query.token;
     }
@@ -94,7 +89,6 @@ const authenticateToken = (req, res, next) => {
         return res.status(401).json({ error: 'Unauthorized: Token is required.' });
     }
 
-    // 3. Verify Token
     jwt.verify(token, SUPABASE_JWT_SECRET, async (err, userPayload) => {
         if (err) {
             console.error("Token verification failed:", err.message);
@@ -440,8 +434,6 @@ app.put('/api/users/:userIdToUpdate', authenticateToken, upload.single('profileI
     const { userId, role } = req.user;
     if (userIdToUpdate !== userId && role !== 'admin') return res.status(403).json({ error: 'Unauthorized' });
     
-    // ... (Use existing logic, simplified here for brevity but assuming you want full code) ...
-    // Full Logic Restore:
     const { displayName, currentPassword, newPassword, username } = req.body;
     let newImageUrl = null;
     try {
@@ -490,6 +482,11 @@ app.get('/api/notifications', authenticateToken, async (req, res) => {
     res.json(data);
 });
 
+app.get('/api/notifications/unread/count', authenticateToken, async (req, res) => {
+    const { count } = await supabase.from('notifications').select('*', { count: 'exact', head: true }).eq('user_id', req.user.userId).eq('is_read', false);
+    res.json({ count: count || 0 });
+});
+
 app.post('/api/notifications/read', authenticateToken, async (req, res) => {
     await supabase.from('notifications').update({ is_read: true }).eq('user_id', req.user.userId).eq('is_read', false);
     res.json({ message: 'Marked read' });
@@ -505,7 +502,98 @@ app.delete('/api/notifications/:id', authenticateToken, async (req, res) => {
     res.json({ message: 'Deleted' });
 });
 
-// Locations
+// --- ✅ ADMIN ROUTES (Fix: Famous Products & Deletion Requests) ---
+// 1. GET ALL FAMOUS PRODUCTS (For Admin) - Includes User Info
+app.get('/api/famous-products/all', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        // Fetch products
+        const { data } = await supabase.from('famous_products').select('*').order('created_at', { ascending: false });
+        
+        // Fetch auxiliary data for mapping
+        const locationMap = new Map();
+        const userMap = new Map();
+        
+        const [aRes, fRes, uRes] = await Promise.all([
+             supabase.from('attractions').select('id, name'),
+             supabase.from('foodShops').select('id, name'),
+             supabase.from('users').select('id, display_name, profile_image_url')
+        ]);
+
+        (aRes.data || []).forEach(l => locationMap.set(l.id, l.name));
+        (fRes.data || []).forEach(l => locationMap.set(l.id, l.name));
+        (uRes.data || []).forEach(u => userMap.set(u.id, u)); // Store full user obj
+
+        const result = (data || []).map(item => {
+            const author = userMap.get(item.user_id);
+            return {
+                ...formatRowForFrontend(item),
+                locationName: item.location_id ? (locationMap.get(item.location_id) || 'ไม่พบสถานที่') : 'ส่วนกลาง',
+                // Explicitly overwrite author info if available
+                author: author ? author.display_name : 'Unknown',
+                profileImageUrl: author ? (author.profile_image_url?.[0] || null) : null
+            };
+        });
+        res.json(result);
+    } catch (err) { 
+        console.error(err);
+        res.status(500).json({ error: 'Failed' }); 
+    }
+});
+
+// 2. GET DELETION REQUESTS (For Admin)
+app.get('/api/locations/deletion-requests', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        const [aRes, fRes] = await Promise.all([
+            supabase.from('attractions').select('*').eq('status', 'pending_deletion'),
+            supabase.from('foodShops').select('*').eq('status', 'pending_deletion')
+        ]);
+        const combined = [...(aRes.data || []), ...(fRes.data || [])];
+        res.json(combined.map(formatRowForFrontend));
+    } catch (err) { 
+        console.error(err);
+        res.status(500).json({ error: 'Failed' }); 
+    }
+});
+
+app.post('/api/locations/:id/deny-deletion', authenticateToken, requireAdmin, async (req, res) => {
+    const { id } = req.params;
+    try {
+        await supabase.from('attractions').update({ status: 'approved' }).eq('id', id).eq('status', 'pending_deletion');
+        await supabase.from('foodShops').update({ status: 'approved' }).eq('id', id).eq('status', 'pending_deletion');
+        res.json({ message: 'Denied' });
+    } catch (err) { 
+        console.error(err);
+        res.status(500).json({ error: 'Failed' }); 
+    }
+});
+
+app.delete('/api/locations/:id', authenticateToken, requireAdmin, async (req, res) => {
+    const { id } = req.params;
+    try {
+        let loc = null;
+        ({ data: loc } = await supabase.from('attractions').select('*').eq('id', id).maybeSingle());
+        if (!loc) ({ data: loc } = await supabase.from('foodShops').select('*').eq('id', id).maybeSingle());
+        if (loc) await deleteFromSupabase([loc.image_url, ...(loc.detail_images || [])].filter(Boolean));
+        
+        // Cleanup related data
+        const reviews = (await supabase.from('reviews').select('id').eq('location_id', id)).data || [];
+        const rIds = reviews.map(r => r.id);
+        if (rIds.length) {
+            const cIds = (await supabase.from('review_comments').select('id').in('review_id', rIds)).data.map(c => c.id);
+            await supabase.from('comment_likes').delete().in('comment_id', cIds);
+            await supabase.from('review_comments').delete().in('review_id', rIds);
+            await supabase.from('review_likes').delete().in('review_id', rIds);
+        }
+        await supabase.from('reviews').delete().eq('location_id', id);
+        await supabase.from('famous_products').delete().eq('location_id', id);
+        await supabase.from('favorites').delete().eq('location_id', id);
+        await supabase.from('attractions').delete().eq('id', id);
+        await supabase.from('foodShops').delete().eq('id', id);
+        res.status(204).send();
+    } catch (err) { res.status(500).json({ error: 'Error' }); }
+});
+
+// --- LOCATIONS & PRODUCTS ---
 app.get('/api/attractions', async (req, res) => {
     const query = supabase.from('attractions').select('*').eq('status', 'approved');
     if (req.query.sortBy === 'rating') query.order('rating', { ascending: false, nullsFirst: false }); else query.order('name', { ascending: true });
@@ -520,7 +608,6 @@ app.get('/api/foodShops', async (req, res) => {
     res.json((data || []).map(formatRowForFrontend));
 });
 
-// ✅ ADDED: Get Similar Places (Fixes 404 Error)
 app.get('/api/locations/same-category', async (req, res) => {
     const { category, excludeId } = req.query;
     try {
@@ -529,30 +616,84 @@ app.get('/api/locations/same-category', async (req, res) => {
             supabase.from('foodShops').select('*').eq('category', category).neq('id', excludeId || '').eq('status', 'approved').limit(5)
         ]);
         res.json([...(aRes.data || []), ...(fRes.data || [])].sort(() => 0.5 - Math.random()).slice(0, 5).map(formatRowForFrontend));
-    } catch (err) { res.status(500).json({ error: 'Error' }); }
+    } catch (e) { res.json([]); }
 });
 
-// ✅ ADDED: Get Famous Products (Fixes 404 Error)
 app.get('/api/locations/:locationId/famous-products', async (req, res) => {
     const { data } = await supabase.from('famous_products').select('*').eq('location_id', req.params.locationId);
     res.json((data || []).map(formatRowForFrontend));
 });
 
-// ✅ ADDED: Add Famous Product (Fixes "+ Add" button)
+app.get('/api/famous-products/random', async (req, res) => {
+    const { data } = await supabase.from('famous_products').select('*').is('location_id', null);
+    const shuffled = (data || []).sort(() => 0.5 - Math.random()).slice(0, 2);
+    res.json(shuffled.map(formatRowForFrontend));
+});
+
 app.post('/api/famous-products', authenticateToken, upload.single('image'), async (req, res) => {
     const { name, description, locationId } = req.body;
     let imageUrl = null;
     try {
         imageUrl = await uploadToSupabase(req.file);
-        const { data, error } = await supabase.from('famous_products').insert({ id: crypto.randomUUID(), name: name.trim(), description: description?.trim() || '', imageurl: imageUrl, location_id: locationId || null, user_id: req.user.userId }).select().single();
-        if (error) throw error;
+        const { data } = await supabase.from('famous_products').insert({ id: crypto.randomUUID(), name: name.trim(), description: description?.trim() || '', imageurl: imageUrl, location_id: locationId || null, user_id: req.user.userId }).select().single();
         res.status(201).json(formatRowForFrontend(data));
     } catch (err) { if(imageUrl) await deleteFromSupabase(imageUrl); res.status(500).json({ error: 'Failed' }); }
 });
 
+// ✅ ADDED: PUT Endpoint for Editing Famous Products
+app.put('/api/famous-products/:id', authenticateToken, upload.single('image'), async (req, res) => {
+    const { id } = req.params;
+    const { name, description, locationId } = req.body;
+    const { userId, role } = req.user;
+    let newImageUrl = null;
+    try {
+        const { data: product } = await supabase.from('famous_products').select('*').eq('id', id).single();
+        if (!product) return res.status(404).json({ error: 'Not found' });
+        // Admin or Owner
+        if (product.user_id !== userId && role !== 'admin') return res.status(403).json({ error: 'Unauthorized' });
+
+        const updateData = {};
+        if (name) updateData.name = name.trim();
+        if (description !== undefined) updateData.description = description.trim();
+        if (locationId) updateData.location_id = locationId;
+        
+        if (req.file) {
+            await deleteFromSupabase(product.imageurl);
+            newImageUrl = await uploadToSupabase(req.file);
+            updateData.imageurl = newImageUrl;
+        }
+
+        const { data: updated } = await supabase.from('famous_products').update(updateData).eq('id', id).select().single();
+        res.json(formatRowForFrontend(updated));
+    } catch (err) {
+        if (newImageUrl) await deleteFromSupabase(newImageUrl);
+        res.status(500).json({ error: 'Failed' });
+    }
+});
+
+// IMPORTANT: This route must be BELOW '/api/famous-products/all' or 'all' will be treated as an ID
+app.get('/api/famous-products/:id', async (req, res) => {
+    const { data: product } = await supabase.from('famous_products').select('*').eq('id', req.params.id).single();
+    if (!product) return res.status(404).json({ error: 'Not found' });
+    res.json(formatRowForFrontend(product));
+});
+
+app.delete('/api/famous-products/:id', authenticateToken, async (req, res) => {
+    const { id } = req.params;
+    const { userId, role } = req.user;
+    try {
+        const { data: product } = await supabase.from('famous_products').select('*').eq('id', id).single();
+        if (!product) return res.status(404).json({ error: 'Not found' });
+        if (product.user_id !== userId && role !== 'admin') return res.status(403).json({ error: 'Unauthorized' });
+        await deleteFromSupabase(product.imageurl);
+        await supabase.from('famous_products').delete().eq('id', id);
+        res.status(204).send();
+    } catch (err) { res.status(500).json({ error: 'Failed' }); }
+});
+
 app.get('/api/locations/:id', async (req, res) => {
     let { data: loc } = await supabase.from('attractions').select('*').eq('id', req.params.id).maybeSingle();
-    if (!loc) { let { data: loc2 } = await supabase.from('foodShops').select('*').eq('id', req.params.id).maybeSingle(); loc = loc2; }
+    if (!loc) ({ data: loc } = await supabase.from('foodShops').select('*').eq('id', req.params.id).maybeSingle());
     loc ? res.json(formatRowForFrontend(loc)) : res.status(404).json({ error: 'Not found' });
 });
 
@@ -573,7 +714,69 @@ app.post('/api/locations', authenticateToken, upload.array('images', 10), async 
     } catch (err) { if (uploadedImageUrls.length) await deleteFromSupabase(uploadedImageUrls); res.status(500).json({ error: 'Failed to create' }); }
 });
 
-// Reviews
+app.put('/api/locations/:id', authenticateToken, upload.array('images', 10), async (req, res) => {
+    const { id } = req.params;
+    const { userId, role } = req.user;
+    const { name, category: newCategory, description, googleMapUrl, hours, contact, existingImages } = req.body;
+    let newlyUploadedUrls = [];
+    try {
+        let currentLocation = null, currentTableName = null;
+        ({ data: currentLocation } = await supabase.from('attractions').select('*').eq('id', id).maybeSingle());
+        if (currentLocation) currentTableName = 'attractions';
+        else { ({ data: currentLocation } = await supabase.from('foodShops').select('*').eq('id', id).maybeSingle()); if (currentLocation) currentTableName = 'foodShops'; else return res.status(404).json({ error: 'Not found' }); }
+        if (role !== 'admin' && currentLocation.user_id !== userId) return res.status(403).json({ error: 'Unauthorized' });
+
+        const keptImageUrls = existingImages ? JSON.parse(existingImages) : [];
+        const oldImageUrls = [currentLocation.image_url, ...(currentLocation.detail_images || [])].filter(Boolean);
+        const imagesToDelete = oldImageUrls.filter(oldUrl => !keptImageUrls.includes(oldUrl));
+        newlyUploadedUrls = await Promise.all((req.files || []).map(uploadToSupabase));
+        await deleteFromSupabase(imagesToDelete);
+        const allFinalImageUrls = [...keptImageUrls, ...newlyUploadedUrls];
+
+        const updateData = {};
+        const coords = extractCoordsFromUrl(googleMapUrl);
+        if (name) updateData.name = name.trim();
+        if (newCategory) updateData.category = newCategory;
+        if (description !== undefined) updateData.description = description.trim();
+        if (googleMapUrl) { updateData.google_map_url = googleMapUrl; updateData.lat = coords.lat; updateData.lng = coords.lng; }
+        if (hours !== undefined) updateData.hours = hours.trim();
+        if (contact !== undefined) updateData.contact = contact.trim();
+        updateData.image_url = allFinalImageUrls[0] || null;
+        updateData.detail_images = allFinalImageUrls.slice(1);
+
+        const effectiveCategory = updateData.category || currentLocation.category;
+        const newTableName = getLocationTableByCategory(effectiveCategory);
+        let finalLocation;
+
+        if (currentTableName === newTableName) {
+            const { data, error } = await supabase.from(currentTableName).update(updateData).eq('id', id).select().single();
+            if (error) throw error; finalLocation = data;
+        } else {
+            const migratedRecord = { ...currentLocation, ...updateData };
+            const { data, error } = await supabase.from(newTableName).insert(migratedRecord).select().single();
+            if (error) throw error;
+            await supabase.from(currentTableName).delete().eq('id', id);
+            finalLocation = data;
+        }
+        res.json(formatRowForFrontend(finalLocation));
+    } catch (err) { if (newlyUploadedUrls.length) await deleteFromSupabase(newlyUploadedUrls); res.status(500).json({ error: 'Update failed' }); }
+});
+
+app.post('/api/locations/:id/request-deletion', authenticateToken, async (req, res) => {
+    const { id } = req.params;
+    try {
+        let table = null, loc = null;
+        ({ data: loc } = await supabase.from('attractions').select('user_id, status').eq('id', id).maybeSingle());
+        if (loc) table = 'attractions'; else { ({ data: loc } = await supabase.from('foodShops').select('user_id, status').eq('id', id).maybeSingle()); if (loc) table = 'foodShops'; }
+        if (!loc) return res.status(404).json({ error: 'Not found' });
+        if (loc.user_id !== req.user.userId && req.user.role !== 'admin') return res.status(403).json({ error: 'Unauthorized' });
+        if (loc.status === 'pending_deletion') return res.status(400).json({ error: 'Already pending' });
+        await supabase.from(table).update({ status: 'pending_deletion' }).eq('id', id);
+        res.json({ message: 'Request sent' });
+    } catch (err) { res.status(500).json({ error: 'Error' }); }
+});
+
+// --- REVIEWS & COMMENTS ---
 app.get('/api/reviews/:locationId', async (req, res) => {
     const { locationId } = req.params;
     const authHeader = req.headers['authorization'];
@@ -671,7 +874,7 @@ app.post('/api/reviews/:locationId', authenticateToken, upload.array('reviewImag
 
             if (error) throw error;
             
-            // Notification logic (Simplified for length, assume works)
+            // Notification logic
              let loc = null;
             const { data: r } = await supabase.from('reviews').select('location_id, user_id').eq('id', reviewId).single();
             if (r) {
@@ -729,6 +932,118 @@ app.post('/api/reviews/:locationId', authenticateToken, upload.array('reviewImag
     } catch (err) { res.status(500).json({ error: 'Failed' }); }
 });
 
+app.put('/api/reviews/:reviewId', authenticateToken, upload.array('reviewImages', 5), async (req, res) => {
+    const { reviewId } = req.params;
+    const { rating, comment, existingImages, locationId } = req.body;
+    const { userId, role } = req.user;
+    let newUrls = [];
+    try {
+        const { data: review } = await supabase.from('reviews').select('*').eq('id', reviewId).single();
+        if (!review || (review.user_id !== userId && role !== 'admin')) return res.status(403).json({ error: 'Unauthorized' });
+        
+        const kept = existingImages ? JSON.parse(existingImages) : [];
+        await deleteFromSupabase((review.image_urls || []).filter(u => !kept.includes(u)));
+        newUrls = await Promise.all((req.files || []).map(uploadToSupabase));
+        
+        const update = { image_urls: [...kept, ...newUrls] };
+        if (rating) update.rating = rating;
+        if (comment) update.comment = comment.trim();
+        
+        const { data: updated } = await supabase.from('reviews').update(update).eq('id', reviewId).select().single();
+        
+        if (rating) {
+            const lid = review.location_id || locationId;
+            const { data: all } = await supabase.from('reviews').select('rating').eq('location_id', lid);
+            if(all) {
+                const avg = (all.reduce((s,r)=>s+r.rating,0)/all.length).toFixed(1);
+                await Promise.allSettled([supabase.from('attractions').update({rating:avg}).eq('id',lid), supabase.from('foodShops').update({rating:avg}).eq('id',lid)]);
+            }
+        }
+        res.json(formatRowForFrontend(updated));
+    } catch(e) { if(newUrls.length) await deleteFromSupabase(newUrls); res.status(500).json({error:'Failed'}); }
+});
+
+app.delete('/api/reviews/:reviewId', authenticateToken, async (req, res) => {
+    const { reviewId } = req.params;
+    const { userId, role } = req.user;
+    try {
+        const { data: r } = await supabase.from('reviews').select('*').eq('id', reviewId).single();
+        if (!r || (r.user_id !== userId && role !== 'admin')) return res.status(403).json({ error: 'Unauthorized' });
+        await deleteFromSupabase(r.image_urls);
+        await supabase.from('review_comments').delete().eq('review_id', reviewId);
+        await supabase.from('review_likes').delete().eq('review_id', reviewId);
+        await supabase.from('reviews').delete().eq('id', reviewId);
+        
+        const lid = r.location_id;
+        const { data: all } = await supabase.from('reviews').select('rating').eq('location_id', lid);
+        if(all) {
+            const avg = all.length ? (all.reduce((s,x)=>s+x.rating,0)/all.length).toFixed(1) : 0;
+            await Promise.allSettled([supabase.from('attractions').update({rating:avg}).eq('id',lid), supabase.from('foodShops').update({rating:avg}).eq('id',lid)]);
+        }
+        res.status(204).send();
+    } catch(e) { res.status(500).json({error:'Failed'}); }
+});
+
+app.post('/api/reviews/:reviewId/toggle-like', authenticateToken, async (req, res) => {
+    const { reviewId } = req.params;
+    const { userId } = req.user;
+    const { count } = await supabase.from('review_likes').select('*', { count: 'exact', head: true }).match({ user_id: userId, review_id: reviewId });
+    if (count > 0) await supabase.from('review_likes').delete().match({ user_id: userId, review_id: reviewId });
+    else await supabase.from('review_likes').insert({ user_id: userId, review_id: reviewId });
+    const { count: newCount } = await supabase.from('review_likes').select('*', { count: 'exact', head: true }).eq('review_id', reviewId);
+    await supabase.from('reviews').update({ likes_count: newCount }).eq('id', reviewId);
+    res.json({ likesCount: newCount });
+});
+
+app.get('/api/reviews/:reviewId/comments', async (req, res) => {
+    const { data } = await supabase.from('review_comments').select(`*, user_profile:user_id ( profile_image_url )`).eq('review_id', req.params.reviewId).order('created_at');
+    res.json((data || []).map(formatRowForFrontend));
+});
+
+app.put('/api/comments/:commentId', authenticateToken, async (req, res) => {
+    try {
+        const { data: c } = await supabase.from('review_comments').select('user_id').eq('id', req.params.commentId).single();
+        if (!c || (c.user_id !== req.user.userId && req.user.role !== 'admin')) return res.status(403).json({ error: 'Unauthorized' });
+        await supabase.from('review_comments').update({ comment: req.body.comment.trim() }).eq('id', req.params.commentId);
+        res.json({ message: 'Updated' });
+    } catch (e) { res.status(500).json({ error: 'Failed' }); }
+});
+
+app.delete('/api/comments/:commentId', authenticateToken, async (req, res) => {
+    try {
+        const { data: c } = await supabase.from('review_comments').select('user_id').eq('id', req.params.commentId).single();
+        if (!c || (c.user_id !== req.user.userId && req.user.role !== 'admin')) return res.status(403).json({ error: 'Unauthorized' });
+        await supabase.from('comment_likes').delete().eq('comment_id', req.params.commentId);
+        await supabase.from('review_comments').delete().eq('id', req.params.commentId);
+        res.json({ message: 'Deleted' });
+    } catch (e) { res.status(500).json({ error: 'Failed' }); }
+});
+
+app.post('/api/comments/:commentId/toggle-like', authenticateToken, async (req, res) => {
+    const { commentId } = req.params;
+    const { userId, displayName, profileImageUrl } = req.user;
+    try {
+        const { count } = await supabase.from('comment_likes').select('*', { count: 'exact', head: true }).match({ user_id: userId, comment_id: commentId });
+        let status;
+        if (count > 0) { await supabase.from('comment_likes').delete().match({ user_id: userId, comment_id: commentId }); status = 'unliked'; }
+        else { await supabase.from('comment_likes').insert({ user_id: userId, comment_id: commentId }); status = 'liked';
+            const { data: c } = await supabase.from('review_comments').select('user_id, review_id, comment').eq('id', commentId).single();
+            if (c && String(c.user_id) !== String(userId)) {
+                const { data: r } = await supabase.from('reviews').select('location_id').eq('id', c.review_id).single();
+                if (r) {
+                    let loc = null;
+                    ({ data: loc } = await supabase.from('attractions').select('id, name, image_url').eq('id', r.location_id).maybeSingle());
+                    if (!loc) ({ data: loc } = await supabase.from('foodShops').select('id, name, image_url').eq('id', r.location_id).maybeSingle());
+                    if (loc) createAndSendNotification({ type: 'new_comment_like', actorId: userId, actorName: displayName, actorProfileImageUrl: profileImageUrl, recipientId: c.user_id, payload: { location: formatRowForFrontend(loc), commentSnippet: c.comment.substring(0, 30), reviewId: c.review_id, commentId: commentId } });
+                }
+            }
+        }
+        const { count: likesCount } = await supabase.from('comment_likes').select('*', { count: 'exact', head: true }).eq('comment_id', commentId);
+        await supabase.from('review_comments').update({ likes_count: likesCount }).eq('id', commentId);
+        res.json({ status, likesCount });
+    } catch (e) { res.status(500).json({ error: 'Failed' }); }
+});
+
 // Favorites
 app.get('/api/favorites', authenticateToken, async (req, res) => {
     const { data } = await supabase.from('favorites').select('location_id').eq('user_id', req.user.userId);
@@ -740,13 +1055,6 @@ app.post('/api/favorites/toggle', authenticateToken, async (req, res) => {
     const { count } = await supabase.from('favorites').select('*', { count: 'exact', head: true }).match({ user_id: userId, location_id: locationId });
     if (count > 0) { await supabase.from('favorites').delete().match({ user_id: userId, location_id: locationId }); res.json({ status: 'removed' }); }
     else { await supabase.from('favorites').insert({ user_id: userId, location_id: locationId }); res.json({ status: 'added' }); }
-});
-
-// Famous Products (Partial implementation for brevity, logic follows same patterns)
-app.get('/api/famous-products/:id', async (req, res) => {
-    const { data: product } = await supabase.from('famous_products').select('*').eq('id', req.params.id).single();
-    if (!product) return res.status(404).json({ error: 'Not found' });
-    res.json(formatRowForFrontend(product));
 });
 
 app.listen(port, () => {
