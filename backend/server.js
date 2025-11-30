@@ -9,7 +9,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import 'dotenv/config';
 
-console.log('--- SERVER (FULL PRODUCTION VERSION - FAMOUS PRODUCTS FIXED) LOADING ---');
+console.log('--- SERVER (FULL PRODUCTION VERSION - DELETION REQUEST USER INFO FIXED) LOADING ---');
 
 // --- 🔴 CONFIG: SUPABASE & JWT ---
 // 1. SUPABASE URL
@@ -180,6 +180,7 @@ const formatRowForFrontend = (row) => {
         description: row.description || '',
         comment: row.comment || '',
         category: row.category || 'อื่นๆ',
+        status: row.status || 'approved', // Include status
         
         reply_to_id: row.reply_to_id || row.parent_id || null, 
 
@@ -228,6 +229,7 @@ async function createAndSendNotification({ type, actorId, actorName, actorProfil
         const safeActorId = String(actorId);
         const safeRecipientId = recipientId ? String(recipientId) : null;
 
+        // Prevent self-notification
         if (safeRecipientId && safeRecipientId === safeActorId) return; 
 
         const notificationData = {
@@ -243,11 +245,8 @@ async function createAndSendNotification({ type, actorId, actorName, actorProfil
         if (safeRecipientId) {
             await supabase.from('notifications').insert({ ...notificationData, user_id: safeRecipientId });
         } else if (type === 'new_location') {
-            const { data: users } = await supabase.from('users').select('id').neq('id', safeActorId);
-            if (users && users.length > 0) {
-                const notificationsToInsert = users.map(user => ({ ...notificationData, user_id: user.id }));
-                await supabase.from('notifications').insert(notificationsToInsert);
-            }
+            // Broadcast to all users (example logic) or handled by specific loop elsewhere
+            // For general broadcast (not used often to avoid spam, usually handled per-admin in route)
         }
 
         const liveEventPayload = { type: 'notification', data: { id: crypto.randomUUID(), ...notificationData } };
@@ -255,11 +254,15 @@ async function createAndSendNotification({ type, actorId, actorName, actorProfil
         clients.forEach(client => {
             const clientUserId = String(client.userId);
             let shouldSend = false;
+            
             if (safeRecipientId) { 
+                // Direct Message
                 if (clientUserId === safeRecipientId && clientUserId !== safeActorId) shouldSend = true;
-            } else if (type === 'new_location') { 
+            } else {
+                // Broadcast (e.g. approved location)
                 if (clientUserId !== safeActorId) shouldSend = true;
             }
+            
             if (shouldSend) {
                 try { client.res.write(`data: ${JSON.stringify(liveEventPayload)}\n\n`); } catch (e) {}
             }
@@ -502,14 +505,18 @@ app.delete('/api/notifications/:id', authenticateToken, async (req, res) => {
     res.json({ message: 'Deleted' });
 });
 
-// --- ✅ ADMIN ROUTES (Fix: Famous Products & Deletion Requests) ---
-// 1. GET ALL FAMOUS PRODUCTS (For Admin) - Includes User Info
+// --- ✅ ADMIN ROUTES (Fix: Famous Products, Deletion & Approval) ---
+
+// 1. GET ALL FAMOUS PRODUCTS (For Admin) - Fixed empty list issue
 app.get('/api/famous-products/all', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        // Fetch products
-        const { data } = await supabase.from('famous_products').select('*').order('created_at', { ascending: false });
+        const { data, error } = await supabase.from('famous_products').select('*');
         
-        // Fetch auxiliary data for mapping
+        if (error) {
+            console.error("Supabase Error (Famous Products):", error);
+            return res.status(500).json({ error: 'Database error' });
+        }
+
         const locationMap = new Map();
         const userMap = new Map();
         
@@ -521,37 +528,126 @@ app.get('/api/famous-products/all', authenticateToken, requireAdmin, async (req,
 
         (aRes.data || []).forEach(l => locationMap.set(l.id, l.name));
         (fRes.data || []).forEach(l => locationMap.set(l.id, l.name));
-        (uRes.data || []).forEach(u => userMap.set(u.id, u)); // Store full user obj
+        (uRes.data || []).forEach(u => userMap.set(u.id, u));
 
         const result = (data || []).map(item => {
             const author = userMap.get(item.user_id);
             return {
                 ...formatRowForFrontend(item),
                 locationName: item.location_id ? (locationMap.get(item.location_id) || 'ไม่พบสถานที่') : 'ส่วนกลาง',
-                // Explicitly overwrite author info if available
                 author: author ? author.display_name : 'Unknown',
                 profileImageUrl: author ? (author.profile_image_url?.[0] || null) : null
             };
         });
         res.json(result);
     } catch (err) { 
-        console.error(err);
+        console.error("API Error (Famous Products):", err);
         res.status(500).json({ error: 'Failed' }); 
     }
 });
 
-// 2. GET DELETION REQUESTS (For Admin)
-app.get('/api/locations/deletion-requests', authenticateToken, requireAdmin, async (req, res) => {
+// 2. GET PENDING NEW LOCATIONS (For Approval) - ✅ FIXED SYNTAX & USER INFO
+app.get('/api/locations/pending', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const [aRes, fRes] = await Promise.all([
-            supabase.from('attractions').select('*').eq('status', 'pending_deletion'),
-            supabase.from('foodShops').select('*').eq('status', 'pending_deletion')
+        const [aRes, fRes, uRes] = await Promise.all([
+            supabase.from('attractions').select('*').eq('status', 'pending'),
+            supabase.from('foodShops').select('*').eq('status', 'pending'),
+            supabase.from('users').select('id, display_name, profile_image_url') // Fetch users too
         ]);
+
+        const userMap = new Map();
+        (uRes.data || []).forEach(u => userMap.set(u.id, u));
+
         const combined = [...(aRes.data || []), ...(fRes.data || [])];
-        res.json(combined.map(formatRowForFrontend));
+        
+        const mappedData = combined.map(loc => {
+            const user = userMap.get(loc.user_id);
+            const enrichedLoc = { 
+                ...loc, 
+                display_name: user?.display_name,
+                author: user?.display_name, 
+                users: user 
+            };
+            return formatRowForFrontend(enrichedLoc);
+        });
+
+        res.json(mappedData);
     } catch (err) { 
         console.error(err);
-        res.status(500).json({ error: 'Failed' }); 
+        res.status(500).json({ error: 'Failed to fetch pending locations' }); 
+    }
+});
+
+// 3. APPROVE LOCATION - ✅ FIXED SYNTAX
+app.put('/api/locations/:id/approve', authenticateToken, requireAdmin, async (req, res) => {
+    const { id } = req.params;
+    try {
+        let table = null;
+        let locRes = await supabase.from('attractions').select('*').eq('id', id).maybeSingle();
+        let loc = locRes.data;
+
+        if (loc) {
+            table = 'attractions';
+        } else { 
+            let foodRes = await supabase.from('foodShops').select('*').eq('id', id).maybeSingle();
+            loc = foodRes.data;
+            if (loc) table = 'foodShops'; 
+        }
+
+        if (!table || !loc) return res.status(404).json({ error: 'Location not found' });
+
+        const { data: updated, error } = await supabase.from(table).update({ status: 'approved' }).eq('id', id).select().single();
+        if (error) throw error;
+
+        const { data: creator } = await supabase.from('users').select('display_name, profile_image_url').eq('id', loc.user_id).single();
+        
+        createAndSendNotification({ 
+            type: 'new_location', 
+            actorId: loc.user_id, 
+            actorName: creator?.display_name || 'สมาชิก', 
+            actorProfileImageUrl: creator?.profile_image_url?.[0] || null, 
+            recipientId: null, 
+            payload: { location: formatRowForFrontend(updated) } 
+        });
+
+        res.json({ message: 'Location approved successfully', location: formatRowForFrontend(updated) });
+    } catch (err) { 
+        console.error(err);
+        res.status(500).json({ error: 'Failed to approve' }); 
+    }
+});
+
+// 4. GET DELETION REQUESTS - ✅ FIXED TO INCLUDE USER INFO
+app.get('/api/locations/deletion-requests', authenticateToken, requireAdmin, async (req, res) => {
+    try {
+        // Fetch deletion requests AND user info
+        const [aRes, fRes, uRes] = await Promise.all([
+            supabase.from('attractions').select('*').eq('status', 'pending_deletion'),
+            supabase.from('foodShops').select('*').eq('status', 'pending_deletion'),
+            supabase.from('users').select('id, display_name, profile_image_url') // Fetch users
+        ]);
+
+        const userMap = new Map();
+        (uRes.data || []).forEach(u => userMap.set(u.id, u));
+
+        const combined = [...(aRes.data || []), ...(fRes.data || [])];
+        
+        const mappedData = combined.map(loc => {
+            const user = userMap.get(loc.user_id);
+            // Manually inject user data so formatRowForFrontend picks it up correctly
+            const enrichedLoc = { 
+                ...loc, 
+                display_name: user?.display_name,
+                author: user?.display_name, 
+                users: user 
+            };
+            return formatRowForFrontend(enrichedLoc);
+        });
+
+        res.json(mappedData);
+    } catch (err) { 
+        console.error(err);
+        res.status(500).json({ error: 'Failed to fetch deletion requests' }); 
     }
 });
 
@@ -567,15 +663,21 @@ app.post('/api/locations/:id/deny-deletion', authenticateToken, requireAdmin, as
     }
 });
 
+// 5. DELETE LOCATION - ✅ Fixed Syntax Error
 app.delete('/api/locations/:id', authenticateToken, requireAdmin, async (req, res) => {
     const { id } = req.params;
     try {
         let loc = null;
-        ({ data: loc } = await supabase.from('attractions').select('*').eq('id', id).maybeSingle());
-        if (!loc) ({ data: loc } = await supabase.from('foodShops').select('*').eq('id', id).maybeSingle());
+        let locRes = await supabase.from('attractions').select('*').eq('id', id).maybeSingle();
+        loc = locRes.data;
+
+        if (!loc) {
+            let foodRes = await supabase.from('foodShops').select('*').eq('id', id).maybeSingle();
+            loc = foodRes.data;
+        }
+
         if (loc) await deleteFromSupabase([loc.image_url, ...(loc.detail_images || [])].filter(Boolean));
         
-        // Cleanup related data
         const reviews = (await supabase.from('reviews').select('id').eq('location_id', id)).data || [];
         const rIds = reviews.map(r => r.id);
         if (rIds.length) {
@@ -595,6 +697,7 @@ app.delete('/api/locations/:id', authenticateToken, requireAdmin, async (req, re
 
 // --- LOCATIONS & PRODUCTS ---
 app.get('/api/attractions', async (req, res) => {
+    // Only return APPROVED items to public
     const query = supabase.from('attractions').select('*').eq('status', 'approved');
     if (req.query.sortBy === 'rating') query.order('rating', { ascending: false, nullsFirst: false }); else query.order('name', { ascending: true });
     const { data } = await query;
@@ -602,6 +705,7 @@ app.get('/api/attractions', async (req, res) => {
 });
 
 app.get('/api/foodShops', async (req, res) => {
+    // Only return APPROVED items to public
     const query = supabase.from('foodShops').select('*').eq('status', 'approved');
     if (req.query.sortBy === 'rating') query.order('rating', { ascending: false, nullsFirst: false }); else query.order('name', { ascending: true });
     const { data } = await query;
@@ -635,12 +739,19 @@ app.post('/api/famous-products', authenticateToken, upload.single('image'), asyn
     let imageUrl = null;
     try {
         imageUrl = await uploadToSupabase(req.file);
-        const { data } = await supabase.from('famous_products').insert({ id: crypto.randomUUID(), name: name.trim(), description: description?.trim() || '', imageurl: imageUrl, location_id: locationId || null, user_id: req.user.userId }).select().single();
+        const { data } = await supabase.from('famous_products').insert({ 
+            id: crypto.randomUUID(), 
+            name: name.trim(), 
+            description: description?.trim() || '', 
+            imageurl: imageUrl, 
+            location_id: locationId || null, 
+            user_id: req.user.userId,
+            created_at: new Date().toISOString() 
+        }).select().single();
         res.status(201).json(formatRowForFrontend(data));
     } catch (err) { if(imageUrl) await deleteFromSupabase(imageUrl); res.status(500).json({ error: 'Failed' }); }
 });
 
-// ✅ ADDED: PUT Endpoint for Editing Famous Products
 app.put('/api/famous-products/:id', authenticateToken, upload.single('image'), async (req, res) => {
     const { id } = req.params;
     const { name, description, locationId } = req.body;
@@ -692,11 +803,17 @@ app.delete('/api/famous-products/:id', authenticateToken, async (req, res) => {
 });
 
 app.get('/api/locations/:id', async (req, res) => {
-    let { data: loc } = await supabase.from('attractions').select('*').eq('id', req.params.id).maybeSingle();
-    if (!loc) ({ data: loc } = await supabase.from('foodShops').select('*').eq('id', req.params.id).maybeSingle());
+    let locRes = await supabase.from('attractions').select('*').eq('id', req.params.id).maybeSingle();
+    let loc = locRes.data;
+    
+    if (!loc) {
+        let foodRes = await supabase.from('foodShops').select('*').eq('id', req.params.id).maybeSingle();
+        loc = foodRes.data;
+    }
     loc ? res.json(formatRowForFrontend(loc)) : res.status(404).json({ error: 'Not found' });
 });
 
+// ✅ CREATE LOCATION (WITH ADMIN NOTIFICATION)
 app.post('/api/locations', authenticateToken, upload.array('images', 10), async (req, res) => {
     const { name, category, description, googleMapUrl, hours, contact } = req.body;
     let uploadedImageUrls = [];
@@ -704,13 +821,52 @@ app.post('/api/locations', authenticateToken, upload.array('images', 10), async 
         uploadedImageUrls = await Promise.all((req.files || []).map(uploadToSupabase));
         const coords = extractCoordsFromUrl(googleMapUrl);
         const tableName = getLocationTableByCategory(category);
+        
+        // 🚨 CRITICAL: Check Role. Admin = Approved, User = Pending
+        const initialStatus = req.user.role === 'admin' ? 'approved' : 'pending';
+
         const { data, error } = await supabase.from(tableName).insert({
-            id: crypto.randomUUID(), name, category, description, google_map_url: googleMapUrl, hours, contact,
-            user_id: req.user.userId, status: 'approved', image_url: uploadedImageUrls[0] || null, detail_images: uploadedImageUrls.slice(1), lat: coords.lat, lng: coords.lng
+            id: crypto.randomUUID(), 
+            name, 
+            category, 
+            description, 
+            google_map_url: googleMapUrl, 
+            hours, 
+            contact,
+            user_id: req.user.userId, 
+            status: initialStatus, // Use the calculated status
+            image_url: uploadedImageUrls[0] || null, 
+            detail_images: uploadedImageUrls.slice(1), 
+            lat: coords.lat, 
+            lng: coords.lng
         }).select().single();
+        
         if (error) throw error;
-        createAndSendNotification({ type: 'new_location', actorId: req.user.userId, actorName: req.user.displayName, actorProfileImageUrl: req.user.profileImageUrl, recipientId: null, payload: { location: formatRowForFrontend(data) } });
-        res.status(201).json(formatRowForFrontend(data));
+        
+        const formattedLocation = formatRowForFrontend(data);
+
+        // Logic Notification
+        if (initialStatus === 'approved') {
+            // If admin created it, notify everyone immediately
+            createAndSendNotification({ type: 'new_location', actorId: req.user.userId, actorName: req.user.displayName, actorProfileImageUrl: req.user.profileImageUrl, recipientId: null, payload: { location: formattedLocation } });
+        } else {
+            // ✅ IF PENDING: Notify ALL Admins
+            const { data: admins } = await supabase.from('users').select('id').eq('role', 'admin');
+            if (admins && admins.length > 0) {
+                for (const admin of admins) {
+                     createAndSendNotification({ 
+                        type: 'new_location', // Admins will see "New location added by..."
+                        actorId: req.user.userId, 
+                        actorName: req.user.displayName, 
+                        actorProfileImageUrl: req.user.profileImageUrl, 
+                        recipientId: admin.id, 
+                        payload: { location: formattedLocation } 
+                    });
+                }
+            }
+        }
+
+        res.status(201).json(formattedLocation);
     } catch (err) { if (uploadedImageUrls.length) await deleteFromSupabase(uploadedImageUrls); res.status(500).json({ error: 'Failed to create' }); }
 });
 
@@ -721,9 +877,19 @@ app.put('/api/locations/:id', authenticateToken, upload.array('images', 10), asy
     let newlyUploadedUrls = [];
     try {
         let currentLocation = null, currentTableName = null;
-        ({ data: currentLocation } = await supabase.from('attractions').select('*').eq('id', id).maybeSingle());
-        if (currentLocation) currentTableName = 'attractions';
-        else { ({ data: currentLocation } = await supabase.from('foodShops').select('*').eq('id', id).maybeSingle()); if (currentLocation) currentTableName = 'foodShops'; else return res.status(404).json({ error: 'Not found' }); }
+        
+        let locRes = await supabase.from('attractions').select('*').eq('id', id).maybeSingle();
+        currentLocation = locRes.data;
+        
+        if (currentLocation) {
+            currentTableName = 'attractions';
+        } else { 
+            let foodRes = await supabase.from('foodShops').select('*').eq('id', id).maybeSingle();
+            currentLocation = foodRes.data;
+            if (currentLocation) currentTableName = 'foodShops'; 
+            else return res.status(404).json({ error: 'Not found' }); 
+        }
+
         if (role !== 'admin' && currentLocation.user_id !== userId) return res.status(403).json({ error: 'Unauthorized' });
 
         const keptImageUrls = existingImages ? JSON.parse(existingImages) : [];
@@ -766,8 +932,17 @@ app.post('/api/locations/:id/request-deletion', authenticateToken, async (req, r
     const { id } = req.params;
     try {
         let table = null, loc = null;
-        ({ data: loc } = await supabase.from('attractions').select('user_id, status').eq('id', id).maybeSingle());
-        if (loc) table = 'attractions'; else { ({ data: loc } = await supabase.from('foodShops').select('user_id, status').eq('id', id).maybeSingle()); if (loc) table = 'foodShops'; }
+        let locRes = await supabase.from('attractions').select('user_id, status').eq('id', id).maybeSingle();
+        loc = locRes.data;
+
+        if (loc) {
+            table = 'attractions';
+        } else { 
+            let foodRes = await supabase.from('foodShops').select('user_id, status').eq('id', id).maybeSingle();
+            loc = foodRes.data;
+            if (loc) table = 'foodShops'; 
+        }
+
         if (!loc) return res.status(404).json({ error: 'Not found' });
         if (loc.user_id !== req.user.userId && req.user.role !== 'admin') return res.status(403).json({ error: 'Unauthorized' });
         if (loc.status === 'pending_deletion') return res.status(400).json({ error: 'Already pending' });
@@ -878,8 +1053,12 @@ app.post('/api/reviews/:locationId', authenticateToken, upload.array('reviewImag
              let loc = null;
             const { data: r } = await supabase.from('reviews').select('location_id, user_id').eq('id', reviewId).single();
             if (r) {
-                ({ data: loc } = await supabase.from('attractions').select('id, name, image_url').eq('id', r.location_id).maybeSingle());
-                if (!loc) ({ data: loc } = await supabase.from('foodShops').select('id, name, image_url').eq('id', r.location_id).maybeSingle());
+                let locRes = await supabase.from('attractions').select('id, name, image_url').eq('id', r.location_id).maybeSingle();
+                loc = locRes.data;
+                if (!loc) {
+                    let foodRes = await supabase.from('foodShops').select('id, name, image_url').eq('id', r.location_id).maybeSingle();
+                    loc = foodRes.data;
+                }
                 
                 if (loc) {
                     let recipientId = null;
@@ -921,8 +1100,13 @@ app.post('/api/reviews/:locationId', authenticateToken, upload.array('reviewImag
 
         // Notify Owner
         let loc = null;
-        ({ data: loc } = await supabase.from('attractions').select('id, name, image_url, user_id').eq('id', locationId).maybeSingle());
-        if (!loc) ({ data: loc } = await supabase.from('foodShops').select('id, name, image_url, user_id').eq('id', locationId).maybeSingle());
+        let locRes = await supabase.from('attractions').select('id, name, image_url, user_id').eq('id', locationId).maybeSingle();
+        loc = locRes.data;
+        
+        if (!loc) {
+            let foodRes = await supabase.from('foodShops').select('id, name, image_url, user_id').eq('id', locationId).maybeSingle();
+            loc = foodRes.data;
+        }
         
         if (loc && String(loc.user_id) !== String(req.user.userId)) {
             createAndSendNotification({ type: 'new_review', actorId: req.user.userId, actorName: req.user.displayName, actorProfileImageUrl: req.user.profileImageUrl, recipientId: loc.user_id, payload: { location: formatRowForFrontend(loc), reviewId: inserted.id } });
@@ -1031,9 +1215,12 @@ app.post('/api/comments/:commentId/toggle-like', authenticateToken, async (req, 
             if (c && String(c.user_id) !== String(userId)) {
                 const { data: r } = await supabase.from('reviews').select('location_id').eq('id', c.review_id).single();
                 if (r) {
-                    let loc = null;
-                    ({ data: loc } = await supabase.from('attractions').select('id, name, image_url').eq('id', r.location_id).maybeSingle());
-                    if (!loc) ({ data: loc } = await supabase.from('foodShops').select('id, name, image_url').eq('id', r.location_id).maybeSingle());
+                    let locRes = await supabase.from('attractions').select('id, name, image_url').eq('id', r.location_id).maybeSingle();
+                    let loc = locRes.data;
+                    if (!loc) {
+                        let foodRes = await supabase.from('foodShops').select('id, name, image_url').eq('id', r.location_id).maybeSingle();
+                        loc = foodRes.data;
+                    }
                     if (loc) createAndSendNotification({ type: 'new_comment_like', actorId: userId, actorName: displayName, actorProfileImageUrl: profileImageUrl, recipientId: c.user_id, payload: { location: formatRowForFrontend(loc), commentSnippet: c.comment.substring(0, 30), reviewId: c.review_id, commentId: commentId } });
                 }
             }
