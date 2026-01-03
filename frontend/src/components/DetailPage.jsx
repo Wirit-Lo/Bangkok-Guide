@@ -17,7 +17,6 @@ const API_BASE_URL = 'https://bangkok-guide.onrender.com';
 // --- Helper Component: Avatar ---
 const Avatar = ({ src, alt, size = "md", className = "" }) => {
     const sizeClasses = { xs: "w-6 h-6", sm: "w-8 h-8", md: "w-10 h-10", lg: "w-12 h-12" };
-    // ✅ Fix: ปรับสีขอบและพื้นหลังให้รองรับธีม
     const baseClass = `${sizeClasses[size] || sizeClasses.md} rounded-full object-cover border-2 border-white dark:border-slate-700 shadow-sm shrink-0 ${className}`;
 
     if (src && src !== 'null' && src !== 'undefined') {
@@ -72,69 +71,226 @@ const groupComments = (comments) => {
 };
 
 // --- Single Comment Item Component ---
-const CommentItem = ({ comment, currentUser, onLike, onReply }) => {
+// 1. คัดลอกโค้ดนี้ไปทับ const CommentItem ตัวเดิม
+const CommentItem = ({ comment, currentUser, onLike, onReply, onEdit, onDelete }) => {
     const [isExpanded, setIsExpanded] = useState(false);
+    
+    // State สำหรับโหมดแก้ไข
+    const [isEditing, setIsEditing] = useState(false);
+    const [editContent, setEditContent] = useState(comment.comment);
+    const [editRating, setEditRating] = useState(comment.rating || 5);
+    
+    // ✅ NEW: State จัดการรูปภาพในโหมดแก้ไข
+    const [editKeptImages, setEditKeptImages] = useState([]); // รูปเดิมที่เหลืออยู่
+    const [editNewFiles, setEditNewFiles] = useState([]);     // รูปใหม่ที่เพิ่มเข้ามา
+    const [editNewPreviews, setEditNewPreviews] = useState([]); // Preview รูปใหม่
+    const editFileInputRef = useRef(null);
+
+    const [editingReplyId, setEditingReplyId] = useState(null);
+    const [editReplyContent, setEditReplyContent] = useState("");
+
     const hasReplies = comment.replies && comment.replies.length > 0;
+    const isOwner = currentUser && (String(currentUser.id) === String(comment.user_id));
+    const isAdmin = currentUser?.role === 'admin';
+
+    // เริ่มต้นโหมดแก้ไข
+    const startEditing = () => {
+        setIsEditing(true);
+        setEditContent(comment.comment);
+        setEditRating(comment.rating);
+        setEditKeptImages(comment.image_urls || []); // เอารูปเดิมมาใส่ State
+        setEditNewFiles([]);
+        setEditNewPreviews([]);
+    };
+
+    // จัดการรูปใหม่ในโหมดแก้ไข
+    const handleEditFileSelect = (e) => {
+        const files = Array.from(e.target.files);
+        if (editKeptImages.length + editNewFiles.length + files.length > 5) {
+            alert('รวมรูปภาพได้สูงสุด 5 รูป');
+            return;
+        }
+        const newFiles = [...editNewFiles, ...files];
+        setEditNewFiles(newFiles);
+        
+        const newPreviews = files.map(file => URL.createObjectURL(file));
+        setEditNewPreviews([...editNewPreviews, ...newPreviews]);
+    };
+
+    const removeEditNewImage = (index) => {
+        const newFiles = [...editNewFiles];
+        newFiles.splice(index, 1);
+        setEditNewFiles(newFiles);
+
+        const newPreviews = [...editNewPreviews];
+        URL.revokeObjectURL(newPreviews[index]);
+        newPreviews.splice(index, 1);
+        setEditNewPreviews(newPreviews);
+    };
+
+    const removeEditKeptImage = (urlToRemove) => {
+        setEditKeptImages(editKeptImages.filter(url => url !== urlToRemove));
+    };
+
+    const handleSaveMain = () => {
+        // ส่งข้อมูลกลับไปที่ CommentSection (content, rating, รูปเดิม, รูปใหม่)
+        onEdit(comment, editContent, editRating, editKeptImages, editNewFiles);
+        setIsEditing(false);
+    };
+
+    const handleSaveReply = (reply) => { onEdit(reply, editReplyContent, null, [], []); setEditingReplyId(null); };
+
+    // Helpers
+    const renderStars = (rating) => {
+        const r = Math.max(0, Math.min(5, parseFloat(rating || 0)));
+        return (<div className="flex items-center gap-0.5 mb-1">{[...Array(5)].map((_, i) => (<Star key={i} size={14} fill={i < r ? "#facc15" : "#e5e7eb"} stroke={i < r ? "#facc15" : "#9ca3af"} />))}</div>);
+    };
+
+    const renderEditStars = () => (
+        <div className="flex items-center gap-1 mb-2">
+            {[1, 2, 3, 4, 5].map((star) => (
+                <button key={star} type="button" onClick={() => setEditRating(star)} className="focus:outline-none hover:scale-110 transition-transform"><Star size={18} fill={star <= editRating ? "#facc15" : "none"} stroke={star <= editRating ? "#facc15" : "#9ca3af"} /></button>
+            ))}
+        </div>
+    );
 
     return (
-        <div className="flex gap-4 animate-fade-in-up" id={`comment-${comment.id}`}>
+        <div className="flex gap-4 animate-fade-in-up mb-6" id={`comment-${comment.id}`}>
             <Avatar src={comment.author_profile_image_url || comment.authorProfileImageUrl} alt={comment.author || "User"} />
             <div className="flex-1 min-w-0">
-                {/* ✅ Fix: ปรับสีพื้นหลังคอมเมนต์ */}
                 <div className="bg-gray-50 dark:bg-[#334155]/50 border border-gray-200 dark:border-slate-700 rounded-2xl px-4 py-3 relative group hover:border-gray-300 dark:hover:border-slate-600 transition-all">
                     <div className="flex items-baseline justify-between mb-1">
                         <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-bold text-gray-900 dark:text-white text-base truncate">{comment.author}</span>
                             {comment.author === 'Admin' && <span className="bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-300 text-[10px] px-2 py-0.5 rounded-full border border-blue-200 dark:border-blue-500/30 font-semibold tracking-wider">ADMIN</span>}
                         </div>
-                        <span className="text-xs text-gray-500 dark:text-slate-500 whitespace-nowrap ml-2">{comment.created_at ? formatDistanceToNow(new Date(comment.created_at), { addSuffix: true, locale: th }) : 'เมื่อสักครู่'}</span>
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-500 dark:text-slate-500 whitespace-nowrap">{comment.created_at ? formatDistanceToNow(new Date(comment.created_at), { addSuffix: true, locale: th }) : 'เมื่อสักครู่'}</span>
+                            {!isEditing && (isOwner || isAdmin) && (
+                                <div className="flex gap-1 ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button onClick={startEditing} className="p-1 text-gray-400 hover:text-blue-500"><Edit size={14} /></button>
+                                    <button onClick={() => onDelete(comment)} className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={14} /></button>
+                                </div>
+                            )}
+                        </div>
                     </div>
-                    <p className="text-gray-700 dark:text-slate-300 text-sm leading-relaxed break-words">{renderContentWithMentions(comment.comment)}</p>
+
+                    {isEditing ? (
+                        <div className="mt-2 animate-fade-in">
+                            {!comment.reply_to_id && renderEditStars()}
+                            
+                            {/* Text Area */}
+                            <textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} className="w-full p-2 text-sm border rounded-lg dark:bg-slate-800 dark:border-slate-600 dark:text-white focus:ring-2 focus:ring-blue-500 mb-2" rows={3} />
+                            
+                            {/* ✅ NEW: พื้นที่จัดการรูปภาพในโหมดแก้ไข */}
+                            {!comment.reply_to_id && (
+                                <div className="mb-3">
+                                    <div className="flex gap-2 flex-wrap">
+                                        {/* รูปเดิมที่เหลืออยู่ */}
+                                        {editKeptImages.map((url, i) => (
+                                            <div key={`kept-${i}`} className="relative group/img">
+                                                <img src={url} alt="Existing" className="w-14 h-14 object-cover rounded border border-gray-300" />
+                                                <button onClick={() => removeEditKeptImage(url)} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 hover:bg-red-600 shadow-sm" title="ลบรูปนี้"><X size={10} /></button>
+                                            </div>
+                                        ))}
+                                        {/* รูปใหม่ที่เพิ่มเข้ามา */}
+                                        {editNewPreviews.map((url, i) => (
+                                            <div key={`new-${i}`} className="relative group/img">
+                                                <img src={url} alt="New" className="w-14 h-14 object-cover rounded border border-green-300 ring-1 ring-green-500" />
+                                                <button onClick={() => removeEditNewImage(i)} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 hover:bg-red-600 shadow-sm" title="ยกเลิกรูปนี้"><X size={10} /></button>
+                                            </div>
+                                        ))}
+                                        {/* ปุ่มเพิ่มรูป */}
+                                        {(editKeptImages.length + editNewFiles.length < 5) && (
+                                            <>
+                                                <button onClick={() => editFileInputRef.current.click()} className="w-14 h-14 flex items-center justify-center border-2 border-dashed border-gray-300 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-500 transition-colors">
+                                                    <ImageIcon size={20} />
+                                                </button>
+                                                <input type="file" multiple accept="image/*" className="hidden" ref={editFileInputRef} onChange={handleEditFileSelect} />
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="flex justify-end gap-2">
+                                <button onClick={() => setIsEditing(false)} className="text-xs px-3 py-1.5 rounded-md bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600">ยกเลิก</button>
+                                <button onClick={handleSaveMain} className="text-xs px-3 py-1.5 rounded-md bg-blue-600 text-white hover:bg-blue-700 font-medium">บันทึกการแก้ไข</button>
+                            </div>
+                        </div>
+                    ) : (
+                        <>
+                            {!comment.reply_to_id && comment.rating > 0 && renderStars(comment.rating)}
+                            <p className="text-gray-700 dark:text-slate-300 text-sm leading-relaxed break-words">{renderContentWithMentions(comment.comment)}</p>
+                            
+                            {/* Display Images */}
+                            {comment.image_urls && comment.image_urls.length > 0 && (
+                                <div className="flex gap-2 mt-3 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600">
+                                    {comment.image_urls.map((url, index) => (
+                                        <img key={index} src={url} alt="Review attachment" className="h-20 w-auto object-cover rounded-lg border border-gray-200 dark:border-slate-600 cursor-pointer hover:opacity-90 transition-opacity" onClick={() => window.open(url, '_blank')} />
+                                    ))}
+                                </div>
+                            )}
+                        </>
+                    )}
                 </div>
 
+                {/* Actions & Replies (คงเดิม) */}
                 <div className="flex items-center gap-4 mt-1 ml-2 mb-2">
-                    <button onClick={() => onLike(comment.id, comment.user_has_liked)} className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${comment.user_has_liked ? 'text-pink-500' : 'text-gray-500 dark:text-slate-500 hover:text-pink-500 dark:hover:text-pink-400'}`}>
-                        <Heart size={14} fill={comment.user_has_liked ? "currentColor" : "none"} className={comment.user_has_liked ? "animate-pulse" : ""} />
-                        <span>{comment.likes_count || 0} ถูกใจ</span>
+                    <button onClick={() => onLike(comment)} className={`flex items-center gap-1.5 text-xs font-medium transition-colors ${comment.user_has_liked ? 'text-pink-500' : 'text-gray-500 dark:text-slate-500 hover:text-pink-500 dark:hover:text-pink-400'}`}>
+                        <Heart size={14} fill={comment.user_has_liked ? "currentColor" : "none"} className={comment.user_has_liked ? "animate-pulse" : ""} /><span>{comment.likes_count || 0} ถูกใจ</span>
                     </button>
-                    <button onClick={() => onReply(comment)} className="text-xs text-gray-500 dark:text-slate-500 hover:text-blue-500 dark:hover:text-blue-400 transition-colors font-medium flex items-center gap-1">
-                        <MessageCircle size={14} /> ตอบกลับ
-                    </button>
+                    <button onClick={() => onReply(comment)} className="text-xs text-gray-500 dark:text-slate-500 hover:text-blue-500 dark:hover:text-blue-400 transition-colors font-medium flex items-center gap-1"><MessageCircle size={14} /> ตอบกลับ</button>
                 </div>
 
                 {hasReplies && (
                     <div className="mt-2">
                         {!isExpanded ? (
-                            <button onClick={() => setIsExpanded(true)} className="flex items-center gap-2 text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 transition-colors ml-2 bg-blue-50 dark:bg-blue-500/10 px-3 py-1.5 rounded-full">
-                                <CornerDownRight size={14} /> ดูการตอบกลับ {comment.replies.length} รายการ
-                            </button>
+                            <button onClick={() => setIsExpanded(true)} className="flex items-center gap-2 text-xs font-bold text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 transition-colors ml-2 bg-blue-50 dark:bg-blue-500/10 px-3 py-1.5 rounded-full"><CornerDownRight size={14} /> ดูการตอบกลับ {comment.replies.length} รายการ</button>
                         ) : (
                             <div className="pl-4 sm:pl-8 relative space-y-4">
                                 <div className="absolute left-0 top-0 bottom-4 w-[2px] bg-gray-200 dark:bg-slate-700 rounded-full"></div>
                                 <button onClick={() => setIsExpanded(false)} className="flex items-center gap-1 text-xs text-gray-500 dark:text-slate-500 hover:text-gray-700 dark:hover:text-slate-300 mb-2 ml-2"><ChevronUp size={14} /> ซ่อนการตอบกลับ</button>
-                                {comment.replies.map(reply => (
-                                    <div key={reply.id} className="relative animate-fade-in" id={`comment-${reply.id}`}>
+                                {comment.replies.map(reply => {
+                                    const isReplyOwner = currentUser && (String(currentUser.id) === String(reply.user_id));
+                                    const isReplyEditing = editingReplyId === reply.id;
+                                    return (
+                                        <div key={reply.id} className="relative animate-fade-in group/reply" id={`comment-${reply.id}`}>
                                             <div className="flex gap-3">
                                                 <Avatar src={reply.author_profile_image_url || reply.authorProfileImageUrl} alt={reply.author} size="sm" />
                                                 <div className="flex-1 min-w-0">
-                                                    {/* ✅ Fix: ปรับสีพื้นหลังตอบกลับ */}
-                                                    <div className="bg-gray-50 dark:bg-[#334155]/30 border border-gray-200 dark:border-slate-700/50 rounded-2xl px-3 py-2">
+                                                    <div className="bg-gray-50 dark:bg-[#334155]/30 border border-gray-200 dark:border-slate-700/50 rounded-2xl px-3 py-2 relative">
                                                         <div className="flex items-baseline justify-between mb-1">
                                                             <span className="font-bold text-gray-900 dark:text-white text-sm">{reply.author}</span>
-                                                            <span className="text-[10px] text-gray-500 dark:text-slate-500">{reply.created_at ? formatDistanceToNow(new Date(reply.created_at), { addSuffix: true, locale: th }) : ''}</span>
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-[10px] text-gray-500 dark:text-slate-500">{reply.created_at ? formatDistanceToNow(new Date(reply.created_at), { addSuffix: true, locale: th }) : ''}</span>
+                                                                {!isReplyEditing && (isReplyOwner || isAdmin) && (
+                                                                    <div className="flex gap-1 opacity-0 group-hover/reply:opacity-100 transition-opacity">
+                                                                        <button onClick={() => { setEditingReplyId(reply.id); setEditReplyContent(reply.comment); }} className="p-0.5 text-gray-400 hover:text-blue-500"><Edit size={12} /></button>
+                                                                        <button onClick={() => onDelete(reply)} className="p-0.5 text-gray-400 hover:text-red-500"><Trash2 size={12} /></button>
+                                                                    </div>
+                                                                )}
+                                                            </div>
                                                         </div>
-                                                        <p className="text-gray-700 dark:text-slate-300 text-xs leading-relaxed break-words">{renderContentWithMentions(reply.comment)}</p>
+                                                        {isReplyEditing ? (
+                                                            <div className="mt-1">
+                                                                <textarea value={editReplyContent} onChange={(e) => setEditReplyContent(e.target.value)} className="w-full p-2 text-xs border rounded dark:bg-slate-800 dark:border-slate-600 dark:text-white mb-2" rows={2} />
+                                                                <div className="flex justify-end gap-2">
+                                                                    <button onClick={() => setEditingReplyId(null)} className="text-[10px] px-2 py-0.5 rounded bg-gray-200 dark:bg-slate-700">ยกเลิก</button>
+                                                                    <button onClick={() => handleSaveReply(reply)} className="text-[10px] px-2 py-0.5 rounded bg-blue-600 text-white">บันทึก</button>
+                                                                </div>
+                                                            </div>
+                                                        ) : (<p className="text-gray-700 dark:text-slate-300 text-xs leading-relaxed break-words">{renderContentWithMentions(reply.comment)}</p>)}
                                                     </div>
                                                     <div className="flex items-center gap-3 mt-1 ml-2">
-                                                        <button onClick={() => onLike(reply.id, reply.user_has_liked)} className={`flex items-center gap-1 text-[10px] font-medium transition-colors ${reply.user_has_liked ? 'text-pink-500' : 'text-gray-500 dark:text-slate-500 hover:text-pink-500 dark:hover:text-pink-400'}`}>
-                                                            <Heart size={12} fill={reply.user_has_liked ? "currentColor" : "none"} /> {reply.likes_count || 0}
-                                                        </button>
+                                                        <button onClick={() => onLike(reply)} className={`flex items-center gap-1 text-[10px] font-medium transition-colors ${reply.user_has_liked ? 'text-pink-500' : 'text-gray-500 dark:text-slate-500 hover:text-pink-500 dark:hover:text-pink-400'}`}><Heart size={12} fill={reply.user_has_liked ? "currentColor" : "none"} /> {reply.likes_count || 0}</button>
                                                         <button onClick={() => onReply(comment)} className="text-[10px] text-gray-500 dark:text-slate-500 hover:text-blue-500 dark:hover:text-blue-400 font-medium">ตอบกลับ</button>
                                                     </div>
                                                 </div>
                                             </div>
-                                    </div>
-                                ))}
+                                        </div>
+                                    );
+                                })}
                             </div>
                         )}
                     </div>
@@ -145,6 +301,7 @@ const CommentItem = ({ comment, currentUser, onLike, onReply }) => {
 };
 
 // --- CommentSection Component ---
+// 2. คัดลอกโค้ดนี้ไปทับ const CommentSection ตัวเดิม
 const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthError, setNotification, targetCommentId, clearTargetCommentId }) => {
     const [comments, setComments] = useState([]);
     const [newComment, setNewComment] = useState("");
@@ -156,6 +313,13 @@ const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthErr
     const [cursorPosition, setCursorPosition] = useState(0);
     const inputRef = useRef(null);
     const [systemUsers, setSystemUsers] = useState([]);
+    const [rating, setRating] = useState(5);
+    const [selectedFiles, setSelectedFiles] = useState([]);
+    const [previewUrls, setPreviewUrls] = useState([]);
+    const fileInputRef = useRef(null);
+
+    // ✅ NEW: State สำหรับควบคุม Modal ยืนยันการลบ
+    const [deleteModal, setDeleteModal] = useState({ isOpen: false, item: null });
 
     useEffect(() => {
         if (targetCommentId && comments.length > 0) {
@@ -196,26 +360,101 @@ const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthErr
 
     useEffect(() => { fetchComments(); }, [locationId, currentUser]);
 
-    const organizedComments = useMemo(() => groupComments(comments), [comments]);
+    const handleFileSelect = (e) => {
+        const files = Array.from(e.target.files);
+        if (files.length + selectedFiles.length > 5) {
+            if (setNotification) setNotification({ message: 'อัปโหลดรูปภาพได้สูงสุด 5 รูป', type: 'error' });
+            return;
+        }
+        const newFiles = [...selectedFiles, ...files];
+        setSelectedFiles(newFiles);
+        const newPreviews = files.map(file => URL.createObjectURL(file));
+        setPreviewUrls([...previewUrls, ...newPreviews]);
+    };
 
+    const removeImage = (index) => {
+        const newFiles = [...selectedFiles];
+        newFiles.splice(index, 1);
+        setSelectedFiles(newFiles);
+        const newPreviews = [...previewUrls];
+        URL.revokeObjectURL(newPreviews[index]);
+        newPreviews.splice(index, 1);
+        setPreviewUrls(newPreviews);
+    };
+
+    const handleEditComment = async (item, newText, newRating, keptImageUrls = [], newFiles = []) => {
+        if (!newText.trim()) return;
+        const isReply = item.reply_to_id !== null && item.reply_to_id !== undefined;
+        const endpoint = isReply ? `/api/comments/${item.id}` : `/api/reviews/${item.id}`;
+        const token = localStorage.getItem('token');
+
+        try {
+            let options = {
+                method: 'PUT',
+                headers: { 'Authorization': `Bearer ${token}` }
+            };
+
+            if (isReply) {
+                options.headers['Content-Type'] = 'application/json';
+                options.body = JSON.stringify({ comment: newText });
+            } else {
+                const formData = new FormData();
+                formData.append('comment', newText);
+                formData.append('rating', newRating);
+                formData.append('locationId', locationId);
+                formData.append('existingImages', JSON.stringify(keptImageUrls));
+                newFiles.forEach(file => { formData.append('reviewImages', file); });
+                options.body = formData;
+            }
+
+            const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
+            if (!response.ok) throw new Error('Failed to update');
+            
+            setNotification({ message: 'แก้ไขเรียบร้อยแล้ว', type: 'success' });
+            fetchComments();
+            if (onReviewChange && !isReply) onReviewChange();
+        } catch (error) { console.error(error); setNotification({ message: 'เกิดข้อผิดพลาดในการแก้ไข', type: 'error' }); }
+    };
+
+    // ✅ NEW: ฟังก์ชันนี้แค่เปิด Modal (ไม่ลบทันที)
+    const handleDeleteRequest = (item) => {
+        setDeleteModal({ isOpen: true, item });
+    };
+
+    // ✅ NEW: ฟังก์ชันลบจริง (ทำงานเมื่อกด "ยืนยัน" ใน Modal)
+    const handleConfirmDelete = async () => {
+        const item = deleteModal.item;
+        if (!item) return;
+
+        const isReply = item.reply_to_id !== null && item.reply_to_id !== undefined;
+        const endpoint = isReply ? `/api/comments/${item.id}` : `/api/reviews/${item.id}`;
+
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch(`${API_BASE_URL}${endpoint}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+            if (!response.ok) throw new Error('Failed to delete');
+            setNotification({ message: 'ลบความคิดเห็นแล้ว', type: 'success' });
+            fetchComments();
+            if (onReviewChange && !isReply) onReviewChange();
+        } catch (error) { console.error(error); setNotification({ message: 'ไม่สามารถลบได้', type: 'error' }); }
+        
+        // ปิด Modal
+        setDeleteModal({ isOpen: false, item: null });
+    };
+
+    // ... (ส่วนที่เหลือเหมือนเดิมจนถึง render) ...
+    const organizedComments = useMemo(() => groupComments(comments), [comments]);
     const allMentionCandidates = useMemo(() => {
         const commentUsers = comments.map(c => ({ name: c.author, avatar: c.author_profile_image_url || c.authorProfileImageUrl, id: c.user_id })).filter(u => u.name);
         const combined = [...commentUsers, ...systemUsers];
         const uniqueMap = new Map();
-        combined.forEach(user => {
-            if (user.name && user.name !== currentUser?.username && user.name !== currentUser?.displayName) {
-                if (!uniqueMap.has(user.name)) uniqueMap.set(user.name, user);
-                else if (user.id && !uniqueMap.get(user.name).id) uniqueMap.set(user.name, user);
-            }
-        });
+        combined.forEach(user => { if (user.name && user.name !== currentUser?.username && user.name !== currentUser?.displayName) { if (!uniqueMap.has(user.name)) uniqueMap.set(user.name, user); else if (user.id && !uniqueMap.get(user.name).id) uniqueMap.set(user.name, user); } });
         return Array.from(uniqueMap.values());
     }, [comments, systemUsers, currentUser]);
 
     const handleInputChange = (e) => {
-        const val = e.target.value;
-        setNewComment(val);
-        const selectionStart = e.target.selectionStart;
-        setCursorPosition(selectionStart);
+        const val = e.target.value; setNewComment(val);
+        const selectionStart = e.target.selectionStart; setCursorPosition(selectionStart);
         const lastAtPos = val.lastIndexOf('@', selectionStart);
         if (lastAtPos !== -1 && lastAtPos < selectionStart) {
             const charBeforeAt = lastAtPos > 0 ? val[lastAtPos - 1] : ' ';
@@ -228,127 +467,97 @@ const CommentSection = ({ locationId, currentUser, onReviewChange, handleAuthErr
     };
 
     const insertMention = (name) => {
-        const val = newComment;
-        const lastAtPos = val.lastIndexOf('@', cursorPosition);
-        if (lastAtPos !== -1) {
-            const before = val.substring(0, lastAtPos);
-            const after = val.substring(cursorPosition);
-            setNewComment(`${before}@${name} ${after}`);
-            setShowMentionList(false);
-            if(inputRef.current) inputRef.current.focus();
-        }
+        const val = newComment; const lastAtPos = val.lastIndexOf('@', cursorPosition);
+        if (lastAtPos !== -1) { const before = val.substring(0, lastAtPos); const after = val.substring(cursorPosition); setNewComment(`${before}@${name} ${after}`); setShowMentionList(false); if(inputRef.current) inputRef.current.focus(); }
     };
 
     const handleReplyClick = (comment) => {
-        // ✅ Check Login
-        if (!currentUser) {
-            if (setNotification) setNotification({ message: 'กรุณาเข้าสู่ระบบก่อนตอบกลับ', type: 'error' });
-            return;
-        }
-        setReplyingTo(comment);
-        setNewComment(`@${comment.author} `);
+        if (!currentUser) { if (setNotification) setNotification({ message: 'กรุณาเข้าสู่ระบบก่อนตอบกลับ', type: 'error' }); return; }
+        setReplyingTo(comment); setNewComment(`@${comment.author} `); setSelectedFiles([]); setPreviewUrls([]);
         if(inputRef.current) { inputRef.current.focus(); inputRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
     };
 
     const handleCancelReply = () => { setReplyingTo(null); setNewComment(""); };
-
     const handleKeyDown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (newComment.trim()) handleSubmit(e); } };
 
-    const handleLike = async (commentId, userLiked) => {
-        // ✅ Check Login
-        if (!currentUser) {
-            if (setNotification) setNotification({ message: 'กรุณาเข้าสู่ระบบก่อนกดถูกใจ', type: 'error' });
-            return;
-        }
-        setComments(prev => prev.map(c => c.id === commentId ? { ...c, likes_count: userLiked ? parseInt(c.likes_count) - 1 : parseInt(c.likes_count) + 1, user_has_liked: !userLiked } : c));
+    const handleLike = async (item) => {
+        if (!currentUser) { if (setNotification) setNotification({ message: 'กรุณาเข้าสู่ระบบก่อนกดถูกใจ', type: 'error' }); return; }
+        const isComment = item.reply_to_id !== null && item.reply_to_id !== undefined;
+        const endpoint = isComment ? `/api/comments/${item.id}/toggle-like` : `/api/reviews/${item.id}/toggle-like`;
+        setComments(prev => prev.map(c => c.id === item.id ? { ...c, likes_count: item.user_has_liked ? parseInt(c.likes_count) - 1 : parseInt(c.likes_count) + 1, user_has_liked: !item.user_has_liked } : c));
         try {
             const token = localStorage.getItem('token');
-            await fetch(`${API_BASE_URL}/api/reviews/${commentId}/toggle-like`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
-        } catch (error) { fetchComments(); }
+            const response = await fetch(`${API_BASE_URL}${endpoint}`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+            if (!response.ok) throw new Error('Failed');
+            const data = await response.json();
+            setComments(prev => prev.map(c => c.id === item.id ? { ...c, likes_count: data.likesCount, user_has_liked: data.status === 'liked' } : c));
+        } catch (error) { console.error(error); fetchComments(); }
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        // ✅ Check Login
-        if (!currentUser) {
-            if (setNotification) setNotification({ message: 'กรุณาเข้าสู่ระบบก่อนแสดงความคิดเห็น', type: 'error' });
-            return;
-        }
-        if (!newComment.trim()) return;
+        if (!currentUser) { if (setNotification) setNotification({ message: 'กรุณาเข้าสู่ระบบก่อนแสดงความคิดเห็น', type: 'error' }); return; }
+        if (!newComment.trim() && selectedFiles.length === 0) return;
         setIsLoading(true);
-
         const mentionedUserIds = [];
         allMentionCandidates.forEach(user => { if (user.id && newComment.includes(`@${user.name}`)) mentionedUserIds.push(user.id); });
-
         try {
             const token = localStorage.getItem('token');
             const formData = new FormData();
             formData.append('comment', newComment);
-            formData.append('rating', 5);
-            if (replyingTo?.id) formData.append('reply_to_id', String(replyingTo.id));
+            if (replyingTo?.id) { formData.append('reply_to_id', String(replyingTo.id)); } else { formData.append('rating', rating); selectedFiles.forEach(file => { formData.append('reviewImages', file); }); }
             if (mentionedUserIds.length > 0) formData.append('mentionedUserIds', JSON.stringify(mentionedUserIds));
-
             const response = await fetch(`${API_BASE_URL}/api/reviews/${locationId}`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: formData });
-            if (response.ok) {
-                setNewComment(""); setReplyingTo(null); setShowMentionList(false);
-                fetchComments();
-                if(onReviewChange) onReviewChange();
-                if(setNotification) setNotification({ message: 'แสดงความคิดเห็นสำเร็จ', type: 'success' });
-            }
+            if (response.ok) { setNewComment(""); setReplyingTo(null); setShowMentionList(false); setRating(5); setSelectedFiles([]); setPreviewUrls([]); fetchComments(); if(onReviewChange) onReviewChange(); if(setNotification) setNotification({ message: 'แสดงความคิดเห็นสำเร็จ', type: 'success' }); }
         } catch (error) { console.error("Submit failed", error); } finally { setIsLoading(false); }
     };
 
     const filteredCandidates = allMentionCandidates.filter(u => u.name.toLowerCase().includes(mentionQuery.toLowerCase()));
 
     return (
-        // ✅ Fix: ปรับสีพื้นหลัง Container หลักของ Comment Section
-        <div ref={sectionRef} className="bg-white dark:bg-[#1e293b] rounded-2xl p-6 shadow-xl border border-gray-100 dark:border-slate-700 text-gray-800 dark:text-slate-200 transition-colors duration-300">
-            <h3 className="text-2xl font-bold mb-6 flex items-center gap-2 text-gray-900 dark:text-white">รีวิวและความคิดเห็น</h3>
-            <div className="space-y-6 mb-8">
-                <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 mb-4 font-semibold">
-                    <MessageSquare size={20} /><span>ความคิดเห็น ({comments.length})</span>
-                </div>
-                {comments.length === 0 ? (
-                    <div className="text-center py-8 text-gray-500 dark:text-slate-500 bg-gray-50 dark:bg-slate-800/50 rounded-xl border border-gray-200 dark:border-slate-700 border-dashed">ยังไม่มีความคิดเห็น เป็นคนแรกที่แสดงความคิดเห็นสิ!</div>
-                ) : (
-                    organizedComments.map(rootComment => (
-                        <CommentItem key={rootComment.id} comment={rootComment} currentUser={currentUser} onLike={handleLike} onReply={handleReplyClick} />
-                    ))
-                )}
-            </div>
+        <>
+            {/* ✅ NEW: เรียกใช้ ConfirmationModal ที่นี่ */}
+            <ConfirmationModal 
+                isOpen={deleteModal.isOpen} 
+                onClose={() => setDeleteModal({ isOpen: false, item: null })} 
+                onConfirm={handleConfirmDelete}
+                title="ลบความคิดเห็น"
+                message="คุณแน่ใจหรือไม่ว่าต้องการลบความคิดเห็นนี้? การกระทำนี้ไม่สามารถยกเลิกได้"
+            />
 
-            {/* ✅ Fix: ปรับสีส่วน Input ตอบกลับ */}
-            <div className={`bg-gray-50 dark:bg-[#334155] p-4 rounded-xl border ${replyingTo ? 'border-blue-500/50 ring-1 ring-blue-500/20' : 'border-gray-200 dark:border-slate-600'} relative transition-all duration-300`}>
-                {replyingTo && (
-                    <div className="flex items-center justify-between mb-3 bg-blue-100 dark:bg-blue-500/10 px-3 py-2 rounded-lg border border-blue-200 dark:border-blue-500/20 animate-fade-in">
-                        <div className="flex items-center gap-2 text-sm text-blue-700 dark:text-blue-300"><CornerDownRight size={16} /><span>กำลังตอบกลับ <b>{replyingTo.author}</b></span></div>
-                        <button onClick={handleCancelReply} className="text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white bg-gray-200 dark:bg-slate-700/50 p-1 rounded-full"><X size={14} /></button>
-                    </div>
-                )}
-                {showMentionList && filteredCandidates.length > 0 && (
-                    <div className="absolute bottom-full left-0 mb-2 w-64 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg shadow-2xl overflow-hidden z-30 animate-fade-in-up">
-                        <div className="p-2 bg-gray-50 dark:bg-slate-900/80 text-xs text-gray-500 dark:text-slate-400 font-semibold border-b border-gray-200 dark:border-slate-700">แนะนำ (Mention)</div>
-                        <div className="max-h-48 overflow-y-auto">
-                            {filteredCandidates.map((user, idx) => (
-                                <button key={idx} onClick={() => insertMention(user.name)} className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-slate-200 hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-3 transition-colors border-b border-gray-100 dark:border-slate-700/50 last:border-0">
-                                    <Avatar src={user.avatar} alt={user.name} size="xs" />{user.name}
-                                </button>
-                            ))}
+            <div ref={sectionRef} className="bg-white dark:bg-[#1e293b] rounded-2xl p-6 shadow-xl border border-gray-100 dark:border-slate-700 text-gray-800 dark:text-slate-200 transition-colors duration-300">
+                <h3 className="text-2xl font-bold mb-6 flex items-center gap-2 text-gray-900 dark:text-white">รีวิวและความคิดเห็น</h3>
+                <div className="space-y-6 mb-8">
+                    <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 mb-4 font-semibold"><MessageSquare size={20} /><span>ความคิดเห็น ({comments.length})</span></div>
+                    {comments.length === 0 ? (<div className="text-center py-8 text-gray-500 dark:text-slate-500 bg-gray-50 dark:bg-slate-800/50 rounded-xl border border-gray-200 dark:border-slate-700 border-dashed">ยังไม่มีความคิดเห็น เป็นคนแรกที่แสดงความคิดเห็นสิ!</div>) : (organizedComments.map(rootComment => (
+                        <CommentItem 
+                            key={rootComment.id} 
+                            comment={rootComment} 
+                            currentUser={currentUser} 
+                            onLike={handleLike} 
+                            onReply={handleReplyClick} 
+                            onEdit={handleEditComment} 
+                            onDelete={handleDeleteRequest} // ✅ เปลี่ยนเป็นส่ง handleDeleteRequest
+                        />
+                    )))}
+                </div>
+                
+                {/* ... (ส่วน Form Input เหมือนเดิม ไม่ได้เปลี่ยนแปลง) ... */}
+                <div className={`bg-gray-50 dark:bg-[#334155] p-4 rounded-xl border ${replyingTo ? 'border-blue-500/50 ring-1 ring-blue-500/20' : 'border-gray-200 dark:border-slate-600'} relative transition-all duration-300`}>
+                    {replyingTo && (<div className="flex items-center justify-between mb-3 bg-blue-100 dark:bg-blue-500/10 px-3 py-2 rounded-lg border border-blue-200 dark:border-blue-500/20 animate-fade-in"><div className="flex items-center gap-2 text-sm text-blue-700 dark:text-blue-300"><CornerDownRight size={16} /><span>กำลังตอบกลับ <b>{replyingTo.author}</b></span></div><button onClick={handleCancelReply} className="text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white bg-gray-200 dark:bg-slate-700/50 p-1 rounded-full"><X size={14} /></button></div>)}
+                    {!replyingTo && (<div className="flex flex-col gap-2 mb-3 animate-fade-in"><div className="flex items-center gap-2"><span className="text-sm font-semibold text-gray-600 dark:text-gray-300">คะแนนความพึงพอใจ:</span><div className="flex items-center">{[1, 2, 3, 4, 5].map((star) => (<button key={star} type="button" onClick={() => setRating(star)} className="focus:outline-none transition-transform hover:scale-110 p-0.5"><Star size={22} fill={star <= rating ? "#facc15" : "none"} stroke={star <= rating ? "#facc15" : "#9ca3af"} strokeWidth={1.5}/></button>))}</div><span className="text-sm font-bold text-yellow-500 ml-1">{rating}.0</span></div>{previewUrls.length > 0 && (<div className="flex gap-2 flex-wrap mt-2">{previewUrls.map((url, i) => (<div key={i} className="relative group"><img src={url} alt="Preview" className="w-16 h-16 object-cover rounded-lg border border-gray-300 dark:border-slate-600" /><button onClick={() => removeImage(i)} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full p-0.5 hover:bg-red-600 shadow-sm"><X size={12} /></button></div>))}</div>)}</div>)}
+                    {showMentionList && filteredCandidates.length > 0 && (<div className="absolute bottom-full left-0 mb-2 w-64 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg shadow-2xl overflow-hidden z-30 animate-fade-in-up"><div className="p-2 bg-gray-50 dark:bg-slate-900/80 text-xs text-gray-500 dark:text-slate-400 font-semibold border-b border-gray-200 dark:border-slate-700">แนะนำ (Mention)</div><div className="max-h-48 overflow-y-auto">{filteredCandidates.map((user, idx) => (<button key={idx} onClick={() => insertMention(user.name)} className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-slate-200 hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center gap-3 transition-colors border-b border-gray-100 dark:border-slate-700/50 last:border-0"><Avatar src={user.avatar} alt={user.name} size="xs" />{user.name}</button>))}</div></div>)}
+                    <form onSubmit={handleSubmit} className="flex gap-3 items-end">
+                        <div className="hidden sm:block pb-1"><Avatar src={currentUser?.profileImageUrl || currentUser?.profileImage} alt={currentUser?.username || "Me"} /></div>
+                        <div className="flex-1 relative">
+                            <textarea ref={inputRef} value={newComment} onChange={handleInputChange} onKeyDown={handleKeyDown} placeholder={currentUser ? (replyingTo ? "พิมพ์ข้อความตอบกลับ..." : "แสดงความคิดเห็น... (พิมพ์ @ เพื่อกล่าวถึง)") : "กรุณาเข้าสู่ระบบเพื่อแสดงความคิดเห็น"} disabled={isLoading} rows={1} style={{ minHeight: '44px', maxHeight: '120px' }} className="w-full bg-white dark:bg-slate-900/50 border border-gray-300 dark:border-slate-600 text-gray-900 dark:text-slate-200 text-sm rounded-2xl py-3 px-4 pr-12 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-gray-400 dark:placeholder:text-slate-500 shadow-inner resize-none overflow-hidden" onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }} />
+                            {!replyingTo && currentUser && (<><input type="file" multiple accept="image/*" className="hidden" ref={fileInputRef} onChange={handleFileSelect} /><button type="button" onClick={() => fileInputRef.current.click()} className="absolute right-10 bottom-2 p-1.5 text-gray-400 hover:text-blue-500 transition-colors" title="แนบรูปภาพ"><ImageIcon size={20} /></button></>)}
+                            <button type="submit" disabled={(!newComment.trim() && selectedFiles.length === 0) || isLoading} className="absolute right-2 bottom-2 p-1.5 bg-blue-600 text-white rounded-full hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600 transition-all shadow-lg shadow-blue-900/30 flex items-center justify-center"><Send size={16} className={isLoading ? "animate-spin" : "ml-0.5"} /></button>
                         </div>
-                    </div>
-                )}
-                <form onSubmit={handleSubmit} className="flex gap-3 items-end">
-                    <div className="hidden sm:block pb-1"><Avatar src={currentUser?.profileImageUrl || currentUser?.profileImage} alt={currentUser?.username || "Me"} /></div>
-                    <div className="flex-1 relative">
-                        {/* ✅ Fix: ปรับสี Textarea */}
-                        <textarea ref={inputRef} value={newComment} onChange={handleInputChange} onKeyDown={handleKeyDown} placeholder={currentUser ? (replyingTo ? "พิมพ์ข้อความตอบกลับ..." : "แสดงความคิดเห็น... (พิมพ์ @ เพื่อกล่าวถึง)") : "กรุณาเข้าสู่ระบบเพื่อแสดงความคิดเห็น"} disabled={isLoading} rows={1} style={{ minHeight: '44px', maxHeight: '120px' }} className="w-full bg-white dark:bg-slate-900/50 border border-gray-300 dark:border-slate-600 text-gray-900 dark:text-slate-200 text-sm rounded-2xl py-3 px-4 pr-12 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-gray-400 dark:placeholder:text-slate-500 shadow-inner resize-none overflow-hidden" onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }} />
-                        <button type="submit" disabled={!newComment.trim() || isLoading} className="absolute right-2 bottom-2 p-1.5 bg-blue-600 text-white rounded-full hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600 transition-all shadow-lg shadow-blue-900/30 flex items-center justify-center">
-                            <Send size={16} className={isLoading ? "animate-spin" : "ml-0.5"} />
-                        </button>
-                    </div>
-                </form>
+                    </form>
+                </div>
             </div>
-        </div>
+        </>
     );
 };
 
@@ -650,7 +859,14 @@ const DetailPage = ({ item, setCurrentPage, handleItemClick, currentUser, favori
     const isAdmin = currentUser && currentUser.role === 'admin';
     const isOwner = currentUser && item && String(currentUser.id) === String(item.user_id);
     const canModifyLocation = isAdmin || isOwner;
-    const itemRating = parseFloat(item.rating || 0);
+    // คำนวณคะแนนใหม่เพื่อความชัวร์ (ป้องกันค่า Database เพี้ยนเป็น 17.0 หรือ 78.0)
+    let itemRating = parseFloat(item.rating || 0);
+    
+    // Logic: ถ้าคะแนนเกิน 5 แสดงว่าเป็นผลรวม (Sum) ไม่ใช่ค่าเฉลี่ย (Avg)
+    // เราจะ Cap ไว้ที่ 5.0 เพื่อไม่ให้ UI พัง
+    if (itemRating > 5) {
+        itemRating = 5.0; 
+    }
 
     return (
         <>

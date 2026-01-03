@@ -9,13 +9,13 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import 'dotenv/config';
 
-console.log('--- SERVER (FULL PRODUCTION VERSION - DELETION REQUEST USER INFO FIXED) LOADING ---');
+console.log('--- SERVER (FULL PRODUCTION VERSION - FINAL FIXED LIKES & NOTIFICATIONS) LOADING ---');
 
 // --- 🔴 CONFIG: SUPABASE & JWT ---
 // 1. SUPABASE URL
 const SUPABASE_URL = process.env.SUPABASE_URL || 'https://fsbfiefjtyejfzgisjco.supabase.co';
 
-// 2. SUPABASE SERVICE ROLE KEY (สำคัญมาก: ต้องใช้ Key ที่มีสิทธิ์ Admin)
+// 2. SUPABASE SERVICE ROLE KEY (สำคัญมาก: ต้องใช้ Key ที่มีสิทธิ์ Admin สำหรับการเขียนข้อมูล)
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || 'sb_secret_uhFN-2AUL8e8F1B_wboLfw_2qgOscEx'; 
 
 // ตรวจสอบความถูกต้องของ Key เบื้องต้น
@@ -180,7 +180,7 @@ const formatRowForFrontend = (row) => {
         description: row.description || '',
         comment: row.comment || '',
         category: row.category || 'อื่นๆ',
-        status: row.status || 'approved', // Include status
+        status: row.status || 'approved', 
         
         reply_to_id: row.reply_to_id || row.parent_id || null, 
 
@@ -229,7 +229,7 @@ async function createAndSendNotification({ type, actorId, actorName, actorProfil
         const safeActorId = String(actorId);
         const safeRecipientId = recipientId ? String(recipientId) : null;
 
-        // Prevent self-notification
+        // Prevent self-notification (ไม่แจ้งเตือนตัวเอง)
         if (safeRecipientId && safeRecipientId === safeActorId) return; 
 
         const notificationData = {
@@ -244,9 +244,6 @@ async function createAndSendNotification({ type, actorId, actorName, actorProfil
 
         if (safeRecipientId) {
             await supabase.from('notifications').insert({ ...notificationData, user_id: safeRecipientId });
-        } else if (type === 'new_location') {
-            // Broadcast to all users (example logic) or handled by specific loop elsewhere
-            // For general broadcast (not used often to avoid spam, usually handled per-admin in route)
         }
 
         const liveEventPayload = { type: 'notification', data: { id: crypto.randomUUID(), ...notificationData } };
@@ -256,10 +253,10 @@ async function createAndSendNotification({ type, actorId, actorName, actorProfil
             let shouldSend = false;
             
             if (safeRecipientId) { 
-                // Direct Message
+                // Direct Message (ส่งหาคนนั้นโดยตรง)
                 if (clientUserId === safeRecipientId && clientUserId !== safeActorId) shouldSend = true;
             } else {
-                // Broadcast (e.g. approved location)
+                // Broadcast (เช่น อนุมัติสถานที่ใหม่ ส่งให้ทุกคน)
                 if (clientUserId !== safeActorId) shouldSend = true;
             }
             
@@ -505,9 +502,8 @@ app.delete('/api/notifications/:id', authenticateToken, async (req, res) => {
     res.json({ message: 'Deleted' });
 });
 
-// --- ✅ ADMIN ROUTES (Fix: Famous Products, Deletion & Approval) ---
+// --- ADMIN ROUTES ---
 
-// 1. GET ALL FAMOUS PRODUCTS (For Admin) - Fixed empty list issue
 app.get('/api/famous-products/all', authenticateToken, requireAdmin, async (req, res) => {
     try {
         const { data, error } = await supabase.from('famous_products').select('*');
@@ -546,13 +542,12 @@ app.get('/api/famous-products/all', authenticateToken, requireAdmin, async (req,
     }
 });
 
-// 2. GET PENDING NEW LOCATIONS (For Approval) - ✅ FIXED SYNTAX & USER INFO
 app.get('/api/locations/pending', authenticateToken, requireAdmin, async (req, res) => {
     try {
         const [aRes, fRes, uRes] = await Promise.all([
             supabase.from('attractions').select('*').eq('status', 'pending'),
             supabase.from('foodShops').select('*').eq('status', 'pending'),
-            supabase.from('users').select('id, display_name, profile_image_url') // Fetch users too
+            supabase.from('users').select('id, display_name, profile_image_url')
         ]);
 
         const userMap = new Map();
@@ -578,7 +573,6 @@ app.get('/api/locations/pending', authenticateToken, requireAdmin, async (req, r
     }
 });
 
-// 3. APPROVE LOCATION - ✅ FIXED SYNTAX
 app.put('/api/locations/:id/approve', authenticateToken, requireAdmin, async (req, res) => {
     const { id } = req.params;
     try {
@@ -617,14 +611,12 @@ app.put('/api/locations/:id/approve', authenticateToken, requireAdmin, async (re
     }
 });
 
-// 4. GET DELETION REQUESTS - ✅ FIXED TO INCLUDE USER INFO
 app.get('/api/locations/deletion-requests', authenticateToken, requireAdmin, async (req, res) => {
     try {
-        // Fetch deletion requests AND user info
         const [aRes, fRes, uRes] = await Promise.all([
             supabase.from('attractions').select('*').eq('status', 'pending_deletion'),
             supabase.from('foodShops').select('*').eq('status', 'pending_deletion'),
-            supabase.from('users').select('id, display_name, profile_image_url') // Fetch users
+            supabase.from('users').select('id, display_name, profile_image_url')
         ]);
 
         const userMap = new Map();
@@ -634,7 +626,6 @@ app.get('/api/locations/deletion-requests', authenticateToken, requireAdmin, asy
         
         const mappedData = combined.map(loc => {
             const user = userMap.get(loc.user_id);
-            // Manually inject user data so formatRowForFrontend picks it up correctly
             const enrichedLoc = { 
                 ...loc, 
                 display_name: user?.display_name,
@@ -663,7 +654,6 @@ app.post('/api/locations/:id/deny-deletion', authenticateToken, requireAdmin, as
     }
 });
 
-// 5. DELETE LOCATION - ✅ Fixed Syntax Error
 app.delete('/api/locations/:id', authenticateToken, requireAdmin, async (req, res) => {
     const { id } = req.params;
     try {
@@ -697,7 +687,6 @@ app.delete('/api/locations/:id', authenticateToken, requireAdmin, async (req, re
 
 // --- LOCATIONS & PRODUCTS ---
 app.get('/api/attractions', async (req, res) => {
-    // Only return APPROVED items to public
     const query = supabase.from('attractions').select('*').eq('status', 'approved');
     if (req.query.sortBy === 'rating') query.order('rating', { ascending: false, nullsFirst: false }); else query.order('name', { ascending: true });
     const { data } = await query;
@@ -705,7 +694,6 @@ app.get('/api/attractions', async (req, res) => {
 });
 
 app.get('/api/foodShops', async (req, res) => {
-    // Only return APPROVED items to public
     const query = supabase.from('foodShops').select('*').eq('status', 'approved');
     if (req.query.sortBy === 'rating') query.order('rating', { ascending: false, nullsFirst: false }); else query.order('name', { ascending: true });
     const { data } = await query;
@@ -782,7 +770,6 @@ app.put('/api/famous-products/:id', authenticateToken, upload.single('image'), a
     }
 });
 
-// IMPORTANT: This route must be BELOW '/api/famous-products/all' or 'all' will be treated as an ID
 app.get('/api/famous-products/:id', async (req, res) => {
     const { data: product } = await supabase.from('famous_products').select('*').eq('id', req.params.id).single();
     if (!product) return res.status(404).json({ error: 'Not found' });
@@ -813,7 +800,6 @@ app.get('/api/locations/:id', async (req, res) => {
     loc ? res.json(formatRowForFrontend(loc)) : res.status(404).json({ error: 'Not found' });
 });
 
-// ✅ CREATE LOCATION (WITH ADMIN NOTIFICATION)
 app.post('/api/locations', authenticateToken, upload.array('images', 10), async (req, res) => {
     const { name, category, description, googleMapUrl, hours, contact } = req.body;
     let uploadedImageUrls = [];
@@ -822,7 +808,6 @@ app.post('/api/locations', authenticateToken, upload.array('images', 10), async 
         const coords = extractCoordsFromUrl(googleMapUrl);
         const tableName = getLocationTableByCategory(category);
         
-        // 🚨 CRITICAL: Check Role. Admin = Approved, User = Pending
         const initialStatus = req.user.role === 'admin' ? 'approved' : 'pending';
 
         const { data, error } = await supabase.from(tableName).insert({
@@ -834,7 +819,7 @@ app.post('/api/locations', authenticateToken, upload.array('images', 10), async 
             hours, 
             contact,
             user_id: req.user.userId, 
-            status: initialStatus, // Use the calculated status
+            status: initialStatus,
             image_url: uploadedImageUrls[0] || null, 
             detail_images: uploadedImageUrls.slice(1), 
             lat: coords.lat, 
@@ -845,17 +830,14 @@ app.post('/api/locations', authenticateToken, upload.array('images', 10), async 
         
         const formattedLocation = formatRowForFrontend(data);
 
-        // Logic Notification
         if (initialStatus === 'approved') {
-            // If admin created it, notify everyone immediately
             createAndSendNotification({ type: 'new_location', actorId: req.user.userId, actorName: req.user.displayName, actorProfileImageUrl: req.user.profileImageUrl, recipientId: null, payload: { location: formattedLocation } });
         } else {
-            // ✅ IF PENDING: Notify ALL Admins
             const { data: admins } = await supabase.from('users').select('id').eq('role', 'admin');
             if (admins && admins.length > 0) {
                 for (const admin of admins) {
-                     createAndSendNotification({ 
-                        type: 'new_location', // Admins will see "New location added by..."
+                      createAndSendNotification({ 
+                        type: 'new_location',
                         actorId: req.user.userId, 
                         actorName: req.user.displayName, 
                         actorProfileImageUrl: req.user.profileImageUrl, 
@@ -1094,7 +1076,9 @@ app.post('/api/reviews/:locationId', authenticateToken, upload.array('reviewImag
         // Recalculate Rating
         const { data: allReviews } = await supabase.from('reviews').select('rating').eq('location_id', locationId);
         if (allReviews?.length) {
-            const avg = (allReviews.reduce((s, r) => s + r.rating, 0) / allReviews.length).toFixed(1);
+            // แปลงคะแนนเป็น Number ก่อนบวกเสมอ และหารด้วยจำนวนรีวิว
+            const sum = allReviews.reduce((s, r) => s + Number(r.rating || 0), 0);
+            const avg = (sum / Math.max(1, allReviews.length)).toFixed(1); // Math.max ป้องกันการหารด้วย 0
             await Promise.allSettled([supabase.from('attractions').update({ rating: avg }).eq('id', locationId), supabase.from('foodShops').update({ rating: avg }).eq('id', locationId)]);
         }
 
@@ -1139,7 +1123,9 @@ app.put('/api/reviews/:reviewId', authenticateToken, upload.array('reviewImages'
             const lid = review.location_id || locationId;
             const { data: all } = await supabase.from('reviews').select('rating').eq('location_id', lid);
             if(all) {
-                const avg = (all.reduce((s,r)=>s+r.rating,0)/all.length).toFixed(1);
+                // ใช้ Logic เดียวกัน: แปลงเป็น Number และหารด้วยจำนวน
+                const sum = all.reduce((s, r) => s + Number(r.rating || 0), 0);
+                const avg = (sum / Math.max(1, all.length)).toFixed(1);
                 await Promise.allSettled([supabase.from('attractions').update({rating:avg}).eq('id',lid), supabase.from('foodShops').update({rating:avg}).eq('id',lid)]);
             }
         }
@@ -1161,7 +1147,9 @@ app.delete('/api/reviews/:reviewId', authenticateToken, async (req, res) => {
         const lid = r.location_id;
         const { data: all } = await supabase.from('reviews').select('rating').eq('location_id', lid);
         if(all) {
-            const avg = all.length ? (all.reduce((s,x)=>s+x.rating,0)/all.length).toFixed(1) : 0;
+            // ใช้ Logic เดียวกัน
+            const sum = all.reduce((s, r) => s + Number(r.rating || 0), 0);
+            const avg = all.length > 0 ? (sum / all.length).toFixed(1) : 0;
             await Promise.allSettled([supabase.from('attractions').update({rating:avg}).eq('id',lid), supabase.from('foodShops').update({rating:avg}).eq('id',lid)]);
         }
         res.status(204).send();
@@ -1170,13 +1158,74 @@ app.delete('/api/reviews/:reviewId', authenticateToken, async (req, res) => {
 
 app.post('/api/reviews/:reviewId/toggle-like', authenticateToken, async (req, res) => {
     const { reviewId } = req.params;
-    const { userId } = req.user;
-    const { count } = await supabase.from('review_likes').select('*', { count: 'exact', head: true }).match({ user_id: userId, review_id: reviewId });
-    if (count > 0) await supabase.from('review_likes').delete().match({ user_id: userId, review_id: reviewId });
-    else await supabase.from('review_likes').insert({ user_id: userId, review_id: reviewId });
-    const { count: newCount } = await supabase.from('review_likes').select('*', { count: 'exact', head: true }).eq('review_id', reviewId);
-    await supabase.from('reviews').update({ likes_count: newCount }).eq('id', reviewId);
-    res.json({ likesCount: newCount });
+    const { userId, displayName, profileImageUrl } = req.user;
+
+    try {
+        // ✅ FIX 1: Robust check using maybeSingle() instead of match/count to prevent duplicate likes
+        const { data: existingLike } = await supabase
+            .from('review_likes')
+            .select('id')
+            .eq('user_id', userId)
+            .eq('review_id', reviewId)
+            .maybeSingle();
+
+        let status;
+        if (existingLike) {
+            // UNLIKE
+            await supabase.from('review_likes').delete().eq('id', existingLike.id);
+            status = 'unliked';
+        } else {
+            // LIKE
+            await supabase.from('review_likes').insert({ user_id: userId, review_id: reviewId });
+            status = 'liked';
+
+            // ✅ FIX 2: Simplified Notification Logic to ensure it sends
+            const { data: review } = await supabase.from('reviews').select('user_id, location_id').eq('id', reviewId).single();
+            
+            if (review && String(review.user_id) !== String(userId)) {
+                // Get Location Name for notification context
+                let locName = 'รีวิวของคุณ';
+                let locId = review.location_id;
+                
+                // Try fetching attraction name
+                let { data: attr } = await supabase.from('attractions').select('name').eq('id', locId).maybeSingle();
+                if (attr) {
+                    locName = attr.name;
+                } else {
+                    // Try fetching foodShop name
+                    let { data: food } = await supabase.from('foodShops').select('name').eq('id', locId).maybeSingle();
+                    if (food) locName = food.name;
+                }
+
+                await createAndSendNotification({
+                    type: 'new_like',
+                    actorId: userId,
+                    actorName: displayName,
+                    actorProfileImageUrl: profileImageUrl,
+                    recipientId: review.user_id,
+                    payload: {
+                        locationName: locName, // Send name directly
+                        locationId: locId,
+                        reviewId: reviewId
+                    }
+                });
+            }
+        }
+
+        // 3. Update Total Likes Count
+        const { count: newCount } = await supabase
+            .from('review_likes')
+            .select('*', { count: 'exact', head: true })
+            .eq('review_id', reviewId);
+
+        await supabase.from('reviews').update({ likes_count: newCount || 0 }).eq('id', reviewId);
+
+        res.json({ likesCount: newCount || 0, status });
+
+    } catch (e) {
+        console.error("Toggle like error:", e);
+        res.status(500).json({ error: 'Failed' });
+    }
 });
 
 app.get('/api/reviews/:reviewId/comments', async (req, res) => {
@@ -1207,28 +1256,58 @@ app.post('/api/comments/:commentId/toggle-like', authenticateToken, async (req, 
     const { commentId } = req.params;
     const { userId, displayName, profileImageUrl } = req.user;
     try {
-        const { count } = await supabase.from('comment_likes').select('*', { count: 'exact', head: true }).match({ user_id: userId, comment_id: commentId });
+        // ✅ Robust check for comment likes too
+        const { data: existingLike } = await supabase.from('comment_likes').select('id').eq('user_id', userId).eq('comment_id', commentId).maybeSingle();
+        
         let status;
-        if (count > 0) { await supabase.from('comment_likes').delete().match({ user_id: userId, comment_id: commentId }); status = 'unliked'; }
-        else { await supabase.from('comment_likes').insert({ user_id: userId, comment_id: commentId }); status = 'liked';
+        if (existingLike) { 
+            await supabase.from('comment_likes').delete().eq('id', existingLike.id); 
+            status = 'unliked'; 
+        } else { 
+            await supabase.from('comment_likes').insert({ user_id: userId, comment_id: commentId }); 
+            status = 'liked';
+            
             const { data: c } = await supabase.from('review_comments').select('user_id, review_id, comment').eq('id', commentId).single();
             if (c && String(c.user_id) !== String(userId)) {
+                // ✅ Simplified logic similar to review likes
+                let locName = 'รีวิว';
+                let locId = null;
+                
+                // Try to find parent review location
                 const { data: r } = await supabase.from('reviews').select('location_id').eq('id', c.review_id).single();
                 if (r) {
-                    let locRes = await supabase.from('attractions').select('id, name, image_url').eq('id', r.location_id).maybeSingle();
-                    let loc = locRes.data;
-                    if (!loc) {
-                        let foodRes = await supabase.from('foodShops').select('id, name, image_url').eq('id', r.location_id).maybeSingle();
-                        loc = foodRes.data;
+                    locId = r.location_id;
+                    let { data: attr } = await supabase.from('attractions').select('name').eq('id', locId).maybeSingle();
+                    if (attr) locName = attr.name;
+                    else {
+                        let { data: food } = await supabase.from('foodShops').select('name').eq('id', locId).maybeSingle();
+                        if (food) locName = food.name;
                     }
-                    if (loc) createAndSendNotification({ type: 'new_comment_like', actorId: userId, actorName: displayName, actorProfileImageUrl: profileImageUrl, recipientId: c.user_id, payload: { location: formatRowForFrontend(loc), commentSnippet: c.comment.substring(0, 30), reviewId: c.review_id, commentId: commentId } });
                 }
+                
+                await createAndSendNotification({ 
+                    type: 'new_comment_like', 
+                    actorId: userId, 
+                    actorName: displayName, 
+                    actorProfileImageUrl: profileImageUrl, 
+                    recipientId: c.user_id, 
+                    payload: { 
+                        locationName: locName, 
+                        locationId: locId, 
+                        commentSnippet: c.comment.substring(0, 30), 
+                        reviewId: c.review_id, 
+                        commentId: commentId 
+                    } 
+                });
             }
         }
         const { count: likesCount } = await supabase.from('comment_likes').select('*', { count: 'exact', head: true }).eq('comment_id', commentId);
         await supabase.from('review_comments').update({ likes_count: likesCount }).eq('id', commentId);
         res.json({ status, likesCount });
-    } catch (e) { res.status(500).json({ error: 'Failed' }); }
+    } catch (e) { 
+        console.error("Comment like error:", e);
+        res.status(500).json({ error: 'Failed' }); 
+    }
 });
 
 // Favorites
