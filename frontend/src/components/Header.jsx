@@ -209,12 +209,20 @@ const Header = ({
                         tabIndex={0}
                         onKeyDown={handleLogoKeyDown}
                     >
-                        <MapPin className={`transition-all duration-300 text-blue-600 dark:text-blue-400 group-hover:animate-pulse group-hover:drop-shadow-lg hidden sm:block`} size={36} />
+                        {/* ปรับสี Icon ให้เป็นสีหลัก (Primary Blue) */}
+                        <MapPin className={`transition-all duration-300 text-blue-600 dark:text-blue-500 group-hover:scale-110 group-hover:drop-shadow-md hidden sm:block`} size={36} />
+                        
                         {/* Logo ขนาดเล็กสำหรับมือถือ */}
-                        <MapPin className={`transition-all duration-300 text-blue-600 dark:text-blue-400 group-hover:animate-pulse group-hover:drop-shadow-lg sm:hidden`} size={28} />
+                        <MapPin className={`transition-all duration-300 text-blue-600 dark:text-blue-500 group-hover:scale-110 group-hover:drop-shadow-md sm:hidden`} size={28} />
                         
                         <span className="text-2xl sm:text-3xl font-extrabold truncate">
-                            <span className="bg-gradient-to-r from-sky-400 via-violet-500 to-pink-500 bg-clip-text text-transparent transition-all duration-300 group-hover:tracking-wide group-hover:brightness-110" style={{ filter: 'drop-shadow(0 2px 3px rgba(0,0,0,0.3))' }}>Bangkok Guide</span>
+                            {/* ✅ แก้ไข: เปลี่ยนจากสีรุ้ง เป็น Gradient สีน้ำเงิน-คราม ดูเป็นทางการและทันสมัย */}
+                            <span 
+                                className="bg-gradient-to-r from-blue-700 to-indigo-600 dark:from-blue-400 dark:to-indigo-400 bg-clip-text text-transparent transition-all duration-300 group-hover:brightness-125" 
+                                style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.1))' }} // ลดเงาลงนิดหน่อยให้ดูคลีนขึ้น
+                            >
+                                Bangkok Guide
+                            </span>
                         </span>
                     </div>
                 </div>
