@@ -38,12 +38,12 @@ const NavItem = ({ icon, text, onClick, isSelected, isOpen, color }) => (
 );
 
 const categories = [
-    { name: 'ทั้งหมด', icon: <LayoutGrid size={22} />, color: 'text-sky-500' },
-    { name: 'วัด', icon: <Landmark size={22} />, color: 'text-amber-500' },
-    { name: 'คาเฟ่', icon: <Coffee size={22} />, color: 'text-orange-500' },
-    { name: 'ห้างสรรพสินค้า', icon: <ShoppingBag size={22} />, color: 'text-rose-500' },
-    { name: 'ร้านอาหาร', icon: <Utensils size={22} />, color: 'text-emerald-500' },
-    { name: 'ตลาด', icon: <Store size={22} />, color: 'text-violet-500' },
+    { name: 'ทั้งหมด', icon: <LayoutGrid size={22} />, color: 'text-slate-500' },
+    { name: 'วัด', icon: <Landmark size={22} />, color: 'text-slate-500' },
+    { name: 'คาเฟ่', icon: <Coffee size={22} />, color: 'text-slate-500' },
+    { name: 'ห้างสรรพสินค้า', icon: <ShoppingBag size={22} />, color: 'text-slate-500' },
+    { name: 'ร้านอาหาร', icon: <Utensils size={22} />, color: 'text-slate-500' },
+    { name: 'ตลาด', icon: <Store size={22} />, color: 'text-slate-500' },
     { name: 'อื่นๆ', icon: <Menu size={22} />, color: 'text-slate-500' },
 ];
 
