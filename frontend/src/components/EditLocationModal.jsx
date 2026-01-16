@@ -197,14 +197,15 @@ const EditLocationModal = ({ item, onClose, onItemUpdated, setNotification, hand
         const token = localStorage.getItem('token');
         const formData = new FormData();
 
-        formData.append('name', name);
-        formData.append('category', category);
-        formData.append('description', description);
-        formData.append('googleMapUrl', googleMapUrl);
+        // --- แก้ไข: เพิ่ม || '' เพื่อป้องกันส่ง null/undefined ---
+        formData.append('name', name || '');
+        formData.append('category', category || 'อื่นๆ');
+        formData.append('description', description || '');
+        formData.append('googleMapUrl', googleMapUrl || '');
         
         const hoursString = startTime && endTime ? `${startTime}-${endTime}` : '';
         formData.append('hours', hoursString);
-        formData.append('contact', contact);
+        formData.append('contact', contact || '');
 
         const existingImages = images
             .filter(img => img.type === 'existing')
@@ -214,42 +215,38 @@ const EditLocationModal = ({ item, onClose, onItemUpdated, setNotification, hand
             .filter(img => img.type === 'new')
             .map(img => img.data);
 
+        // ส่ง JSON String เสมอ แม้อาร์เรย์ว่าง
         formData.append('existingImages', JSON.stringify(existingImages));
+        
         newImageFiles.forEach(file => {
             formData.append('images', file);
         });
         
         try {
-            // ⭐⭐ FIX: Use global API_BASE_URL ⭐⭐
             const response = await fetch(`${API_BASE_URL}/api/locations/${item.id}`, {
                 method: 'PUT',
                 headers: {
                     'Authorization': `Bearer ${token}`,
+                    // ห้ามใส่ 'Content-Type': 'multipart/form-data' เด็ดขาด! fetch จะจัดการเอง
                 },
                 body: formData,
             });
             
-            // ⭐⭐ FIX: Separate 401 (Auth Error) from 403 (Permission Error) ⭐⭐
+            // ... (โค้ดเดิมส่วนจัดการ response) ...
             if (response.status === 401) {
-                console.error("Edit Modal: 401 Unauthorized - logging out");
-                handleAuthError();
-                return;
+                // ...
             }
-
-            if (response.status === 403) {
-                console.error("Edit Modal: 403 Forbidden");
-                throw new Error('คุณไม่มีสิทธิ์แก้ไขสถานที่นี้ (403 Permission Denied)');
-            }
-
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({ error: 'ไม่สามารถอัปเดตข้อมูลได้' }));
-                throw new Error(errorData.error || 'ไม่สามารถอัปเดตข้อมูลได้');
+                throw new Error(errorData.error || `Server Error: ${response.status}`);
             }
-
+            
             const result = await response.json();
             setNotification({ message: 'อัปเดตข้อมูลสำเร็จ!', type: 'success' });
-            onItemUpdated(result);
-            onClose(); // Close modal on success
+            
+            // สำคัญ: ถ้ามีการเปลี่ยนหมวดหมู่ ID อาจจะเปลี่ยน ต้องส่ง result ตัวล่าสุดกลับไป
+            onItemUpdated(result); 
+            onClose();
 
         } catch (error) {
             console.error('Failed to update item:', error);

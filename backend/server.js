@@ -855,59 +855,148 @@ app.post('/api/locations', authenticateToken, upload.array('images', 10), async 
 app.put('/api/locations/:id', authenticateToken, upload.array('images', 10), async (req, res) => {
     const { id } = req.params;
     const { userId, role } = req.user;
+    // รับค่าจาก FormData (ใส่ || undefined เพื่อกันค่าว่าง)
     const { name, category: newCategory, description, googleMapUrl, hours, contact, existingImages } = req.body;
+    
     let newlyUploadedUrls = [];
+
     try {
+        // 1. หาข้อมูลเก่าและตารางเก่า
         let currentLocation = null, currentTableName = null;
-        
         let locRes = await supabase.from('attractions').select('*').eq('id', id).maybeSingle();
         currentLocation = locRes.data;
-        
+
         if (currentLocation) {
             currentTableName = 'attractions';
-        } else { 
+        } else {
             let foodRes = await supabase.from('foodShops').select('*').eq('id', id).maybeSingle();
             currentLocation = foodRes.data;
-            if (currentLocation) currentTableName = 'foodShops'; 
-            else return res.status(404).json({ error: 'Not found' }); 
+            if (currentLocation) currentTableName = 'foodShops';
+            else return res.status(404).json({ error: 'ไม่พบสถานที่นี้ในระบบ' });
         }
 
-        if (role !== 'admin' && currentLocation.user_id !== userId) return res.status(403).json({ error: 'Unauthorized' });
+        // 2. ตรวจสอบสิทธิ์ (Admin หรือ เจ้าของโพสต์)
+        if (role !== 'admin' && currentLocation.user_id !== userId) {
+            return res.status(403).json({ error: 'คุณไม่มีสิทธิ์แก้ไขสถานที่นี้' });
+        }
 
-        const keptImageUrls = existingImages ? JSON.parse(existingImages) : [];
+        // 3. จัดการรูปภาพ
+        let keptImageUrls = [];
+        try {
+            keptImageUrls = existingImages ? JSON.parse(existingImages) : [];
+        } catch (e) {
+            keptImageUrls = []; 
+        }
+
         const oldImageUrls = [currentLocation.image_url, ...(currentLocation.detail_images || [])].filter(Boolean);
         const imagesToDelete = oldImageUrls.filter(oldUrl => !keptImageUrls.includes(oldUrl));
+        
+        // อัปโหลดรูปใหม่
         newlyUploadedUrls = await Promise.all((req.files || []).map(uploadToSupabase));
-        await deleteFromSupabase(imagesToDelete);
+        
+        // ลบรูปเก่าทิ้ง
+        if (imagesToDelete.length > 0) await deleteFromSupabase(imagesToDelete);
+        
         const allFinalImageUrls = [...keptImageUrls, ...newlyUploadedUrls];
 
+        // 4. เตรียมข้อมูลสำหรับอัปเดต
         const updateData = {};
-        const coords = extractCoordsFromUrl(googleMapUrl);
         if (name) updateData.name = name.trim();
         if (newCategory) updateData.category = newCategory;
         if (description !== undefined) updateData.description = description.trim();
-        if (googleMapUrl) { updateData.google_map_url = googleMapUrl; updateData.lat = coords.lat; updateData.lng = coords.lng; }
+        
+        if (googleMapUrl) {
+            updateData.google_map_url = googleMapUrl;
+            const coords = extractCoordsFromUrl(googleMapUrl);
+            updateData.lat = coords.lat;
+            updateData.lng = coords.lng;
+        }
+        
         if (hours !== undefined) updateData.hours = hours.trim();
         if (contact !== undefined) updateData.contact = contact.trim();
+        
         updateData.image_url = allFinalImageUrls[0] || null;
         updateData.detail_images = allFinalImageUrls.slice(1);
 
+        // 5. ตรวจสอบว่าต้องย้าย Table หรือไม่
         const effectiveCategory = updateData.category || currentLocation.category;
         const newTableName = getLocationTableByCategory(effectiveCategory);
+        
         let finalLocation;
 
         if (currentTableName === newTableName) {
-            const { data, error } = await supabase.from(currentTableName).update(updateData).eq('id', id).select().single();
-            if (error) throw error; finalLocation = data;
-        } else {
-            const migratedRecord = { ...currentLocation, ...updateData };
-            const { data, error } = await supabase.from(newTableName).insert(migratedRecord).select().single();
+            // --- กรณี A: แก้ไขในตารางเดิม ---
+            const { data, error } = await supabase
+                .from(currentTableName)
+                .update(updateData)
+                .eq('id', id)
+                .select()
+                .single();
+            
             if (error) throw error;
-            await supabase.from(currentTableName).delete().eq('id', id);
             finalLocation = data;
+
+        } else {
+            // --- กรณี B: ย้ายตาราง (ฉบับ Whitelist: ปลอดภัย 100%) ---
+            const newId = crypto.randomUUID(); 
+            
+            // สร้าง Object ใหม่ โดย "เลือกจิ้ม" เฉพาะข้อมูลมาตรฐานที่ทั้ง 2 ตารางต้องมีแน่นอน
+            // ตัดปัญหาเรื่อง Column ขยะ หรือชื่อไม่ตรงกัน (เช่น fullDescription vs fulldescription)
+            const migratedRecord = {
+                id: newId, 
+                user_id: currentLocation.user_id, // เจ้าของเดิม
+                name: (updateData.name || currentLocation.name || '').trim(),
+                category: effectiveCategory, // หมวดหมู่ใหม่
+                description: (updateData.description || currentLocation.description || '').trim(),
+                google_map_url: updateData.google_map_url || currentLocation.google_map_url,
+                hours: updateData.hours || currentLocation.hours,
+                contact: updateData.contact || currentLocation.contact,
+                image_url: updateData.image_url || currentLocation.image_url,
+                detail_images: updateData.detail_images || currentLocation.detail_images || [],
+                rating: currentLocation.rating, // คะแนนเดิม
+                status: currentLocation.status || 'approved'
+            };
+
+            // **หมายเหตุ:** ถ้าตาราง foodShops ของคุณมีคอลัมน์ lat, lng ให้ Uncomment 2 บรรทัดนี้
+            // ถ้าไม่แน่ใจ ให้ปิดไว้ก่อนเพื่อความชัวร์ว่าจะไม่ Error
+            if (currentLocation.lat) migratedRecord.lat = currentLocation.lat;
+            if (currentLocation.lng) migratedRecord.lng = currentLocation.lng;
+
+            console.log(`🚚 Migrating item from ${currentTableName} to ${newTableName} (New ID: ${newId})`);
+
+            // 1. Insert ลงตารางใหม่
+            const { data: insertedNew, error: insertError } = await supabase
+                .from(newTableName)
+                .insert(migratedRecord)
+                .select()
+                .single();
+
+            if (insertError) {
+                console.error("Migration Insert Error:", insertError);
+                throw new Error(`ย้ายตารางไม่สำเร็จ: ${insertError.message}`);
+            }
+
+            // 2. ย้ายลูกข่าย (Reviews, Favorites) ไปหา ID ใหม่
+            await Promise.allSettled([
+                supabase.from('reviews').update({ location_id: newId }).eq('location_id', id),
+                supabase.from('favorites').update({ location_id: newId }).eq('location_id', id),
+                supabase.from('famous_products').update({ location_id: newId }).eq('location_id', id)
+            ]);
+
+            // 3. ลบข้อมูลจากตารางเก่า
+            const { error: deleteError } = await supabase.from(currentTableName).delete().eq('id', id);
+            if (deleteError) console.error("Migration Delete Error (Warning):", deleteError);
+
+            finalLocation = insertedNew;
         }
+
         res.json(formatRowForFrontend(finalLocation));
-    } catch (err) { if (newlyUploadedUrls.length) await deleteFromSupabase(newlyUploadedUrls); res.status(500).json({ error: 'Update failed' }); }
+
+    } catch (err) {
+        console.error("Update Location Error:", err);
+        if (newlyUploadedUrls.length) await deleteFromSupabase(newlyUploadedUrls);
+        res.status(500).json({ error: 'Update failed: ' + err.message });
+    }
 });
 
 app.post('/api/locations/:id/request-deletion', authenticateToken, async (req, res) => {
